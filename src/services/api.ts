@@ -1,5 +1,5 @@
 // API Configuration and Base Client
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://pharmacare-ywjs.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://pharmacare-ywjs.onrender.com/api';
 
 interface ApiResponse<T> {
   success: boolean;
