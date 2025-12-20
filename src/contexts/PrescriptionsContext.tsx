@@ -1,0 +1,124 @@
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { prescriptionService, Prescription, PrescriptionItem } from '@/services/prescriptionService';
+
+interface PrescriptionsContextType {
+  prescriptions: Prescription[];
+  isLoading: boolean;
+  error: string | null;
+  addPrescription: (prescription: Omit<Prescription, 'id' | 'createdAt' | 'status'>) => Promise<Prescription | null>;
+  updatePrescriptionStatus: (id: string, status: 'pending' | 'dispensed' | 'cancelled', dispensedBy?: string) => Promise<boolean>;
+  getPendingPrescriptions: () => Prescription[];
+  getDispensedPrescriptions: () => Prescription[];
+  refreshPrescriptions: () => Promise<void>;
+}
+
+const PrescriptionsContext = createContext<PrescriptionsContextType | undefined>(undefined);
+
+export function PrescriptionsProvider({ children }: { children: ReactNode }) {
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch all prescriptions on mount
+  const refreshPrescriptions = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await prescriptionService.getAll();
+      if (response.success && response.data) {
+        setPrescriptions(response.data.map(rx => ({
+          ...rx,
+          createdAt: rx.createdAt,
+          dispensedAt: rx.dispensedAt,
+        })));
+      } else {
+        setError(response.error || 'Failed to fetch prescriptions');
+      }
+    } catch (err) {
+      setError('Failed to fetch prescriptions');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshPrescriptions();
+  }, [refreshPrescriptions]);
+
+  const addPrescription = async (prescriptionData: Omit<Prescription, 'id' | 'createdAt' | 'status'>): Promise<Prescription | null> => {
+    try {
+      const response = await prescriptionService.create({
+        patientName: prescriptionData.patientName,
+        patientPhone: prescriptionData.patientPhone,
+        diagnosis: prescriptionData.diagnosis,
+        items: prescriptionData.items,
+        notes: prescriptionData.notes,
+        createdBy: prescriptionData.createdBy,
+      });
+      
+      if (response.success && response.data) {
+        setPrescriptions(prev => [response.data!, ...prev]);
+        return response.data;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const updatePrescriptionStatus = async (
+    id: string, 
+    status: 'pending' | 'dispensed' | 'cancelled', 
+    dispensedBy?: string
+  ): Promise<boolean> => {
+    try {
+      const response = await prescriptionService.updateStatus(id, { status, dispensedBy });
+      
+      if (response.success) {
+        setPrescriptions(prev => prev.map(rx => {
+          if (rx.id === id) {
+            return {
+              ...rx,
+              status,
+              dispensedAt: status === 'dispensed' ? new Date().toISOString() : undefined,
+              dispensedBy: status === 'dispensed' ? dispensedBy : undefined,
+            };
+          }
+          return rx;
+        }));
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const getPendingPrescriptions = () => prescriptions.filter(rx => rx.status === 'pending');
+  const getDispensedPrescriptions = () => prescriptions.filter(rx => rx.status === 'dispensed');
+
+  return (
+    <PrescriptionsContext.Provider value={{
+      prescriptions,
+      isLoading,
+      error,
+      addPrescription,
+      updatePrescriptionStatus,
+      getPendingPrescriptions,
+      getDispensedPrescriptions,
+      refreshPrescriptions,
+    }}>
+      {children}
+    </PrescriptionsContext.Provider>
+  );
+}
+
+export function usePrescriptions() {
+  const context = useContext(PrescriptionsContext);
+  if (!context) {
+    throw new Error('usePrescriptions must be used within a PrescriptionsProvider');
+  }
+  return context;
+}
+
+export type { Prescription, PrescriptionItem };
