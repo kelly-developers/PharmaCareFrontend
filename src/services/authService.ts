@@ -9,6 +9,7 @@ interface LoginRequest {
 interface LoginResponse {
   user: User;
   token: string;
+  refreshToken?: string;
 }
 
 interface RegisterRequest {
@@ -20,27 +21,38 @@ interface RegisterRequest {
 }
 
 export const authService = {
-  // Login user
+  // Login user - UPDATED to handle new response structure
   async login(credentials: LoginRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     const response = await api.post<LoginResponse>('/auth/login', credentials);
     
+    console.log('Login API Response:', response); // Debug
+    
+    // FIX: Check response.data (which contains the actual auth data)
     if (response.success && response.data) {
-      setAuthToken(response.data.token);
-      sessionStorage.setItem('user', JSON.stringify(response.data.user));
-      return { success: true, user: response.data.user };
+      // response.data is now the AuthResponse {user, token, refreshToken}
+      const { user, token, refreshToken } = response.data;
+      
+      if (token) {
+        setAuthToken(token);
+        sessionStorage.setItem('user', JSON.stringify(user));
+        console.log('✅ Token saved:', token.substring(0, 20) + '...'); // Debug
+        return { success: true, user };
+      }
     }
     
-    return { success: false, error: response.error };
+    console.log('❌ Login failed:', response.error); // Debug
+    return { success: false, error: response.error || 'Login failed' };
   },
 
-  // Register new user
+  // Register new user - UPDATED
   async register(userData: RegisterRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     const response = await api.post<LoginResponse>('/auth/register', userData);
     
     if (response.success && response.data) {
-      setAuthToken(response.data.token);
-      sessionStorage.setItem('user', JSON.stringify(response.data.user));
-      return { success: true, user: response.data.user };
+      const { user, token } = response.data;
+      setAuthToken(token);
+      sessionStorage.setItem('user', JSON.stringify(user));
+      return { success: true, user };
     }
     
     return { success: false, error: response.error };
@@ -48,8 +60,13 @@ export const authService = {
 
   // Logout user
   async logout(): Promise<void> {
-    await api.post('/auth/logout');
-    clearAuthToken();
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      clearAuthToken();
+    }
   },
 
   // Get current user from session
@@ -67,7 +84,10 @@ export const authService = {
 
   // Check if user is authenticated
   isAuthenticated(): boolean {
-    return !!sessionStorage.getItem('auth_token');
+    const token = sessionStorage.getItem('auth_token');
+    const hasToken = !!token;
+    console.log('Auth check - Token exists:', hasToken); // Debug
+    return hasToken;
   },
 
   // Refresh token

@@ -49,23 +49,49 @@ async function apiFetch<T>(
   };
 
   try {
+    console.log(`📞 API Call: ${API_BASE_URL}${endpoint}`);
+    console.log(`🔑 Token: ${token ? 'Present' : 'Missing'}`);
+    
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers,
+      credentials: 'include', // Important for CORS with credentials
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
+    console.log(`📊 Response Status: ${response.status} ${response.statusText}`);
+    
+    // Handle non-JSON responses (like 403/404)
+    const contentType = response.headers.get('content-type');
+    let data;
+    
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      // Handle HTML/Text responses
+      const text = await response.text();
+      console.error('Non-JSON response:', text.substring(0, 200));
       return {
         success: false,
-        error: data.message || data.error || 'An error occurred',
+        error: `Server error: ${response.status} ${response.statusText}`
       };
     }
 
+    console.log('📦 Response Data:', data);
+
+    // CRITICAL FIX: Handle your backend's response structure
+    // Your backend returns: {success: boolean, data: any, message?: string, error?: string}
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.message || data.error || `HTTP ${response.status}: ${response.statusText}`,
+      };
+    }
+
+    // Extract data from the nested structure
+    // Backend returns: {success: true, data: {...actual data...}, message: "..."}
     return {
       success: true,
-      data: data.data || data,
+      data: data.data, // ← EXTRACT FROM data.data
       message: data.message,
     };
   } catch (error) {
