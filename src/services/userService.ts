@@ -54,7 +54,7 @@ export const userService = {
     formData.append('avatar', file);
     
     const token = sessionStorage.getItem('auth_token');
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1'}/users/${id}/avatar`, {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'}/users/${id}/avatar`, {
       method: 'POST',
       headers: {
         ...(token && { Authorization: `Bearer ${token}` }),

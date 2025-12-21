@@ -136,7 +136,7 @@ export const medicineService = {
     formData.append('image', file);
     
     const token = sessionStorage.getItem('auth_token');
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1'}/medicines/${medicineId}/image`, {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'}/medicines/${medicineId}/image`, {
       method: 'POST',
       headers: {
         ...(token && { Authorization: `Bearer ${token}` }),

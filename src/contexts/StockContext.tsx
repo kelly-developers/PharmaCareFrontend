@@ -72,30 +72,72 @@ export function StockProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Fetch stock movements from backend
+  // Fetch stock movements from backend - FIXED
   const refreshMovements = useCallback(async () => {
     try {
       const response = await stockService.getMovements();
+      console.log('📊 Stock Movements Response:', response); // Debug log
+      
       if (response.success && response.data) {
-        setStockMovements(response.data.map(mov => ({
+        // Handle different response structures
+        let movementsArray: any[] = [];
+        
+        if (Array.isArray(response.data)) {
+          // Case 1: Direct array
+          movementsArray = response.data;
+        } else if (response.data.content && Array.isArray(response.data.content)) {
+          // Case 2: Paginated response { content: [], ... }
+          movementsArray = response.data.content;
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          // Case 3: Nested data { data: [], ... }
+          movementsArray = response.data.data;
+        } else if (response.data.items && Array.isArray(response.data.items)) {
+          // Case 4: Items array { items: [], ... }
+          movementsArray = response.data.items;
+        }
+        
+        console.log('📦 Extracted movements array:', movementsArray);
+        
+        setStockMovements(movementsArray.map(mov => ({
           ...mov,
           createdAt: new Date(mov.createdAt),
         })));
+      } else {
+        console.warn('No data in stock movements response');
+        setStockMovements([]);
       }
     } catch (err) {
       console.error('Failed to fetch stock movements:', err);
+      setStockMovements([]);
     }
   }, []);
 
-  // Fetch monthly stocks
+  // Fetch monthly stocks - FIXED
   const refreshMonthlyStocks = useCallback(async () => {
     try {
       const response = await stockService.getMonthlyStocks();
+      console.log('📅 Monthly Stocks Response:', response); // Debug log
+      
       if (response.success && response.data) {
-        setMonthlyStocks(response.data);
+        // Handle different response structures
+        let monthlyArray: any[] = [];
+        
+        if (Array.isArray(response.data)) {
+          monthlyArray = response.data;
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          monthlyArray = response.data.data;
+        } else if (response.data.content && Array.isArray(response.data.content)) {
+          monthlyArray = response.data.content;
+        }
+        
+        setMonthlyStocks(monthlyArray);
+      } else {
+        console.warn('No data in monthly stocks response');
+        setMonthlyStocks([]);
       }
     } catch (err) {
       console.error('Failed to fetch monthly stocks:', err);
+      setMonthlyStocks([]);
     }
   }, []);
 
@@ -120,7 +162,7 @@ export function StockProvider({ children }: { children: ReactNode }) {
       // Update local state
       setMedicines(prev => prev.map(med => {
         if (med.id === medicineId) {
-          const unit = med.units.find(u => u.type === unitType);
+          const unit = med.units?.find(u => u.type === unitType);
           const actualQty = unit ? quantity * unit.quantity : quantity;
           return {
             ...med,
