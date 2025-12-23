@@ -27,15 +27,17 @@ import {
   Building2,
   Hash,
   X,
+  Loader2,
 } from 'lucide-react';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
+import { medicineService } from '@/services/medicineService';
 
 const unitTypes = [
-  { value: 'single', label: 'Single/Tablet' },
-  { value: 'strip', label: 'Strip' },
-  { value: 'box', label: 'Box' },
-  { value: 'pair', label: 'Pair' },
-  { value: 'bottle', label: 'Bottle' },
+  { value: 'SINGLE', label: 'Single/Tablet' },
+  { value: 'STRIP', label: 'Strip' },
+  { value: 'BOX', label: 'Box' },
+  { value: 'PAIR', label: 'Pair' },
+  { value: 'BOTTLE', label: 'Bottle' },
 ];
 
 interface UnitPrice {
@@ -46,16 +48,18 @@ interface UnitPrice {
 
 export default function CreateMedicine() {
   const { toast } = useToast();
-  const { addMedicine } = useStock();
-  const { getCategoryNames, incrementMedicineCount } = useCategories();
+  const { addMedicine, refreshMedicines } = useStock();
+  const { getCategoryNames, incrementMedicineCount, refreshCategories } = useCategories();
   const navigate = useNavigate();
   
   const categories = getCategoryNames();
   
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [units, setUnits] = useState<UnitPrice[]>([
-    { type: 'single', quantity: 1, price: 0 },
+    { type: 'SINGLE', quantity: 1, price: 0 },
   ]);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     genericName: '',
@@ -68,6 +72,7 @@ export default function CreateMedicine() {
     costPrice: '',
     sellingPrice: '',
     description: '',
+    supplierId: 'sup1', // Default or get from context
   });
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,11 +83,12 @@ export default function CreateMedicine() {
         setImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
+      setImageFile(file);
     }
   };
 
   const addUnit = () => {
-    setUnits([...units, { type: 'strip', quantity: 10, price: 0 }]);
+    setUnits([...units, { type: 'STRIP', quantity: 10, price: 0 }]);
   };
 
   const removeUnit = (index: number) => {
@@ -97,55 +103,108 @@ export default function CreateMedicine() {
     setUnits(updated);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Validate required fields
     if (!formData.name || !formData.category || !formData.batchNumber || !formData.expiryDate) {
       toast({
         title: 'Error',
-        description: 'Please fill all required fields',
+        description: 'Please fill all required fields (Name, Category, Batch Number, Expiry Date)',
         variant: 'destructive',
       });
       return;
     }
 
-    // Create medicine object
-    const medicine: Medicine = {
-      id: `med${Date.now()}`,
-      name: formData.name,
-      genericName: formData.genericName || undefined,
-      category: formData.category,
-      manufacturer: formData.manufacturer,
-      batchNumber: formData.batchNumber,
-      expiryDate: new Date(formData.expiryDate),
-      units: units.map(u => ({
-        type: u.type as MedicineUnit['type'],
-        quantity: u.quantity,
-        price: u.price,
-      })),
-      stockQuantity: parseInt(formData.stockQuantity) || 0,
-      reorderLevel: parseInt(formData.reorderLevel) || 50,
-      supplierId: 'sup1',
-      costPrice: parseFloat(formData.costPrice) || 0,
-      imageUrl: imagePreview || undefined,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    if (units.length === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please add at least one pricing unit',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-    // Add to stock context
-    addMedicine(medicine);
-    
-    // Increment category medicine count
-    incrementMedicineCount(formData.category);
+    setLoading(true);
 
-    toast({
-      title: 'Medicine Created',
-      description: `${formData.name} has been added to the inventory`,
-    });
+    try {
+      // Prepare medicine data for backend
+      const medicineData = {
+        name: formData.name,
+        genericName: formData.genericName || undefined,
+        category: formData.category,
+        manufacturer: formData.manufacturer,
+        batchNumber: formData.batchNumber,
+        expiryDate: formData.expiryDate,
+        units: units.map(u => ({
+          type: u.type,
+          quantity: u.quantity,
+          price: parseFloat(u.price.toString()),
+        })),
+        stockQuantity: parseInt(formData.stockQuantity) || 0,
+        reorderLevel: parseInt(formData.reorderLevel) || 50,
+        supplierId: formData.supplierId,
+        costPrice: parseFloat(formData.costPrice) || 0,
+        imageUrl: imagePreview || undefined,
+      };
 
-    // Navigate back to medicine categories (pharmacist's area)
-    navigate('/medicine-categories');
+      // Call backend API
+      const response = await medicineService.create(medicineData);
+      
+      if (response.success && response.data) {
+        const newMedicine: Medicine = {
+          ...response.data,
+          id: response.data.id,
+          name: response.data.name,
+          genericName: response.data.genericName,
+          category: response.data.category,
+          manufacturer: response.data.manufacturer,
+          batchNumber: response.data.batchNumber,
+          expiryDate: new Date(response.data.expiryDate),
+          units: response.data.units || [],
+          stockQuantity: response.data.stockQuantity || 0,
+          reorderLevel: response.data.reorderLevel || 50,
+          supplierId: response.data.supplierId || 'sup1',
+          costPrice: response.data.costPrice || 0,
+          imageUrl: response.data.imageUrl,
+          createdAt: new Date(response.data.createdAt || new Date()),
+          updatedAt: new Date(response.data.updatedAt || new Date()),
+        };
+
+        // Add to local context
+        addMedicine(newMedicine);
+        
+        // Increment category medicine count
+        incrementMedicineCount(formData.category);
+
+        toast({
+          title: 'Medicine Created',
+          description: `${formData.name} has been added to the inventory`,
+        });
+
+        // Refresh data
+        await refreshMedicines();
+        await refreshCategories?.();
+
+        // Navigate back to medicine categories
+        navigate('/medicine-categories');
+      } else {
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to create medicine',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error creating medicine:', error);
+      toast({
+        title: 'Error',
+        description: 'An error occurred while creating the medicine',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -170,16 +229,19 @@ export default function CreateMedicine() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Medicine Name *</Label>
+                  <Label htmlFor="name">Medicine Name *</Label>
                   <Input
+                    id="name"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="e.g., Paracetamol 500mg"
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Generic Name</Label>
+                  <Label htmlFor="genericName">Generic Name</Label>
                   <Input
+                    id="genericName"
                     value={formData.genericName}
                     onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
                     placeholder="e.g., Acetaminophen"
@@ -189,12 +251,13 @@ export default function CreateMedicine() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Category *</Label>
+                  <Label htmlFor="category">Category *</Label>
                   <Select
                     value={formData.category}
                     onValueChange={(value) => setFormData({ ...formData, category: value })}
+                    required
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="category">
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
@@ -205,10 +268,11 @@ export default function CreateMedicine() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Manufacturer</Label>
+                  <Label htmlFor="manufacturer">Manufacturer</Label>
                   <div className="relative">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
+                      id="manufacturer"
                       value={formData.manufacturer}
                       onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
                       placeholder="e.g., GSK Kenya"
@@ -219,8 +283,9 @@ export default function CreateMedicine() {
               </div>
 
               <div className="space-y-2">
-                <Label>Description</Label>
+                <Label htmlFor="description">Description</Label>
                 <Textarea
+                  id="description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   placeholder="Brief description of the medicine, usage, and dosage instructions"
@@ -279,26 +344,30 @@ export default function CreateMedicine() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Batch Number *</Label>
+                  <Label htmlFor="batchNumber">Batch Number *</Label>
                   <div className="relative">
                     <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
+                      id="batchNumber"
                       value={formData.batchNumber}
                       onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
                       placeholder="e.g., PCM-2024-001"
                       className="pl-10"
+                      required
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Expiry Date *</Label>
+                  <Label htmlFor="expiryDate">Expiry Date *</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
+                      id="expiryDate"
                       type="date"
                       value={formData.expiryDate}
                       onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
                       className="pl-10"
+                      required
                     />
                   </div>
                 </div>
@@ -306,29 +375,36 @@ export default function CreateMedicine() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
-                  <Label>Initial Stock Quantity</Label>
+                  <Label htmlFor="stockQuantity">Initial Stock Quantity</Label>
                   <Input
+                    id="stockQuantity"
                     type="number"
+                    min="0"
                     value={formData.stockQuantity}
                     onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
                     placeholder="e.g., 1000"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Reorder Level</Label>
+                  <Label htmlFor="reorderLevel">Reorder Level</Label>
                   <Input
+                    id="reorderLevel"
                     type="number"
+                    min="0"
                     value={formData.reorderLevel}
                     onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value })}
                     placeholder="e.g., 100"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Buying Price (per unit)</Label>
+                  <Label htmlFor="costPrice">Buying Price (per unit)</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                     <Input
+                      id="costPrice"
                       type="number"
+                      min="0"
+                      step="0.01"
                       value={formData.costPrice}
                       onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
                       placeholder="0"
@@ -337,11 +413,14 @@ export default function CreateMedicine() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Selling Price (per unit)</Label>
+                  <Label htmlFor="sellingPrice">Selling Price (per unit)</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                     <Input
+                      id="sellingPrice"
                       type="number"
+                      min="0"
+                      step="0.01"
                       value={formData.sellingPrice}
                       onChange={(e) => setFormData({ ...formData, sellingPrice: e.target.value })}
                       placeholder="0"
@@ -383,14 +462,17 @@ export default function CreateMedicine() {
                     </Select>
                     <Input
                       type="number"
+                      min="1"
                       value={unit.quantity}
-                      onChange={(e) => updateUnit(index, 'quantity', parseInt(e.target.value) || 0)}
+                      onChange={(e) => updateUnit(index, 'quantity', parseInt(e.target.value) || 1)}
                       placeholder="Quantity"
                     />
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                       <Input
                         type="number"
+                        min="0"
+                        step="0.01"
                         value={unit.price}
                         onChange={(e) => updateUnit(index, 'price', parseFloat(e.target.value) || 0)}
                         placeholder="Price"
@@ -420,12 +502,32 @@ export default function CreateMedicine() {
 
           {/* Submit */}
           <div className="flex gap-4">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => navigate(-1)}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              className="flex-1" 
+              onClick={() => navigate(-1)}
+              disabled={loading}
+            >
               Cancel
             </Button>
-            <Button type="submit" variant="hero" className="flex-1">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Medicine
+            <Button 
+              type="submit" 
+              variant="hero" 
+              className="flex-1"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Medicine
+                </>
+              )}
             </Button>
           </div>
         </form>

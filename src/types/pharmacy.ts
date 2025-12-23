@@ -13,8 +13,8 @@ export interface User {
   updatedAt?: string | Date;
 }
 
-// Medicine unit types
-export type UnitType = 'single' | 'strip' | 'box' | 'pair' | 'bottle';
+// Medicine unit types - MUST MATCH BACKEND ENUM
+export type UnitType = 'SINGLE' | 'STRIP' | 'BOX' | 'PAIR' | 'BOTTLE' | 'single' | 'strip' | 'box' | 'pair' | 'bottle';
 
 export interface MedicineUnit {
   type: UnitType;
@@ -38,8 +38,8 @@ export interface Medicine {
   imageUrl?: string; // Medicine image
   createdAt: Date;
   updatedAt: Date;
+  isActive?: boolean; // Add this for backend compatibility
 }
-
 export interface Supplier {
   id: string;
   name: string;

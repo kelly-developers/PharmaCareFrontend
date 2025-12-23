@@ -1,4 +1,4 @@
-import { api, ApiResponse, PaginatedResponse } from './api';
+import { api, ApiResponse } from './api';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 
 interface CreateMedicineRequest {
@@ -8,10 +8,14 @@ interface CreateMedicineRequest {
   manufacturer: string;
   batchNumber: string;
   expiryDate: string;
-  units: MedicineUnit[];
+  units: Array<{
+    type: string;
+    quantity: number;
+    price: number;
+  }>;
   stockQuantity: number;
   reorderLevel: number;
-  supplierId: string;
+  supplierId?: string;
   costPrice: number;
   imageUrl?: string;
 }
@@ -42,11 +46,25 @@ export const medicineService = {
     if (params?.category) queryParams.append('category', params.category);
     if (params?.search) queryParams.append('search', params.search);
     if (params?.lowStock) queryParams.append('lowStock', 'true');
-    if (params?.page) queryParams.append('page', params.page.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.page) queryParams.append('page', (params.page).toString());
+    if (params?.limit) queryParams.append('limit', (params.limit).toString());
     
     const query = queryParams.toString();
-    return api.get<Medicine[]>(`/medicines${query ? `?${query}` : ''}`);
+    const response = await api.get<{ content: Medicine[] }>(`/medicines${query ? `?${query}` : ''}`);
+    
+    // Extract the array from backend response structure
+    if (response.success && response.data) {
+      return {
+        ...response,
+        data: Array.isArray(response.data.content) 
+          ? response.data.content 
+          : Array.isArray(response.data.data) 
+            ? response.data.data 
+            : [],
+      };
+    }
+    
+    return response as ApiResponse<Medicine[]>;
   },
 
   // Get medicine by ID
@@ -83,8 +101,7 @@ export const medicineService = {
     performedBy: string,
     performedByRole: string
   ): Promise<ApiResponse<Medicine>> {
-    return api.post<Medicine>('/medicines/stock/deduct', {
-      medicineId,
+    return api.post<Medicine>(`/medicines/${medicineId}/deduct-stock`, {
       quantity,
       unitType,
       referenceId,
@@ -101,8 +118,7 @@ export const medicineService = {
     performedBy: string,
     performedByRole: string
   ): Promise<ApiResponse<Medicine>> {
-    return api.post<Medicine>('/medicines/stock/add', {
-      medicineId,
+    return api.post<Medicine>(`/medicines/${medicineId}/add-stock`, {
       quantity,
       referenceId,
       performedBy,
@@ -112,7 +128,8 @@ export const medicineService = {
 
   // Get low stock medicines
   async getLowStock(): Promise<ApiResponse<Medicine[]>> {
-    return api.get<Medicine[]>('/medicines/low-stock');
+    const response = await api.get<Medicine[]>('/medicines/low-stock');
+    return response;
   },
 
   // Get out of stock medicines
@@ -136,7 +153,9 @@ export const medicineService = {
     formData.append('image', file);
     
     const token = sessionStorage.getItem('auth_token');
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'}/medicines/${medicineId}/image`, {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+    
+    const response = await fetch(`${API_BASE_URL}/medicines/${medicineId}/image`, {
       method: 'POST',
       headers: {
         ...(token && { Authorization: `Bearer ${token}` }),
@@ -145,6 +164,21 @@ export const medicineService = {
     });
     
     const data = await response.json();
-    return { success: response.ok, data: data.data, error: data.error };
+    return { 
+      success: response.ok, 
+      data: data.data, 
+      message: data.message,
+      error: data.error 
+    };
+  },
+
+  // Get all categories
+  async getCategories(): Promise<ApiResponse<string[]>> {
+    return api.get<string[]>('/medicines/categories');
+  },
+
+  // Get medicine statistics
+  async getStats(): Promise<ApiResponse<any>> {
+    return api.get<any>('/medicines/stats');
   },
 };

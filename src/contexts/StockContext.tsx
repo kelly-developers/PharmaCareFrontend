@@ -57,7 +57,7 @@ function extractArray<T>(data: unknown): T[] {
 }
 
 export function StockProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [monthlyStocks, setMonthlyStocks] = useState<MonthlyStock[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
@@ -74,18 +74,31 @@ export function StockProvider({ children }: { children: ReactNode }) {
       const response = await medicineService.getAll();
       if (response.success && response.data) {
         const medicinesArray = extractArray<Medicine>(response.data);
-        setMedicines(medicinesArray.map(med => ({
+        console.log('📊 Fetched medicines:', medicinesArray.length);
+        
+        // Transform the data to match frontend types
+        const transformedMedicines = medicinesArray.map(med => ({
           ...med,
+          // Ensure dates are properly converted
           expiryDate: new Date(med.expiryDate),
-          createdAt: new Date(med.createdAt),
-          updatedAt: new Date(med.updatedAt),
-        })));
+          createdAt: new Date(med.createdAt || new Date()),
+          updatedAt: new Date(med.updatedAt || new Date()),
+          // Ensure units exist
+          units: med.units || [],
+          // Ensure numeric fields are numbers
+          stockQuantity: Number(med.stockQuantity) || 0,
+          reorderLevel: Number(med.reorderLevel) || 50,
+          costPrice: Number(med.costPrice) || 0,
+        }));
+        
+        setMedicines(transformedMedicines);
       } else {
         console.warn('Failed to fetch medicines:', response.error);
         setMedicines([]);
       }
     } catch (err) {
       console.error('Failed to fetch medicines:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch medicines');
       setMedicines([]);
     } finally {
       setIsLoading(false);
@@ -161,21 +174,23 @@ export function StockProvider({ children }: { children: ReactNode }) {
     performedByRole: UserRole
   ) => {
     try {
-      await medicineService.deductStock(medicineId, quantity, unitType, referenceId, performedBy, performedByRole);
+      const response = await medicineService.deductStock(medicineId, quantity, unitType, referenceId, performedBy, performedByRole);
       
-      setMedicines(prev => prev.map(med => {
-        if (med.id === medicineId) {
-          const unit = med.units?.find(u => u.type === unitType);
-          const actualQty = unit ? quantity * unit.quantity : quantity;
-          return {
-            ...med,
-            stockQuantity: Math.max(0, med.stockQuantity - actualQty),
-          };
-        }
-        return med;
-      }));
-      
-      await refreshMovements();
+      if (response.success) {
+        setMedicines(prev => prev.map(med => {
+          if (med.id === medicineId) {
+            const unit = med.units?.find(u => u.type === unitType);
+            const actualQty = unit ? quantity * unit.quantity : quantity;
+            return {
+              ...med,
+              stockQuantity: Math.max(0, med.stockQuantity - actualQty),
+            };
+          }
+          return med;
+        }));
+        
+        await refreshMovements();
+      }
     } catch (err) {
       console.error('Failed to deduct stock:', err);
     }
@@ -190,19 +205,21 @@ export function StockProvider({ children }: { children: ReactNode }) {
     performedByRole: UserRole
   ) => {
     try {
-      await medicineService.addStock(medicineId, quantity, referenceId, performedBy, performedByRole);
+      const response = await medicineService.addStock(medicineId, quantity, referenceId, performedBy, performedByRole);
       
-      setMedicines(prev => prev.map(med => {
-        if (med.id === medicineId) {
-          return {
-            ...med,
-            stockQuantity: med.stockQuantity + quantity,
-          };
-        }
-        return med;
-      }));
-      
-      await refreshMovements();
+      if (response.success) {
+        setMedicines(prev => prev.map(med => {
+          if (med.id === medicineId) {
+            return {
+              ...med,
+              stockQuantity: med.stockQuantity + quantity,
+            };
+          }
+          return med;
+        }));
+        
+        await refreshMovements();
+      }
     } catch (err) {
       console.error('Failed to add stock:', err);
     }
@@ -262,7 +279,7 @@ export function StockProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Add a new medicine
+  // Add a new medicine (both to backend and update local state)
   const addMedicine = async (medicineData: Omit<Medicine, 'id' | 'createdAt' | 'updatedAt'>): Promise<Medicine | null> => {
     try {
       const response = await medicineService.create({
@@ -271,8 +288,12 @@ export function StockProvider({ children }: { children: ReactNode }) {
         category: medicineData.category,
         manufacturer: medicineData.manufacturer,
         batchNumber: medicineData.batchNumber,
-        expiryDate: medicineData.expiryDate instanceof Date ? medicineData.expiryDate.toISOString() : medicineData.expiryDate as string,
-        units: medicineData.units,
+        expiryDate: medicineData.expiryDate instanceof Date ? medicineData.expiryDate.toISOString().split('T')[0] : medicineData.expiryDate as string,
+        units: medicineData.units.map(unit => ({
+          type: unit.type.toUpperCase(),
+          quantity: unit.quantity,
+          price: unit.price,
+        })),
         stockQuantity: medicineData.stockQuantity,
         reorderLevel: medicineData.reorderLevel,
         supplierId: medicineData.supplierId,
@@ -283,15 +304,29 @@ export function StockProvider({ children }: { children: ReactNode }) {
       if (response.success && response.data) {
         const newMedicine = {
           ...response.data,
+          id: response.data.id,
+          name: response.data.name,
+          genericName: response.data.genericName,
+          category: response.data.category,
+          manufacturer: response.data.manufacturer,
+          batchNumber: response.data.batchNumber,
           expiryDate: new Date(response.data.expiryDate),
-          createdAt: new Date(response.data.createdAt),
-          updatedAt: new Date(response.data.updatedAt),
+          units: response.data.units || [],
+          stockQuantity: response.data.stockQuantity || 0,
+          reorderLevel: response.data.reorderLevel || 50,
+          supplierId: response.data.supplierId || medicineData.supplierId,
+          costPrice: response.data.costPrice || 0,
+          imageUrl: response.data.imageUrl,
+          createdAt: new Date(response.data.createdAt || new Date()),
+          updatedAt: new Date(response.data.updatedAt || new Date()),
         };
+        
         setMedicines(prev => [...prev, newMedicine]);
         return newMedicine;
       }
       return null;
-    } catch {
+    } catch (error) {
+      console.error('Error adding medicine:', error);
       return null;
     }
   };
