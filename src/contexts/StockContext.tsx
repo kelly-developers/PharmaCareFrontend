@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { Medicine, StockMovement, UnitType, UserRole } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
 import { stockService } from '@/services/stockService';
+import { useAuth } from './AuthContext';
 
 interface StockItem {
   medicineId: string;
@@ -42,7 +43,21 @@ interface StockContextType {
 
 const StockContext = createContext<StockContextType | undefined>(undefined);
 
+// Helper to extract array from various response formats
+function extractArray<T>(data: unknown): T[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  
+  const obj = data as Record<string, unknown>;
+  if (obj.content && Array.isArray(obj.content)) return obj.content;
+  if (obj.data && Array.isArray(obj.data)) return obj.data;
+  if (obj.items && Array.isArray(obj.items)) return obj.items;
+  
+  return [];
+}
+
 export function StockProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [monthlyStocks, setMonthlyStocks] = useState<MonthlyStock[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
@@ -51,53 +66,42 @@ export function StockProvider({ children }: { children: ReactNode }) {
 
   // Fetch medicines from backend
   const refreshMedicines = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     setIsLoading(true);
     setError(null);
     try {
       const response = await medicineService.getAll();
       if (response.success && response.data) {
-        setMedicines(response.data.map(med => ({
+        const medicinesArray = extractArray<Medicine>(response.data);
+        setMedicines(medicinesArray.map(med => ({
           ...med,
           expiryDate: new Date(med.expiryDate),
           createdAt: new Date(med.createdAt),
           updatedAt: new Date(med.updatedAt),
         })));
       } else {
-        setError(response.error || 'Failed to fetch medicines');
+        console.warn('Failed to fetch medicines:', response.error);
+        setMedicines([]);
       }
     } catch (err) {
-      setError('Failed to fetch medicines');
+      console.error('Failed to fetch medicines:', err);
+      setMedicines([]);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
-  // Fetch stock movements from backend - FIXED
+  // Fetch stock movements from backend
   const refreshMovements = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     try {
       const response = await stockService.getMovements();
-      console.log('📊 Stock Movements Response:', response); // Debug log
+      console.log('📊 Stock Movements Response:', response);
       
       if (response.success && response.data) {
-        // Handle different response structures
-        let movementsArray: any[] = [];
-        
-        if (Array.isArray(response.data)) {
-          // Case 1: Direct array
-          movementsArray = response.data;
-        } else if (response.data.content && Array.isArray(response.data.content)) {
-          // Case 2: Paginated response { content: [], ... }
-          movementsArray = response.data.content;
-        } else if (response.data.data && Array.isArray(response.data.data)) {
-          // Case 3: Nested data { data: [], ... }
-          movementsArray = response.data.data;
-        } else if (response.data.items && Array.isArray(response.data.items)) {
-          // Case 4: Items array { items: [], ... }
-          movementsArray = response.data.items;
-        }
-        
-        console.log('📦 Extracted movements array:', movementsArray);
-        
+        const movementsArray = extractArray<StockMovement>(response.data);
         setStockMovements(movementsArray.map(mov => ({
           ...mov,
           createdAt: new Date(mov.createdAt),
@@ -110,26 +114,18 @@ export function StockProvider({ children }: { children: ReactNode }) {
       console.error('Failed to fetch stock movements:', err);
       setStockMovements([]);
     }
-  }, []);
+  }, [isAuthenticated]);
 
-  // Fetch monthly stocks - FIXED
+  // Fetch monthly stocks
   const refreshMonthlyStocks = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     try {
       const response = await stockService.getMonthlyStocks();
-      console.log('📅 Monthly Stocks Response:', response); // Debug log
+      console.log('📅 Monthly Stocks Response:', response);
       
       if (response.success && response.data) {
-        // Handle different response structures
-        let monthlyArray: any[] = [];
-        
-        if (Array.isArray(response.data)) {
-          monthlyArray = response.data;
-        } else if (response.data.data && Array.isArray(response.data.data)) {
-          monthlyArray = response.data.data;
-        } else if (response.data.content && Array.isArray(response.data.content)) {
-          monthlyArray = response.data.content;
-        }
-        
+        const monthlyArray = extractArray<MonthlyStock>(response.data);
         setMonthlyStocks(monthlyArray);
       } else {
         console.warn('No data in monthly stocks response');
@@ -139,13 +135,21 @@ export function StockProvider({ children }: { children: ReactNode }) {
       console.error('Failed to fetch monthly stocks:', err);
       setMonthlyStocks([]);
     }
-  }, []);
+  }, [isAuthenticated]);
 
+  // Only fetch when authenticated
   useEffect(() => {
-    refreshMedicines();
-    refreshMovements();
-    refreshMonthlyStocks();
-  }, [refreshMedicines, refreshMovements, refreshMonthlyStocks]);
+    if (isAuthenticated) {
+      refreshMedicines();
+      refreshMovements();
+      refreshMonthlyStocks();
+    } else {
+      // Clear data when not authenticated
+      setMedicines([]);
+      setStockMovements([]);
+      setMonthlyStocks([]);
+    }
+  }, [isAuthenticated, refreshMedicines, refreshMovements, refreshMonthlyStocks]);
 
   // Deduct stock when a sale is made
   const deductStock = async (
@@ -159,7 +163,6 @@ export function StockProvider({ children }: { children: ReactNode }) {
     try {
       await medicineService.deductStock(medicineId, quantity, unitType, referenceId, performedBy, performedByRole);
       
-      // Update local state
       setMedicines(prev => prev.map(med => {
         if (med.id === medicineId) {
           const unit = med.units?.find(u => u.type === unitType);
@@ -189,7 +192,6 @@ export function StockProvider({ children }: { children: ReactNode }) {
     try {
       await medicineService.addStock(medicineId, quantity, referenceId, performedBy, performedByRole);
       
-      // Update local state
       setMedicines(prev => prev.map(med => {
         if (med.id === medicineId) {
           return {

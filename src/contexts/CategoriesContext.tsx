@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { categoryService } from '@/services/categoryService';
+import { useAuth } from './AuthContext';
 
 export interface Category {
   id: string;
@@ -24,32 +25,56 @@ interface CategoriesContextType {
 
 const CategoriesContext = createContext<CategoriesContextType | undefined>(undefined);
 
+// Helper to extract array from various response formats
+function extractArray<T>(data: unknown): T[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  
+  const obj = data as Record<string, unknown>;
+  if (obj.content && Array.isArray(obj.content)) return obj.content;
+  if (obj.data && Array.isArray(obj.data)) return obj.data;
+  if (obj.items && Array.isArray(obj.items)) return obj.items;
+  
+  return [];
+}
+
 export function CategoriesProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch all categories on mount
+  // Fetch all categories
   const refreshCategories = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     setIsLoading(true);
     setError(null);
     try {
       const response = await categoryService.getAll();
       if (response.success && response.data) {
-        setCategories(response.data);
+        const categoriesArray = extractArray<Category>(response.data);
+        setCategories(categoriesArray);
       } else {
-        setError(response.error || 'Failed to fetch categories');
+        console.warn('Failed to fetch categories:', response.error);
+        setCategories([]);
       }
     } catch (err) {
-      setError('Failed to fetch categories');
+      console.error('Failed to fetch categories:', err);
+      setCategories([]);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
+  // Only fetch when authenticated
   useEffect(() => {
-    refreshCategories();
-  }, [refreshCategories]);
+    if (isAuthenticated) {
+      refreshCategories();
+    } else {
+      setCategories([]);
+    }
+  }, [isAuthenticated, refreshCategories]);
 
   const addCategory = async (category: Omit<Category, 'id' | 'createdAt'>): Promise<Category | null> => {
     try {
@@ -141,5 +166,3 @@ export function useCategories() {
   }
   return context;
 }
-
-

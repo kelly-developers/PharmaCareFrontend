@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Expense, UserRole } from '@/types/pharmacy';
 import { expenseService } from '@/services/expenseService';
+import { useAuth } from './AuthContext';
 
 interface ExpensesContextType {
   expenses: Expense[];
@@ -18,36 +19,60 @@ interface ExpensesContextType {
 
 const ExpensesContext = createContext<ExpensesContextType | undefined>(undefined);
 
+// Helper to extract array from various response formats
+function extractArray<T>(data: unknown): T[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  
+  const obj = data as Record<string, unknown>;
+  if (obj.content && Array.isArray(obj.content)) return obj.content;
+  if (obj.data && Array.isArray(obj.data)) return obj.data;
+  if (obj.items && Array.isArray(obj.items)) return obj.items;
+  
+  return [];
+}
+
 export function ExpensesProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch all expenses on mount
+  // Fetch all expenses
   const refreshExpenses = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     setIsLoading(true);
     setError(null);
     try {
       const response = await expenseService.getAll();
       if (response.success && response.data) {
-        setExpenses(response.data.map(exp => ({
+        const expensesArray = extractArray<Expense>(response.data);
+        setExpenses(expensesArray.map(exp => ({
           ...exp,
           date: new Date(exp.date),
           createdAt: new Date(exp.createdAt),
         })));
       } else {
-        setError(response.error || 'Failed to fetch expenses');
+        console.warn('Failed to fetch expenses:', response.error);
+        setExpenses([]);
       }
     } catch (err) {
-      setError('Failed to fetch expenses');
+      console.error('Failed to fetch expenses:', err);
+      setExpenses([]);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
+  // Only fetch when authenticated
   useEffect(() => {
-    refreshExpenses();
-  }, [refreshExpenses]);
+    if (isAuthenticated) {
+      refreshExpenses();
+    } else {
+      setExpenses([]);
+    }
+  }, [isAuthenticated, refreshExpenses]);
 
   const addExpense = async (expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense | null> => {
     try {

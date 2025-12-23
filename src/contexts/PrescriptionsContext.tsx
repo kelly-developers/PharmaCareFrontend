@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { prescriptionService, Prescription, PrescriptionItem } from '@/services/prescriptionService';
+import { useAuth } from './AuthContext';
 
 interface PrescriptionsContextType {
   prescriptions: Prescription[];
@@ -14,36 +15,60 @@ interface PrescriptionsContextType {
 
 const PrescriptionsContext = createContext<PrescriptionsContextType | undefined>(undefined);
 
+// Helper to extract array from various response formats
+function extractArray<T>(data: unknown): T[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  
+  const obj = data as Record<string, unknown>;
+  if (obj.content && Array.isArray(obj.content)) return obj.content;
+  if (obj.data && Array.isArray(obj.data)) return obj.data;
+  if (obj.items && Array.isArray(obj.items)) return obj.items;
+  
+  return [];
+}
+
 export function PrescriptionsProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch all prescriptions on mount
+  // Fetch all prescriptions
   const refreshPrescriptions = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     setIsLoading(true);
     setError(null);
     try {
       const response = await prescriptionService.getAll();
       if (response.success && response.data) {
-        setPrescriptions(response.data.map(rx => ({
+        const prescriptionsArray = extractArray<Prescription>(response.data);
+        setPrescriptions(prescriptionsArray.map(rx => ({
           ...rx,
           createdAt: rx.createdAt,
           dispensedAt: rx.dispensedAt,
         })));
       } else {
-        setError(response.error || 'Failed to fetch prescriptions');
+        console.warn('Failed to fetch prescriptions:', response.error);
+        setPrescriptions([]);
       }
     } catch (err) {
-      setError('Failed to fetch prescriptions');
+      console.error('Failed to fetch prescriptions:', err);
+      setPrescriptions([]);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
+  // Only fetch when authenticated
   useEffect(() => {
-    refreshPrescriptions();
-  }, [refreshPrescriptions]);
+    if (isAuthenticated) {
+      refreshPrescriptions();
+    } else {
+      setPrescriptions([]);
+    }
+  }, [isAuthenticated, refreshPrescriptions]);
 
   const addPrescription = async (prescriptionData: Omit<Prescription, 'id' | 'createdAt' | 'status'>): Promise<Prescription | null> => {
     try {

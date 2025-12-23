@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { User, UserRole } from '@/types/pharmacy';
 import { authService } from '@/services/authService';
 import { clearAuthToken } from '@/services/api';
@@ -22,35 +22,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check for existing session on mount
   useEffect(() => {
     const checkSession = () => {
-      const currentUser = authService.getCurrentUser();
-      const isAuth = authService.isAuthenticated();
-      
-      if (currentUser && isAuth) {
-        setUser(currentUser);
-      } else {
+      try {
+        const currentUser = authService.getCurrentUser();
+        const isAuth = authService.isAuthenticated();
+        
+        console.log('Auth check - Token exists:', isAuth, 'User:', currentUser?.email);
+        
+        if (currentUser && isAuth) {
+          setUser(currentUser);
+        } else {
+          clearAuthToken();
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Session check failed:', error);
         clearAuthToken();
+        setUser(null);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
     
     checkSession();
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     try {
+      setIsLoading(true);
       const response = await authService.login({ email, password });
+      
+      console.log('Login API Response:', response);
       
       if (response.success && response.user) {
         setUser(response.user);
         return true;
       }
       return false;
-    } catch {
+    } catch (error) {
+      console.error('Login error:', error);
       return false;
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await authService.logout();
     } catch {
@@ -59,17 +75,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       clearAuthToken();
     }
-  };
+  }, []);
 
-  const hasRole = (roles: UserRole[]): boolean => {
+  const hasRole = useCallback((roles: UserRole[]): boolean => {
     if (!user) return false;
     return roles.includes(user.role);
-  };
+  }, [user]);
 
-  const canViewProfit = (): boolean => {
+  const canViewProfit = useCallback((): boolean => {
     if (!user) return false;
     return ['admin', 'manager'].includes(user.role);
-  };
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ 

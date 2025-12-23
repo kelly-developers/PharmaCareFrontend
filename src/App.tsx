@@ -9,6 +9,7 @@ import { SalesProvider } from "@/contexts/SalesContext";
 import { CategoriesProvider } from "@/contexts/CategoriesContext";
 import { ExpensesProvider } from "@/contexts/ExpensesContext";
 import { PrescriptionsProvider } from "@/contexts/PrescriptionsContext";
+import { Loader2 } from "lucide-react";
 // Pages
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -36,9 +37,25 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// Loading component
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
 // Protected Route wrapper
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
   
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
@@ -54,6 +71,12 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
 }
 
 function AppRoutes() {
+  const { isLoading } = useAuth();
+  
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+  
   return (
     <Routes>
       <Route path="/" element={<Index />} />
