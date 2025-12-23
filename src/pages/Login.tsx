@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,14 +12,26 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { login, isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && user && !isLoading) {
+      const redirectPath = user.role === 'cashier' 
+        ? '/pos' 
+        : user.role === 'pharmacist' 
+          ? '/medicine-categories' 
+          : '/dashboard';
+      navigate(redirectPath, { replace: true });
+    }
+  }, [isAuthenticated, user, isLoading, navigate]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSubmitting(true);
 
     try {
       const success = await login(email, password);
@@ -28,7 +40,7 @@ export default function Login() {
           title: 'Welcome back!',
           description: 'You have been logged in successfully.',
         });
-        navigate('/dashboard');
+        // Navigation will happen via useEffect when isAuthenticated updates
       } else {
         toast({
           title: 'Login failed',
@@ -43,9 +55,18 @@ export default function Login() {
         variant: 'destructive',
       });
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
+
+  // Show loading while checking auth state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 gradient-hero">
@@ -95,8 +116,8 @@ export default function Login() {
                   </Button>
                 </div>
               </div>
-              <Button type="submit" variant="hero" size="xl" className="w-full" disabled={isLoading}>
-                {isLoading ? (
+              <Button type="submit" variant="hero" size="xl" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Signing in...
