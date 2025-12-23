@@ -158,12 +158,12 @@ export function Sidebar() {
             <div className={cn('flex items-center gap-3 px-3 py-2', isCollapsed && 'justify-center px-0')}>
               <div className="w-9 h-9 rounded-full bg-sidebar-accent flex items-center justify-center">
                 <span className="text-sm font-semibold text-sidebar-foreground">
-                  {user.name.charAt(0)}
+                  {(user.name || user.email || '?').charAt(0).toUpperCase()}
                 </span>
               </div>
               {!isCollapsed && (
                 <div className="flex-1 min-w-0 animate-fade-in">
-                  <p className="text-sm font-medium text-sidebar-foreground truncate">{user.name}</p>
+                  <p className="text-sm font-medium text-sidebar-foreground truncate">{user.name || user.email}</p>
                   <p className="text-xs text-sidebar-foreground/60 capitalize">{user.role}</p>
                 </div>
               )}

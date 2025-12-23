@@ -20,18 +20,47 @@ interface RegisterRequest {
   phone?: string;
 }
 
+const normalizeRole = (rawRole: unknown): UserRole => {
+  const role = String(rawRole ?? '').trim().toLowerCase();
+  if (role === 'admin') return 'admin';
+  if (role === 'manager') return 'manager';
+  if (role === 'pharmacist') return 'pharmacist';
+  if (role === 'cashier') return 'cashier';
+  // common aliases
+  if (role === 'pharmacy') return 'pharmacist';
+  if (role === 'sales' || role === 'seller') return 'cashier';
+  return 'cashier';
+};
+
+const normalizeUser = (raw: any): User => {
+  const email = String(raw?.email ?? '').trim();
+  const fallbackName = email ? email.split('@')[0] : 'User';
+
+  return {
+    id: String(raw?.id ?? raw?._id ?? ''),
+    // Some backends return `username` or `fullName` instead of `name`
+    name: String(raw?.name ?? raw?.fullName ?? raw?.username ?? fallbackName),
+    email,
+    role: normalizeRole(raw?.role),
+    avatar: raw?.avatar,
+    // Backend likely returns a string; keep as-is to avoid crashes in UI
+    createdAt: (raw?.createdAt ?? new Date()) as any,
+  };
+};
+
 export const authService = {
   // Login user - UPDATED to handle new response structure
   async login(credentials: LoginRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     const response = await api.post<LoginResponse>('/auth/login', credentials);
-    
+
     console.log('Login API Response:', response); // Debug
-    
+
     // FIX: Check response.data (which contains the actual auth data)
     if (response.success && response.data) {
       // response.data is now the AuthResponse {user, token, refreshToken}
-      const { user, token, refreshToken } = response.data;
-      
+      const { user: rawUser, token } = response.data as any;
+      const user = normalizeUser(rawUser);
+
       if (token) {
         setAuthToken(token);
         sessionStorage.setItem('user', JSON.stringify(user));
@@ -39,7 +68,7 @@ export const authService = {
         return { success: true, user };
       }
     }
-    
+
     console.log('❌ Login failed:', response.error); // Debug
     return { success: false, error: response.error || 'Login failed' };
   },
@@ -47,14 +76,15 @@ export const authService = {
   // Register new user - UPDATED
   async register(userData: RegisterRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     const response = await api.post<LoginResponse>('/auth/register', userData);
-    
+
     if (response.success && response.data) {
-      const { user, token } = response.data;
+      const { user: rawUser, token } = response.data as any;
+      const user = normalizeUser(rawUser);
       setAuthToken(token);
       sessionStorage.setItem('user', JSON.stringify(user));
       return { success: true, user };
     }
-    
+
     return { success: false, error: response.error };
   },
 
@@ -74,7 +104,8 @@ export const authService = {
     const userStr = sessionStorage.getItem('user');
     if (userStr) {
       try {
-        return JSON.parse(userStr);
+        const parsed = JSON.parse(userStr);
+        return normalizeUser(parsed);
       } catch {
         return null;
       }
