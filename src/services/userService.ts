@@ -1,26 +1,30 @@
 import { api, ApiResponse } from './api';
 import { User, UserRole } from '@/types/pharmacy';
 
-interface CreateUserRequest {
+export interface CreateUserRequest {
   name: string;
   email: string;
   password: string;
   role: UserRole;
-  avatar?: string;
+  phone?: string;
+  isActive?: boolean;
 }
 
-interface UpdateUserRequest {
-  name?: string;
-  email?: string;
-  role?: UserRole;
-  avatar?: string;
-}
+export interface UpdateUserRequest extends Partial<CreateUserRequest> {}
 
 export const userService = {
-  // Get all users
-  async getAll(role?: UserRole): Promise<ApiResponse<User[]>> {
-    const query = role ? `?role=${role}` : '';
-    return api.get<User[]>(`/users${query}`);
+  // Get all users with pagination
+  async getAll(
+    page: number = 1,
+    limit: number = 20,
+    search?: string,
+    role?: UserRole
+  ): Promise<ApiResponse<{ users: User[]; total: number; page: number; pages: number }>> {
+    let query = `?page=${page}&limit=${limit}`;
+    if (search) query += `&search=${encodeURIComponent(search)}`;
+    if (role) query += `&role=${role}`;
+    
+    return api.get<{ users: User[]; total: number; page: number; pages: number }>(`/users${query}`);
   },
 
   // Get user by ID
@@ -38,31 +42,44 @@ export const userService = {
     return api.put<User>(`/users/${id}`, updates);
   },
 
-  // Delete user
+  // Delete user (deactivate)
   async delete(id: string): Promise<ApiResponse<void>> {
     return api.delete<void>(`/users/${id}`);
   },
 
-  // Update user role
-  async updateRole(id: string, role: UserRole): Promise<ApiResponse<User>> {
-    return api.patch<User>(`/users/${id}/role`, { role });
+  // Activate user
+  async activate(id: string): Promise<ApiResponse<User>> {
+    return api.patch<User>(`/users/${id}/activate`, {});
   },
 
-  // Upload avatar
-  async uploadAvatar(id: string, file: File): Promise<ApiResponse<{ avatarUrl: string }>> {
-    const formData = new FormData();
-    formData.append('avatar', file);
-    
-    const token = sessionStorage.getItem('auth_token');
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'}/users/${id}/avatar`, {
-      method: 'POST',
-      headers: {
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
-      body: formData,
-    });
-    
-    const data = await response.json();
-    return { success: response.ok, data: data.data, error: data.error };
+  // Get current user profile
+  async getProfile(): Promise<ApiResponse<User>> {
+    return api.get<User>('/users/profile');
+  },
+
+  // Update current user profile
+  async updateProfile(updates: UpdateUserRequest): Promise<ApiResponse<User>> {
+    return api.put<User>('/users/profile', updates);
+  },
+
+  // Get user stats
+  async getStats(): Promise<ApiResponse<{
+    totalUsersCount: number;
+    adminUsersCount: number;
+    managerUsersCount: number;
+    pharmacistUsersCount: number;
+    cashierUsersCount: number;
+  }>> {
+    return api.get('/users/stats');
+  },
+
+  // Get users by role
+  async getByRole(role: UserRole, page: number = 1, limit: number = 20): Promise<ApiResponse<{
+    users: User[];
+    total: number;
+    page: number;
+    pages: number;
+  }>> {
+    return api.get(`/users/role/${role}?page=${page}&limit=${limit}`);
   },
 };

@@ -1,5 +1,5 @@
 // API Configuration and Base Client
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://pharmacare-ywjs.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -50,24 +50,22 @@ async function apiFetch<T>(
 
   try {
     console.log(`📞 API Call: ${API_BASE_URL}${endpoint}`);
-    console.log(`🔑 Token: ${token ? 'Present' : 'Missing'}`);
     
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers,
-      credentials: 'include', // Important for CORS with credentials
+      credentials: 'include',
     });
 
     console.log(`📊 Response Status: ${response.status} ${response.statusText}`);
     
-    // Handle non-JSON responses (like 403/404)
+    // Handle non-JSON responses
     const contentType = response.headers.get('content-type');
     let data;
     
     if (contentType && contentType.includes('application/json')) {
       data = await response.json();
     } else {
-      // Handle HTML/Text responses
       const text = await response.text();
       console.error('Non-JSON response:', text.substring(0, 200));
       return {
@@ -78,8 +76,7 @@ async function apiFetch<T>(
 
     console.log('📦 Response Data:', data);
 
-    // CRITICAL FIX: Handle your backend's response structure
-    // Your backend returns: {success: boolean, data: any, message?: string, error?: string}
+    // Handle your backend's response structure
     if (!response.ok) {
       return {
         success: false,

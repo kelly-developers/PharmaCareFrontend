@@ -6,8 +6,11 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  phone?: string;
+  isActive: boolean;
   avatar?: string;
-  createdAt: Date;
+  createdAt: string | Date;
+  updatedAt?: string | Date;
 }
 
 // Medicine unit types
@@ -211,4 +214,31 @@ export interface StockAudit {
   varianceReason?: string;
   auditedBy: string;
   auditedAt: Date;
+}
+
+// Additional types for user management
+export interface CreateUserRequest {
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
+  phone?: string;
+  isActive?: boolean;
+}
+
+export interface UpdateUserRequest extends Partial<CreateUserRequest> {}
+
+export interface UserStats {
+  totalUsersCount: number;
+  adminUsersCount: number;
+  managerUsersCount: number;
+  pharmacistUsersCount: number;
+  cashierUsersCount: number;
+}
+
+export interface PaginatedResponse<T> {
+  users: T[];
+  total: number;
+  page: number;
+  pages: number;
 }

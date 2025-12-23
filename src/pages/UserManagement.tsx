@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -34,6 +35,8 @@ import {
   Shield,
   MoreVertical,
   Key,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -43,60 +46,159 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-
-// Demo users
-const users = [
-  {
-    id: '1',
-    name: 'John Kamau',
-    email: 'admin@pharmacy.ke',
-    role: 'admin',
-    status: 'active',
-    lastLogin: new Date('2024-01-20T08:30:00'),
-    createdAt: new Date('2022-03-15'),
-  },
-  {
-    id: '2',
-    name: 'Jane Wanjiku',
-    email: 'manager@pharmacy.ke',
-    role: 'manager',
-    status: 'active',
-    lastLogin: new Date('2024-01-20T09:15:00'),
-    createdAt: new Date('2022-06-01'),
-  },
-  {
-    id: '3',
-    name: 'Peter Omondi',
-    email: 'pharmacist@pharmacy.ke',
-    role: 'pharmacist',
-    status: 'active',
-    lastLogin: new Date('2024-01-19T14:00:00'),
-    createdAt: new Date('2023-01-10'),
-  },
-  {
-    id: '4',
-    name: 'Mary Akinyi',
-    email: 'cashier@pharmacy.ke',
-    role: 'cashier',
-    status: 'active',
-    lastLogin: new Date('2024-01-20T07:45:00'),
-    createdAt: new Date('2023-04-20'),
-  },
-];
+import { userService } from '@/services/userService';
+import { User, UserRole } from '@/types/pharmacy';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function UserManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewUser, setShowNewUser] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'cashier', password: '' });
+  const [newUser, setNewUser] = useState<{
+    name: string;
+    email: string;
+    password: string;
+    role: UserRole;
+    phone: string;
+  }>({
+    name: '',
+    email: '',
+    password: '',
+    role: 'cashier',
+    phone: '',
+  });
+  
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
+  
   const { toast } = useToast();
 
-  const filteredUsers = users.filter(
-    (user) =>
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Load users on component mount and search change
+  useEffect(() => {
+    loadUsers();
+  }, [page, searchQuery]);
 
-  const getRoleBadge = (role: string) => {
+  const loadUsers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await userService.getAll(page, 10, searchQuery);
+      if (response.success && response.data) {
+        setUsers(response.data.users || []);
+        setTotalPages(response.data.pages || 1);
+        setTotalUsers(response.data.total || 0);
+      } else {
+        setError(response.error || 'Failed to load users');
+      }
+    } catch (err) {
+      setError('Error loading users. Please try again.');
+      console.error('Error loading users:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateUser = async () => {
+    if (!newUser.name || !newUser.email || !newUser.password) {
+      toast({
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'Please fill in all required fields',
+      });
+      return;
+    }
+
+    try {
+      const response = await userService.create(newUser);
+      if (response.success && response.data) {
+        toast({
+          title: 'User Created',
+          description: `Account for ${newUser.name} has been created successfully.`,
+        });
+        setShowNewUser(false);
+        setNewUser({
+          name: '',
+          email: '',
+          password: '',
+          role: 'cashier',
+          phone: '',
+        });
+        loadUsers(); // Refresh the list
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: response.error || 'Failed to create user',
+        });
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to create user. Please try again.',
+      });
+      console.error('Error creating user:', err);
+    }
+  };
+
+  const handleResetPassword = async (userId: string, userName: string) => {
+    try {
+      // You'll need to implement a password reset endpoint in backend
+      const response = await userService.update(userId, {
+        password: 'default123', // Temporary password
+      });
+      
+      if (response.success) {
+        toast({
+          title: 'Password Reset',
+          description: `Password for ${userName} has been reset to 'default123'.`,
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: response.error || 'Failed to reset password',
+        });
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to reset password',
+      });
+    }
+  };
+
+  const handleToggleStatus = async (user: User) => {
+    try {
+      if (user.isActive) {
+        await userService.delete(user.id);
+        toast({
+          title: 'User Deactivated',
+          description: `${user.name} has been deactivated.`,
+        });
+      } else {
+        await userService.activate(user.id);
+        toast({
+          title: 'User Activated',
+          description: `${user.name} has been activated.`,
+        });
+      }
+      loadUsers(); // Refresh the list
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to update user status',
+      });
+    }
+  };
+
+  const getRoleBadge = (role: UserRole) => {
     switch (role) {
       case 'admin':
         return <Badge className="bg-purple-500/10 text-purple-600 border-purple-500/20"><Shield className="h-3 w-3 mr-1" />Admin</Badge>;
@@ -111,13 +213,12 @@ export default function UserManagement() {
     }
   };
 
-  const handleCreateUser = () => {
-    toast({
-      title: 'User Created',
-      description: `Account for ${newUser.name} has been created successfully.`,
-    });
-    setShowNewUser(false);
-    setNewUser({ name: '', email: '', role: 'cashier', password: '' });
+  const formatDate = (dateString: string) => {
+    try {
+      return format(new Date(dateString), 'MMM dd, yyyy');
+    } catch {
+      return dateString;
+    }
   };
 
   return (
@@ -129,99 +230,110 @@ export default function UserManagement() {
             <h1 className="text-2xl lg:text-3xl font-bold font-display">User Management</h1>
             <p className="text-muted-foreground mt-1">Manage system users and access control</p>
           </div>
-          <Dialog open={showNewUser} onOpenChange={setShowNewUser}>
-            <DialogTrigger asChild>
-              <Button variant="hero">
-                <Plus className="h-4 w-4 mr-2" />
-                Create User
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New User</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={newUser.name}
-                    onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                    placeholder="Enter full name"
-                  />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={loadUsers}
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Dialog open={showNewUser} onOpenChange={setShowNewUser}>
+              <DialogTrigger asChild>
+                <Button variant="hero">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create User
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle>Create New User</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Full Name *</Label>
+                    <Input
+                      id="name"
+                      value={newUser.name}
+                      onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                      placeholder="Enter full name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email *</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={newUser.email}
+                      onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                      placeholder="email@pharmacy.ke"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input
+                      id="phone"
+                      value={newUser.phone}
+                      onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
+                      placeholder="+254 700 000 000"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="role">Role *</Label>
+                    <Select
+                      value={newUser.role}
+                      onValueChange={(value: UserRole) => setNewUser({ ...newUser, role: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="pharmacist">Pharmacist</SelectItem>
+                        <SelectItem value="cashier">Cashier</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password *</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={newUser.password}
+                      onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                      placeholder="Create a password (min. 6 characters)"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={newUser.email}
-                    onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                    placeholder="email@pharmacy.ke"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="role">Role</Label>
-                  <Select
-                    value={newUser.role}
-                    onValueChange={(value) => setNewUser({ ...newUser, role: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="pharmacist">Pharmacist</SelectItem>
-                      <SelectItem value="cashier">Cashier</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Temporary Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    placeholder="Create a temporary password"
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
+                <DialogFooter>
                   <Button variant="outline" onClick={() => setShowNewUser(false)}>
                     Cancel
                   </Button>
                   <Button variant="hero" onClick={handleCreateUser}>
                     Create User
                   </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
-        {/* Role Legend */}
+        {/* Stats Card */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex flex-wrap gap-4 items-center">
-              <span className="text-sm font-medium text-muted-foreground">Roles:</span>
-              <div className="flex flex-wrap gap-3">
-                <div className="flex items-center gap-2 text-sm">
-                  {getRoleBadge('admin')}
-                  <span className="text-muted-foreground">Full system access</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  {getRoleBadge('manager')}
-                  <span className="text-muted-foreground">Reports & inventory</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  {getRoleBadge('pharmacist')}
-                  <span className="text-muted-foreground">POS & orders</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  {getRoleBadge('cashier')}
-                  <span className="text-muted-foreground">POS only</span>
-                </div>
+            <div className="flex flex-wrap justify-between items-center">
+              <div>
+                <h3 className="font-semibold">Total Users: {totalUsers}</h3>
+                <p className="text-sm text-muted-foreground">Showing page {page} of {totalPages}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {['admin', 'manager', 'pharmacist', 'cashier'].map((role) => (
+                  <Badge key={role} variant="outline">
+                    {users.filter(u => u.role === role).length} {role}s
+                  </Badge>
+                ))}
               </div>
             </div>
           </CardContent>
@@ -231,12 +343,20 @@ export default function UserManagement() {
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search users..."
+            placeholder="Search users by name or email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
           />
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
         {/* Users Table */}
         <Card>
@@ -248,68 +368,113 @@ export default function UserManagement() {
                     <TableHead>User</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Last Login</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                            <UserCircle className="h-5 w-5 text-primary" />
+                  {loading ? (
+                    // Loading skeletons
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Skeleton className="h-10 w-10 rounded-full" />
+                            <div className="space-y-2">
+                              <Skeleton className="h-4 w-32" />
+                              <Skeleton className="h-3 w-24" />
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium">{user.name}</p>
-                            <p className="text-sm text-muted-foreground">{user.email}</p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{getRoleBadge(user.role)}</TableCell>
-                      <TableCell>
-                        <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
-                          {user.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {format(user.lastLogin, 'MMM dd, HH:mm')}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {format(user.createdAt, 'MMM dd, yyyy')}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
-                              <UserCircle className="h-4 w-4 mr-2" />
-                              Edit User
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Key className="h-4 w-4 mr-2" />
-                              Reset Password
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Shield className="h-4 w-4 mr-2" />
-                              Change Role
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">
-                              Deactivate
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        </TableCell>
+                        <TableCell><Skeleton className="h-6 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                      </TableRow>
+                    ))
+                  ) : users.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        {searchQuery ? 'No users found matching your search.' : 'No users found.'}
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                              <UserCircle className="h-5 w-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{user.name}</p>
+                              <p className="text-sm text-muted-foreground">{user.email}</p>
+                              {user.phone && (
+                                <p className="text-sm text-muted-foreground">{user.phone}</p>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>{getRoleBadge(user.role)}</TableCell>
+                        <TableCell>
+                          <Badge variant={user.isActive ? 'success' : 'secondary'}>
+                            {user.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(user.createdAt as string)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon-sm">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleToggleStatus(user)}>
+                                {user.isActive ? 'Deactivate User' : 'Activate User'}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleResetPassword(user.id, user.name)}>
+                                <Key className="h-4 w-4 mr-2" />
+                                Reset Password
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </div>
+
+            {/* Pagination */}
+            {!loading && users.length > 0 && (
+              <div className="flex items-center justify-between p-4 border-t">
+                <div className="text-sm text-muted-foreground">
+                  Showing {users.length} of {totalUsers} users
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
