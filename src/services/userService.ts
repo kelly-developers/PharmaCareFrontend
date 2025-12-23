@@ -1,3 +1,4 @@
+// services/userService.ts
 import { api, ApiResponse } from './api';
 import { User, UserRole } from '@/types/pharmacy';
 
@@ -12,6 +13,18 @@ export interface CreateUserRequest {
 
 export interface UpdateUserRequest extends Partial<CreateUserRequest> {}
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
 export const userService = {
   // Get all users with pagination
   async getAll(
@@ -19,12 +32,12 @@ export const userService = {
     limit: number = 20,
     search?: string,
     role?: UserRole
-  ): Promise<ApiResponse<{ users: User[]; total: number; page: number; pages: number }>> {
+  ): Promise<ApiResponse<PaginatedResponse<User>>> {
     let query = `?page=${page}&limit=${limit}`;
     if (search) query += `&search=${encodeURIComponent(search)}`;
     if (role) query += `&role=${role}`;
     
-    return api.get<{ users: User[]; total: number; page: number; pages: number }>(`/users${query}`);
+    return api.get<PaginatedResponse<User>>(`/users${query}`);
   },
 
   // Get user by ID
@@ -74,12 +87,11 @@ export const userService = {
   },
 
   // Get users by role
-  async getByRole(role: UserRole, page: number = 1, limit: number = 20): Promise<ApiResponse<{
-    users: User[];
-    total: number;
-    page: number;
-    pages: number;
-  }>> {
+  async getByRole(
+    role: UserRole, 
+    page: number = 1, 
+    limit: number = 20
+  ): Promise<ApiResponse<PaginatedResponse<User>>> {
     return api.get(`/users/role/${role}?page=${page}&limit=${limit}`);
   },
 };
