@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,8 +29,10 @@ import {
   Smartphone,
   CreditCard,
   RefreshCw,
+  Clock,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, startOfTomorrow, differenceInMilliseconds } from 'date-fns';
+import { toast } from 'sonner';
 
 const unitLabels: Record<UnitType, string> = {
   single: 'Tab',
@@ -42,30 +44,103 @@ const unitLabels: Record<UnitType, string> = {
 
 export default function MySales() {
   const { user } = useAuth();
-  const { getTodaySales } = useSales();
+  const { getTodaySales, resetTodaySales, isResetting } = useSales();
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-
+  const [timeUntilReset, setTimeUntilReset] = useState<string>('');
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  
   const cashierId = user?.id || '';
+  const resetIntervalRef = useRef<NodeJS.Timeout>();
+
+  // Format time until reset
+  const formatTimeUntilReset = (milliseconds: number) => {
+    const hours = Math.floor(milliseconds / (1000 * 60 * 60));
+    const minutes = Math.floor((milliseconds % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((milliseconds % (1000 * 60)) / 1000);
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // Update countdown timer
+  useEffect(() => {
+    const updateCountdown = () => {
+      const now = new Date();
+      const tomorrow = startOfTomorrow();
+      const diff = differenceInMilliseconds(tomorrow, now);
+      setTimeUntilReset(formatTimeUntilReset(diff));
+    };
+    
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch today's sales for current cashier
   const fetchTodaySales = useCallback(async () => {
     if (!cashierId) return;
+    
     setIsLoading(true);
     try {
       const sales = await getTodaySales(cashierId);
       setTodaySales(sales);
+      setLastUpdated(new Date());
+      
+      if (sales.length > 0) {
+        toast.success(`Loaded ${sales.length} sales for today`);
+      }
     } catch (error) {
       console.error('Failed to fetch today sales:', error);
+      toast.error('Failed to load today\'s sales');
     } finally {
       setIsLoading(false);
     }
   }, [cashierId, getTodaySales]);
 
+  // Set up auto-refresh every 5 minutes
   useEffect(() => {
+    if (!cashierId) return;
+    
     fetchTodaySales();
-  }, [fetchTodaySales]);
+    
+    const interval = setInterval(() => {
+      fetchTodaySales();
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    return () => clearInterval(interval);
+  }, [cashierId, fetchTodaySales]);
+
+  // Set up midnight auto-reset
+  useEffect(() => {
+    if (!cashierId) return;
+    
+    const now = new Date();
+    const tomorrow = startOfTomorrow();
+    const timeUntilMidnight = tomorrow.getTime() - now.getTime();
+    
+    // Clear any existing interval
+    if (resetIntervalRef.current) {
+      clearTimeout(resetIntervalRef.current);
+    }
+    
+    resetIntervalRef.current = setTimeout(async () => {
+      try {
+        await resetTodaySales();
+        await fetchTodaySales();
+        toast.info('Daily sales have been reset for the new day');
+      } catch (error) {
+        console.error('Failed to auto-reset at midnight:', error);
+      }
+    }, timeUntilMidnight + 1000);
+    
+    return () => {
+      if (resetIntervalRef.current) {
+        clearTimeout(resetIntervalRef.current);
+      }
+    };
+  }, [cashierId, fetchTodaySales, resetTodaySales]);
 
   // Calculate daily stats
   const totalSales = todaySales.reduce((sum, sale) => sum + sale.total, 0);
@@ -96,8 +171,21 @@ export default function MySales() {
     window.print();
   };
 
-  const handleRefresh = () => {
-    fetchTodaySales();
+  const handleRefresh = async () => {
+    await fetchTodaySales();
+    toast.success('Sales data refreshed');
+  };
+
+  const handleManualReset = async () => {
+    if (confirm('Are you sure you want to reset today\'s sales? This action cannot be undone.')) {
+      try {
+        await resetTodaySales();
+        await fetchTodaySales();
+        toast.success('Daily sales have been reset');
+      } catch (error) {
+        toast.error('Failed to reset sales');
+      }
+    }
   };
 
   return (
@@ -110,11 +198,34 @@ export default function MySales() {
             <p className="text-muted-foreground mt-1">
               Today's sales summary • {format(new Date(), 'EEEE, MMMM d, yyyy')}
             </p>
+            <div className="flex items-center gap-4 mt-2">
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Resets in: <span className="font-medium">{timeUntilReset}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Last updated: {format(lastUpdated, 'HH:mm:ss')}
+              </p>
+            </div>
           </div>
-          <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh} 
+              disabled={isLoading}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleManualReset}
+              disabled={isResetting || todaySales.length === 0}
+              size="sm"
+            >
+              {isResetting ? 'Resetting...' : 'Reset Day'}
+            </Button>
+          </div>
         </div>
 
         {/* Daily Stats - Consolidated */}
@@ -183,13 +294,23 @@ export default function MySales() {
         {/* Today's Transactions Table */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />
-              Today's Transactions
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                Today's Transactions
+              </CardTitle>
+              <div className="text-sm text-muted-foreground">
+                Total: {todaySales.length} sales • KSh {totalSales.toLocaleString()}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {todaySales.length === 0 ? (
+            {isLoading && todaySales.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+                <p className="mt-4 text-muted-foreground">Loading today's sales...</p>
+              </div>
+            ) : todaySales.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <ShoppingCart className="h-16 w-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">No sales yet today</p>

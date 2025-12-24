@@ -66,9 +66,24 @@ export const salesService = {
     return api.get<DailySalesReport>(`/sales/today/${cashierId}`);
   },
 
+  // Get today's sales for all cashiers
+  async getAllTodaySales(): Promise<ApiResponse<Sale[]>> {
+    const today = new Date().toISOString().split('T')[0];
+    return api.get<Sale[]>(`/sales/today?date=${today}`);
+  },
+
   // Get sales by cashier
   async getByCashier(cashierId: string): Promise<ApiResponse<Sale[]>> {
     return api.get<Sale[]>(`/sales/cashier/${cashierId}`);
+  },
+
+  // Get sales by date range
+  async getByDateRange(startDate: string, endDate: string, cashierId?: string): Promise<ApiResponse<Sale[]>> {
+    let url = `/sales/date-range?startDate=${startDate}&endDate=${endDate}`;
+    if (cashierId) {
+      url += `&cashierId=${cashierId}`;
+    }
+    return api.get<Sale[]>(url);
   },
 
   // Get daily sales report
@@ -103,8 +118,35 @@ export const salesService = {
     return api.get(`/sales/performance/${cashierId}?period=${period}`);
   },
 
-  // Reset daily sales (for end of day)
-  async resetDailySales(cashierId: string): Promise<ApiResponse<void>> {
-    return api.post<void>(`/sales/reset-daily/${cashierId}`);
+  // Reset daily sales (for end of day) - CRITICAL FOR YOUR REQUIREMENT
+  async resetDailySales(cashierId: string): Promise<ApiResponse<{ message: string; resetTime: string }>> {
+    return api.post<{ message: string; resetTime: string }>(`/sales/reset-daily/${cashierId}`, {});
+  },
+
+  // Archive today's sales and start new day
+  async archiveDailySales(): Promise<ApiResponse<{ message: string; archivedCount: number }>> {
+    return api.post<{ message: string; archivedCount: number }>('/sales/archive-daily', {});
+  },
+
+  // Get sales statistics
+  async getStatistics(cashierId?: string): Promise<ApiResponse<{
+    today: {
+      total: number;
+      count: number;
+      cash: number;
+      mpesa: number;
+      card: number;
+    };
+    week: {
+      total: number;
+      count: number;
+    };
+    month: {
+      total: number;
+      count: number;
+    };
+  }>> {
+    const url = cashierId ? `/sales/statistics?cashierId=${cashierId}` : '/sales/statistics';
+    return api.get(url);
   },
 };

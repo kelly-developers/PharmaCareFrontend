@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { Sale } from '@/types/pharmacy';
 import { salesService } from '@/services/salesService';
 import { useAuth } from './AuthContext';
+import { isToday, startOfTomorrow } from 'date-fns';
 
 interface SalesContextType {
   sales: Sale[];
@@ -12,6 +13,8 @@ interface SalesContextType {
   getTodaySales: (cashierId?: string) => Promise<Sale[]>;
   getAllSales: () => Sale[];
   refreshSales: () => Promise<void>;
+  resetTodaySales: () => Promise<void>;
+  isResetting: boolean;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -29,13 +32,66 @@ function extractArray<T>(data: unknown): T[] {
   return [];
 }
 
+// Check if it's a new day (after midnight)
+const isNewDay = (lastResetCheck: Date | null): boolean => {
+  if (!lastResetCheck) return true;
+  
+  const now = new Date();
+  const lastCheckDate = new Date(lastResetCheck);
+  
+  return !isToday(lastCheckDate);
+};
+
 export function SalesProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+  const [lastResetCheck, setLastResetCheck] = useState<Date | null>(null);
 
-  // Fetch all sales
+  // Check for day change and reset if needed
+  const checkAndResetForNewDay = useCallback(async () => {
+    if (!user?.id || isResetting) return;
+    
+    if (isNewDay(lastResetCheck)) {
+      console.log('New day detected, resetting sales view...');
+      await resetTodaySales();
+      setLastResetCheck(new Date());
+    }
+  }, [user?.id, isResetting, lastResetCheck]);
+
+  // Set up periodic day change check
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    // Initial check
+    checkAndResetForNewDay();
+    
+    // Check every minute
+    const interval = setInterval(checkAndResetForNewDay, 60000);
+    
+    return () => clearInterval(interval);
+  }, [user?.id, checkAndResetForNewDay]);
+
+  // Set up midnight auto-reset
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const now = new Date();
+    const tomorrow = startOfTomorrow();
+    const timeUntilMidnight = tomorrow.getTime() - now.getTime();
+    
+    const midnightTimeout = setTimeout(async () => {
+      console.log('Midnight reached, auto-resetting sales...');
+      await resetTodaySales();
+      setLastResetCheck(new Date());
+    }, timeUntilMidnight + 1000);
+    
+    return () => clearTimeout(midnightTimeout);
+  }, [user?.id]);
+
+  // Fetch all sales from backend
   const refreshSales = useCallback(async () => {
     if (!isAuthenticated) return;
     
@@ -55,6 +111,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       console.error('Failed to fetch sales:', err);
+      setError('Failed to load sales data');
       setSales([]);
     } finally {
       setIsLoading(false);
@@ -66,7 +123,8 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated) {
       refreshSales();
     } else {
-      setSales([]);
+      // Don't clear sales when logging out - they stay in context
+      // The filtering happens in getTodaySales() method
     }
   }, [isAuthenticated, refreshSales]);
 
@@ -105,7 +163,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     return sales.filter(sale => sale.cashierId === cashierId);
   };
 
-  // Get today's sales
+  // Get today's sales - ALWAYS fetches from backend for accurate daily data
   const getTodaySales = async (cashierId?: string): Promise<Sale[]> => {
     if (cashierId) {
       try {
@@ -122,26 +180,46 @@ export function SalesProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (err) {
-        console.error('Failed to fetch today sales:', err);
+        console.error('Failed to fetch today sales from API:', err);
+        // Fallback to filtering from local state
       }
     }
     
-    // Filter from local state
+    // Fallback: Filter from local state by today's date
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
     return sales.filter(sale => {
       const saleDate = new Date(sale.createdAt);
       saleDate.setHours(0, 0, 0, 0);
-      const isToday = saleDate.getTime() === today.getTime();
+      const isTodaySale = saleDate.getTime() === today.getTime();
       const matchesCashier = !cashierId || sale.cashierId === cashierId;
-      return isToday && matchesCashier;
+      return isTodaySale && matchesCashier;
     });
   };
 
   // Get all sales
   const getAllSales = () => {
     return sales;
+  };
+
+  // Reset today's sales by calling backend API
+  const resetTodaySales = async (): Promise<void> => {
+    if (!user?.id) return;
+    
+    setIsResetting(true);
+    try {
+      // Call backend API to reset daily sales for this cashier
+      await salesService.resetDailySales(user.id);
+      console.log('Daily sales reset on backend for cashier:', user.id);
+      
+      // Refresh sales data to get updated list
+      await refreshSales();
+    } catch (error) {
+      console.error('Failed to reset daily sales:', error);
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   return (
@@ -154,6 +232,8 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       getTodaySales,
       getAllSales,
       refreshSales,
+      resetTodaySales,
+      isResetting,
     }}>
       {children}
     </SalesContext.Provider>
