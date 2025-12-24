@@ -30,8 +30,9 @@ import {
   CreditCard,
   RefreshCw,
   Clock,
+  TrendingUp,
 } from 'lucide-react';
-import { format, startOfTomorrow, differenceInMilliseconds } from 'date-fns';
+import { format, startOfTomorrow, differenceInMilliseconds, isToday } from 'date-fns';
 import { toast } from 'sonner';
 
 const unitLabels: Record<UnitType, string> = {
@@ -44,12 +45,11 @@ const unitLabels: Record<UnitType, string> = {
 
 export default function MySales() {
   const { user } = useAuth();
-  const { getTodaySales, resetTodaySales, isResetting } = useSales();
+  const { cashierTodaySales, isLoading, refreshCashierTodaySales } = useSales();
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
-  const [todaySales, setTodaySales] = useState<Sale[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [timeUntilReset, setTimeUntilReset] = useState<string>('');
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [autoRefreshCount, setAutoRefreshCount] = useState(0);
   
   const cashierId = user?.id || '';
   const resetIntervalRef = useRef<NodeJS.Timeout>();
@@ -82,37 +82,39 @@ export default function MySales() {
   const fetchTodaySales = useCallback(async () => {
     if (!cashierId) return;
     
-    setIsLoading(true);
     try {
-      const sales = await getTodaySales(cashierId);
-      setTodaySales(sales);
+      const sales = await refreshCashierTodaySales(cashierId);
       setLastUpdated(new Date());
       
-      if (sales.length > 0) {
-        toast.success(`Loaded ${sales.length} sales for today`);
+      if (sales && sales.length > 0) {
+        console.log(`Loaded ${sales.length} sales for today`);
       }
     } catch (error) {
       console.error('Failed to fetch today sales:', error);
       toast.error('Failed to load today\'s sales');
-    } finally {
-      setIsLoading(false);
     }
-  }, [cashierId, getTodaySales]);
+  }, [cashierId, refreshCashierTodaySales]);
 
-  // Set up auto-refresh every 5 minutes
+  // Initial fetch on component mount
+  useEffect(() => {
+    if (cashierId) {
+      fetchTodaySales();
+    }
+  }, [cashierId, fetchTodaySales]);
+
+  // Set up auto-refresh every 2 minutes
   useEffect(() => {
     if (!cashierId) return;
     
-    fetchTodaySales();
-    
     const interval = setInterval(() => {
       fetchTodaySales();
-    }, 5 * 60 * 1000); // 5 minutes
+      setAutoRefreshCount(prev => prev + 1);
+    }, 2 * 60 * 1000); // 2 minutes
     
     return () => clearInterval(interval);
   }, [cashierId, fetchTodaySales]);
 
-  // Set up midnight auto-reset
+  // Set up midnight auto-clear localStorage
   useEffect(() => {
     if (!cashierId) return;
     
@@ -120,19 +122,21 @@ export default function MySales() {
     const tomorrow = startOfTomorrow();
     const timeUntilMidnight = tomorrow.getTime() - now.getTime();
     
-    // Clear any existing interval
+    // Clear any existing timeout
     if (resetIntervalRef.current) {
       clearTimeout(resetIntervalRef.current);
     }
     
-    resetIntervalRef.current = setTimeout(async () => {
-      try {
-        await resetTodaySales();
-        await fetchTodaySales();
-        toast.info('Daily sales have been reset for the new day');
-      } catch (error) {
-        console.error('Failed to auto-reset at midnight:', error);
-      }
+    resetIntervalRef.current = setTimeout(() => {
+      // Clear localStorage for this cashier's today sales
+      const todayKey = `cashier_${cashierId}_today_sales_${new Date().toISOString().split('T')[0]}`;
+      localStorage.removeItem(todayKey);
+      
+      // Show notification
+      toast.info('New day started! Yesterday\'s sales have been cleared.');
+      
+      // Fetch fresh data for the new day
+      fetchTodaySales();
     }, timeUntilMidnight + 1000);
     
     return () => {
@@ -140,9 +144,10 @@ export default function MySales() {
         clearTimeout(resetIntervalRef.current);
       }
     };
-  }, [cashierId, fetchTodaySales, resetTodaySales]);
+  }, [cashierId, fetchTodaySales]);
 
-  // Calculate daily stats
+  // Calculate daily stats from cashierTodaySales
+  const todaySales = cashierTodaySales || [];
   const totalSales = todaySales.reduce((sum, sale) => sum + sale.total, 0);
   const cashSales = todaySales.filter((s) => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.total, 0);
   const mpesaSales = todaySales.filter((s) => s.paymentMethod === 'mpesa').reduce((sum, s) => sum + s.total, 0);
@@ -153,6 +158,9 @@ export default function MySales() {
   const cashTransactions = todaySales.filter((s) => s.paymentMethod === 'cash').length;
   const mpesaTransactions = todaySales.filter((s) => s.paymentMethod === 'mpesa').length;
   const cardTransactions = todaySales.filter((s) => s.paymentMethod === 'card').length;
+
+  // Calculate average sale
+  const averageSale = transactionCount > 0 ? totalSales / transactionCount : 0;
 
   const getPaymentBadge = (method: string) => {
     switch (method) {
@@ -176,18 +184,6 @@ export default function MySales() {
     toast.success('Sales data refreshed');
   };
 
-  const handleManualReset = async () => {
-    if (confirm('Are you sure you want to reset today\'s sales? This action cannot be undone.')) {
-      try {
-        await resetTodaySales();
-        await fetchTodaySales();
-        toast.success('Daily sales have been reset');
-      } catch (error) {
-        toast.error('Failed to reset sales');
-      }
-    }
-  };
-
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -206,6 +202,11 @@ export default function MySales() {
               <p className="text-xs text-muted-foreground">
                 Last updated: {format(lastUpdated, 'HH:mm:ss')}
               </p>
+              {autoRefreshCount > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Auto-refreshed: {autoRefreshCount} times
+                </p>
+              )}
             </div>
           </div>
           <div className="flex gap-2">
@@ -217,19 +218,11 @@ export default function MySales() {
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleManualReset}
-              disabled={isResetting || todaySales.length === 0}
-              size="sm"
-            >
-              {isResetting ? 'Resetting...' : 'Reset Day'}
-            </Button>
           </div>
         </div>
 
         {/* Daily Stats - Consolidated */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
             <CardContent className="p-4">
               <div className="flex items-center gap-4">
@@ -289,6 +282,21 @@ export default function MySales() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="bg-orange-50 border-orange-200">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-full bg-orange-100">
+                  <TrendingUp className="h-6 w-6 text-orange-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-muted-foreground">Average Sale</p>
+                  <p className="text-2xl font-bold">KSh {averageSale.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                  <p className="text-xs text-muted-foreground">Per transaction</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Today's Transactions Table */}
@@ -298,9 +306,12 @@ export default function MySales() {
               <CardTitle className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
                 Today's Transactions
+                <Badge variant="outline" className="ml-2">
+                  {todaySales.length}
+                </Badge>
               </CardTitle>
               <div className="text-sm text-muted-foreground">
-                Total: {todaySales.length} sales • KSh {totalSales.toLocaleString()}
+                Total: KSh {totalSales.toLocaleString()}
               </div>
             </div>
           </CardHeader>
@@ -315,6 +326,14 @@ export default function MySales() {
                 <ShoppingCart className="h-16 w-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">No sales yet today</p>
                 <p className="text-sm">Start selling to see your transactions here</p>
+                <Button 
+                  variant="outline" 
+                  className="mt-4"
+                  onClick={handleRefresh}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Check for new sales
+                </Button>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -368,6 +387,29 @@ export default function MySales() {
                 </Table>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Data Persistence Info */}
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-full bg-blue-100">
+                <Clock className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-medium text-blue-800">Data Persistence</p>
+                <p className="text-sm text-blue-600 mt-1">
+                  Your sales data is automatically saved and will persist even if you refresh the page or log out.
+                  Data resets automatically at midnight (00:00).
+                </p>
+                <div className="flex gap-4 mt-2 text-xs text-blue-500">
+                  <span>✓ Saved locally</span>
+                  <span>✓ Auto-refresh every 2 min</span>
+                  <span>✓ Auto-reset at midnight</span>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

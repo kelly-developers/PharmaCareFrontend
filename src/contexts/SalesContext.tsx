@@ -2,19 +2,20 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { Sale } from '@/types/pharmacy';
 import { salesService } from '@/services/salesService';
 import { useAuth } from './AuthContext';
-import { isToday, startOfTomorrow } from 'date-fns';
+import { isToday, startOfTomorrow, isSameDay } from 'date-fns';
 
 interface SalesContextType {
   sales: Sale[];
   isLoading: boolean;
   error: string | null;
+  cashierTodaySales: Sale[];
   addSale: (sale: Omit<Sale, 'id'>) => Promise<Sale | null>;
   getSalesByCashier: (cashierId: string) => Sale[];
   getTodaySales: (cashierId?: string) => Promise<Sale[]>;
   getAllSales: () => Sale[];
   refreshSales: () => Promise<void>;
-  resetTodaySales: () => Promise<void>;
-  isResetting: boolean;
+  fetchCashierTodaySales: (cashierId: string) => Promise<void>;
+  refreshCashierTodaySales: (cashierId: string) => Promise<void>;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -32,101 +33,174 @@ function extractArray<T>(data: unknown): T[] {
   return [];
 }
 
-// Check if it's a new day (after midnight)
-const isNewDay = (lastResetCheck: Date | null): boolean => {
-  if (!lastResetCheck) return true;
-  
+// Get localStorage key for cashier's today sales
+const getStorageKey = (cashierId: string) => `cashier_${cashierId}_today_sales_${new Date().toISOString().split('T')[0]}`;
+
+// Get midnight timestamp
+const getMidnightTimestamp = () => {
   const now = new Date();
-  const lastCheckDate = new Date(lastResetCheck);
-  
-  return !isToday(lastCheckDate);
+  const midnight = new Date(now);
+  midnight.setHours(23, 59, 59, 999);
+  return midnight.getTime();
 };
 
 export function SalesProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
+  const [cashierTodaySales, setCashierTodaySales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isResetting, setIsResetting] = useState(false);
-  const [lastResetCheck, setLastResetCheck] = useState<Date | null>(null);
 
-  // Check for day change and reset if needed
-  const checkAndResetForNewDay = useCallback(async () => {
-    if (!user?.id || isResetting) return;
-    
-    if (isNewDay(lastResetCheck)) {
-      console.log('New day detected, resetting sales view...');
-      await resetTodaySales();
-      setLastResetCheck(new Date());
+  // Load cashier's today sales from localStorage
+  const loadStoredCashierTodaySales = (cashierId: string): Sale[] => {
+    try {
+      const stored = localStorage.getItem(getStorageKey(cashierId));
+      if (stored) {
+        const data = JSON.parse(stored);
+        // Check if data is still valid (same day)
+        if (data.expiresAt > Date.now() && data.cashierId === cashierId) {
+          return data.sales.map((sale: any) => ({
+            ...sale,
+            createdAt: new Date(sale.createdAt),
+          }));
+        } else {
+          // Clear expired data
+          localStorage.removeItem(getStorageKey(cashierId));
+        }
+      }
+    } catch (err) {
+      console.error('Error reading stored sales:', err);
     }
-  }, [user?.id, isResetting, lastResetCheck]);
+    return [];
+  };
 
-  // Set up periodic day change check
-  useEffect(() => {
-    if (!user?.id) return;
-    
-    // Initial check
-    checkAndResetForNewDay();
-    
-    // Check every minute
-    const interval = setInterval(checkAndResetForNewDay, 60000);
-    
-    return () => clearInterval(interval);
-  }, [user?.id, checkAndResetForNewDay]);
+  // Save cashier's today sales to localStorage
+  const saveCashierTodaySales = (cashierId: string, salesData: Sale[]) => {
+    try {
+      const storageData = {
+        sales: salesData,
+        expiresAt: getMidnightTimestamp(),
+        cashierId,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(getStorageKey(cashierId), JSON.stringify(storageData));
+    } catch (err) {
+      console.error('Error saving sales to localStorage:', err);
+    }
+  };
 
-  // Set up midnight auto-reset
-  useEffect(() => {
-    if (!user?.id) return;
-    
-    const now = new Date();
-    const tomorrow = startOfTomorrow();
-    const timeUntilMidnight = tomorrow.getTime() - now.getTime();
-    
-    const midnightTimeout = setTimeout(async () => {
-      console.log('Midnight reached, auto-resetting sales...');
-      await resetTodaySales();
-      setLastResetCheck(new Date());
-    }, timeUntilMidnight + 1000);
-    
-    return () => clearTimeout(midnightTimeout);
-  }, [user?.id]);
-
-  // Fetch all sales from backend
+  // Fetch all sales (for admins/managers)
   const refreshSales = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !user) return;
+    
+    // Only fetch all sales for admins/managers
+    if (user.role === 'admin' || user.role === 'manager') {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await salesService.getAll();
+        if (response.success && response.data) {
+          const salesArray = extractArray<Sale>(response.data);
+          setSales(salesArray.map(sale => ({
+            ...sale,
+            createdAt: new Date(sale.createdAt),
+          })));
+        } else {
+          console.warn('Failed to fetch sales:', response.error);
+          setSales([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch sales:', err);
+        setSales([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  }, [isAuthenticated, user]);
+
+  // Fetch cashier's today sales from backend
+  const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
+    if (!cashierId) return;
     
     setIsLoading(true);
     setError(null);
     try {
-      const response = await salesService.getAll();
+      const response = await salesService.getCashierTodaySales(cashierId);
       if (response.success && response.data) {
-        const salesArray = extractArray<Sale>(response.data);
-        setSales(salesArray.map(sale => ({
+        const todaySales = extractArray<Sale>(response.data).map(sale => ({
           ...sale,
           createdAt: new Date(sale.createdAt),
-        })));
+        }));
+        
+        // Store in state
+        setCashierTodaySales(todaySales);
+        
+        // Save to localStorage for persistence
+        saveCashierTodaySales(cashierId, todaySales);
+        
       } else {
-        console.warn('Failed to fetch sales:', response.error);
-        setSales([]);
+        // Try to get from localStorage if API fails
+        const stored = loadStoredCashierTodaySales(cashierId);
+        setCashierTodaySales(stored);
       }
     } catch (err) {
-      console.error('Failed to fetch sales:', err);
-      setError('Failed to load sales data');
-      setSales([]);
+      console.error('Failed to fetch today sales:', err);
+      // Fallback to localStorage
+      const stored = loadStoredCashierTodaySales(cashierId);
+      setCashierTodaySales(stored);
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated]);
+  }, []);
 
-  // Only fetch when authenticated
+  // Refresh cashier's today sales (force update from backend)
+  const refreshCashierTodaySales = async (cashierId: string) => {
+    if (!cashierId) return;
+    
+    setIsLoading(true);
+    try {
+      const response = await salesService.getCashierTodaySales(cashierId);
+      if (response.success && response.data) {
+        const todaySales = extractArray<Sale>(response.data).map(sale => ({
+          ...sale,
+          createdAt: new Date(sale.createdAt),
+        }));
+        
+        // Store in state
+        setCashierTodaySales(todaySales);
+        
+        // Save to localStorage for persistence
+        saveCashierTodaySales(cashierId, todaySales);
+        
+        return todaySales;
+      }
+    } catch (err) {
+      console.error('Failed to refresh today sales:', err);
+    } finally {
+      setIsLoading(false);
+    }
+    return [];
+  };
+
+  // Initialize based on user role
   useEffect(() => {
-    if (isAuthenticated) {
-      refreshSales();
+    if (isAuthenticated && user) {
+      if (user.role === 'cashier') {
+        // For cashiers, load their today sales from localStorage first
+        const storedSales = loadStoredCashierTodaySales(user.id);
+        setCashierTodaySales(storedSales);
+        
+        // Then fetch from backend to get latest
+        fetchCashierTodaySales(user.id);
+      } else if (user.role === 'admin' || user.role === 'manager') {
+        // For admins/managers, fetch all sales
+        refreshSales();
+      }
     } else {
       // Don't clear sales when logging out - they stay in context
       // The filtering happens in getTodaySales() method
     }
-  }, [isAuthenticated, refreshSales]);
+  }, [isAuthenticated, user, refreshSales, fetchCashierTodaySales]);
 
   // Add a new sale
   const addSale = async (saleData: Omit<Sale, 'id'>): Promise<Sale | null> => {
@@ -149,7 +223,24 @@ export function SalesProvider({ children }: { children: ReactNode }) {
           ...response.data,
           createdAt: new Date(response.data.createdAt),
         };
+        
+        // Update both states
         setSales(prev => [newSale, ...prev]);
+        
+        // Check if this sale is from today
+        const saleDate = new Date(newSale.createdAt);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        saleDate.setHours(0, 0, 0, 0);
+        
+        // If this is the current cashier's sale from today, add to today sales
+        if (user && user.id === saleData.cashierId && saleDate.getTime() === today.getTime()) {
+          setCashierTodaySales(prev => [newSale, ...prev]);
+          
+          // Update localStorage
+          saveCashierTodaySales(user.id, [newSale, ...cashierTodaySales]);
+        }
+        
         return newSale;
       }
       return null;
@@ -163,29 +254,14 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     return sales.filter(sale => sale.cashierId === cashierId);
   };
 
-  // Get today's sales - ALWAYS fetches from backend for accurate daily data
+  // Get today's sales - Uses stored cashierTodaySales for cashiers
   const getTodaySales = async (cashierId?: string): Promise<Sale[]> => {
-    if (cashierId) {
-      try {
-        const response = await salesService.getTodaySales(cashierId);
-        if (response.success && response.data) {
-          // Handle both { sales: [] } and direct array
-          const responseData = response.data as unknown as Record<string, unknown>;
-          const salesData = (responseData.sales as Sale[]) || [];
-          if (Array.isArray(salesData)) {
-            return salesData.map(sale => ({
-              ...sale,
-              createdAt: new Date(sale.createdAt),
-            }));
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch today sales from API:', err);
-        // Fallback to filtering from local state
-      }
+    if (cashierId && user && user.id === cashierId) {
+      // For current cashier, return from cashierTodaySales state
+      return cashierTodaySales;
     }
     
-    // Fallback: Filter from local state by today's date
+    // For others or no cashierId specified, filter from all sales
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -203,37 +279,19 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     return sales;
   };
 
-  // Reset today's sales by calling backend API
-  const resetTodaySales = async (): Promise<void> => {
-    if (!user?.id) return;
-    
-    setIsResetting(true);
-    try {
-      // Call backend API to reset daily sales for this cashier
-      await salesService.resetDailySales(user.id);
-      console.log('Daily sales reset on backend for cashier:', user.id);
-      
-      // Refresh sales data to get updated list
-      await refreshSales();
-    } catch (error) {
-      console.error('Failed to reset daily sales:', error);
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
   return (
     <SalesContext.Provider value={{
       sales,
       isLoading,
       error,
+      cashierTodaySales,
       addSale,
       getSalesByCashier,
       getTodaySales,
       getAllSales,
       refreshSales,
-      resetTodaySales,
-      isResetting,
+      fetchCashierTodaySales,
+      refreshCashierTodaySales,
     }}>
       {children}
     </SalesContext.Provider>

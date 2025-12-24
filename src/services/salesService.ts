@@ -61,15 +61,15 @@ export const salesService = {
     return api.post<Sale>('/sales', sale);
   },
 
-  // Get today's sales for a specific cashier
-  async getTodaySales(cashierId: string): Promise<ApiResponse<DailySalesReport>> {
-    return api.get<DailySalesReport>(`/sales/today/${cashierId}`);
+  // Get today's sales for a specific cashier - CRITICAL ENDPOINT
+  async getCashierTodaySales(cashierId: string): Promise<ApiResponse<Sale[]>> {
+    return api.get<Sale[]>(`/sales/cashier/${cashierId}/today`);
   },
 
-  // Get today's sales for all cashiers
-  async getAllTodaySales(): Promise<ApiResponse<Sale[]>> {
-    const today = new Date().toISOString().split('T')[0];
-    return api.get<Sale[]>(`/sales/today?date=${today}`);
+  // Get today's sales summary for all cashiers
+  async getTodaySalesSummary(cashierId?: string): Promise<ApiResponse<DailySalesReport>> {
+    const url = cashierId ? `/sales/today?cashierId=${cashierId}` : '/sales/today';
+    return api.get<DailySalesReport>(url);
   },
 
   // Get sales by cashier
@@ -79,7 +79,7 @@ export const salesService = {
 
   // Get sales by date range
   async getByDateRange(startDate: string, endDate: string, cashierId?: string): Promise<ApiResponse<Sale[]>> {
-    let url = `/sales/date-range?startDate=${startDate}&endDate=${endDate}`;
+    let url = `/sales?startDate=${startDate}&endDate=${endDate}`;
     if (cashierId) {
       url += `&cashierId=${cashierId}`;
     }
@@ -88,7 +88,7 @@ export const salesService = {
 
   // Get daily sales report
   async getDailyReport(date: string): Promise<ApiResponse<DailySalesReport>> {
-    return api.get<DailySalesReport>(`/sales/report/daily?date=${date}`);
+    return api.get<DailySalesReport>(`/sales/report?startDate=${date}&endDate=${date}&groupBy=day`);
   },
 
   // Get sales summary for period
@@ -100,7 +100,7 @@ export const salesService = {
     salesByPaymentMethod: { method: string; total: number; count: number }[];
     salesByCategory: { category: string; total: number }[];
   }>> {
-    return api.get(`/sales/summary?startDate=${startDate}&endDate=${endDate}`);
+    return api.get(`/sales/report?startDate=${startDate}&endDate=${endDate}`);
   },
 
   // Get cashier performance report
@@ -115,17 +115,14 @@ export const salesService = {
     transactionCount: number;
     sales: Sale[];
   }>> {
+    // You might need to implement this endpoint on backend
     return api.get(`/sales/performance/${cashierId}?period=${period}`);
   },
 
-  // Reset daily sales (for end of day) - CRITICAL FOR YOUR REQUIREMENT
+  // Reset daily sales - for testing purposes only
   async resetDailySales(cashierId: string): Promise<ApiResponse<{ message: string; resetTime: string }>> {
+    // This endpoint would need to be implemented on backend
     return api.post<{ message: string; resetTime: string }>(`/sales/reset-daily/${cashierId}`, {});
-  },
-
-  // Archive today's sales and start new day
-  async archiveDailySales(): Promise<ApiResponse<{ message: string; archivedCount: number }>> {
-    return api.post<{ message: string; archivedCount: number }>('/sales/archive-daily', {});
   },
 
   // Get sales statistics
