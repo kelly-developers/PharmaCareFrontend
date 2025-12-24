@@ -6,8 +6,8 @@ interface PrescriptionsContextType {
   prescriptions: Prescription[];
   isLoading: boolean;
   error: string | null;
-  addPrescription: (prescription: Omit<Prescription, 'id' | 'createdAt' | 'status'>) => Promise<Prescription | null>;
-  updatePrescriptionStatus: (id: string, status: 'pending' | 'dispensed' | 'cancelled', dispensedBy?: string) => Promise<boolean>;
+  addPrescription: (prescription: Omit<Prescription, 'id' | 'createdAt' | 'status' | 'createdBy' | 'createdByName'>) => Promise<Prescription | null>;
+  updatePrescriptionStatus: (id: string, status: 'PENDING' | 'DISPENSED' | 'CANCELLED', dispensedBy?: string) => Promise<boolean>;
   getPendingPrescriptions: () => Prescription[];
   getDispensedPrescriptions: () => Prescription[];
   refreshPrescriptions: () => Promise<void>;
@@ -29,7 +29,7 @@ function extractArray<T>(data: unknown): T[] {
 }
 
 export function PrescriptionsProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export function PrescriptionsProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, refreshPrescriptions]);
 
-  const addPrescription = async (prescriptionData: Omit<Prescription, 'id' | 'createdAt' | 'status'>): Promise<Prescription | null> => {
+  const addPrescription = async (prescriptionData: Omit<Prescription, 'id' | 'createdAt' | 'status' | 'createdBy' | 'createdByName'>): Promise<Prescription | null> => {
     try {
       const response = await prescriptionService.create({
         patientName: prescriptionData.patientName,
@@ -78,7 +78,7 @@ export function PrescriptionsProvider({ children }: { children: ReactNode }) {
         diagnosis: prescriptionData.diagnosis,
         items: prescriptionData.items,
         notes: prescriptionData.notes,
-        createdBy: prescriptionData.createdBy,
+        // Do NOT send createdBy - backend will get it from authentication
       });
       
       if (response.success && response.data) {
@@ -93,7 +93,7 @@ export function PrescriptionsProvider({ children }: { children: ReactNode }) {
 
   const updatePrescriptionStatus = async (
     id: string, 
-    status: 'pending' | 'dispensed' | 'cancelled', 
+    status: 'PENDING' | 'DISPENSED' | 'CANCELLED', 
     dispensedBy?: string
   ): Promise<boolean> => {
     try {
@@ -105,8 +105,8 @@ export function PrescriptionsProvider({ children }: { children: ReactNode }) {
             return {
               ...rx,
               status,
-              dispensedAt: status === 'dispensed' ? new Date().toISOString() : undefined,
-              dispensedBy: status === 'dispensed' ? dispensedBy : undefined,
+              dispensedAt: status === 'DISPENSED' ? new Date().toISOString() : undefined,
+              dispensedBy: status === 'DISPENSED' ? dispensedBy : undefined,
             };
           }
           return rx;
@@ -119,8 +119,8 @@ export function PrescriptionsProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const getPendingPrescriptions = () => prescriptions.filter(rx => rx.status === 'pending');
-  const getDispensedPrescriptions = () => prescriptions.filter(rx => rx.status === 'dispensed');
+  const getPendingPrescriptions = () => prescriptions.filter(rx => rx.status === 'PENDING');
+  const getDispensedPrescriptions = () => prescriptions.filter(rx => rx.status === 'DISPENSED');
 
   return (
     <PrescriptionsContext.Provider value={{

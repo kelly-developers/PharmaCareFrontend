@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useStock } from '@/contexts/StockContext';
 import { usePrescriptions } from '@/contexts/PrescriptionsContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Select,
   SelectContent,
@@ -44,7 +45,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 
-interface PrescriptionItem {
+interface PrescriptionItemForm {
   medicine: string;
   dosage: string;
   frequency: string;
@@ -76,11 +77,12 @@ const durations = [
 
 export default function Prescriptions() {
   const { prescriptions, addPrescription, updatePrescriptionStatus } = usePrescriptions();
+  const { user } = useAuth(); // Get current user for display
   const { medicines } = useStock();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedPrescription, setSelectedPrescription] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItem[]>([
+  const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItemForm[]>([
     { medicine: '', dosage: '', frequency: '', duration: '', instructions: '' },
   ]);
   const [formData, setFormData] = useState({
@@ -110,13 +112,13 @@ export default function Prescriptions() {
     }
   };
 
-  const updatePrescriptionItem = (index: number, field: keyof PrescriptionItem, value: string) => {
+  const updatePrescriptionItem = (index: number, field: keyof PrescriptionItemForm, value: string) => {
     const updated = [...prescriptionItems];
     updated[index] = { ...updated[index], [field]: value };
     setPrescriptionItems(updated);
   };
 
-  const handleCreatePrescription = () => {
+  const handleCreatePrescription = async () => {
     if (!formData.patientName || !formData.diagnosis || !prescriptionItems[0].medicine) {
       toast({
         title: 'Error',
@@ -126,39 +128,76 @@ export default function Prescriptions() {
       return;
     }
 
-    const prescription = {
-      id: `RX-${Date.now().toString().slice(-6)}`,
-      patientName: formData.patientName,
-      patientPhone: formData.patientPhone,
-      diagnosis: formData.diagnosis,
-      items: prescriptionItems.filter(item => item.medicine),
-      notes: formData.notes,
-      createdBy: 'Pharmacist',
-      createdAt: new Date(),
-      status: 'pending' as const,
-    };
+    try {
+      // Don't send createdBy - backend will get it from authentication
+      const prescription = {
+        patientName: formData.patientName,
+        patientPhone: formData.patientPhone,
+        diagnosis: formData.diagnosis,
+        items: prescriptionItems.filter(item => item.medicine),
+        notes: formData.notes,
+      };
 
-    addPrescription(prescription);
-    setShowAddDialog(false);
-    setFormData({ patientName: '', patientPhone: '', diagnosis: '', notes: '' });
-    setPrescriptionItems([{ medicine: '', dosage: '', frequency: '', duration: '', instructions: '' }]);
-    
-    toast({
-      title: 'Prescription Created',
-      description: `Prescription ${prescription.id} for ${prescription.patientName}`,
-    });
+      const result = await addPrescription(prescription);
+      
+      if (result) {
+        setShowAddDialog(false);
+        setFormData({ patientName: '', patientPhone: '', diagnosis: '', notes: '' });
+        setPrescriptionItems([{ medicine: '', dosage: '', frequency: '', duration: '', instructions: '' }]);
+        
+        toast({
+          title: 'Prescription Created',
+          description: `Prescription for ${prescription.patientName} has been created`,
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Failed to create prescription',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to create prescription',
+        variant: 'destructive',
+      });
+    }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'pending':
+      case 'PENDING':
         return <Badge variant="warning">Pending</Badge>;
-      case 'dispensed':
+      case 'DISPENSED':
         return <Badge variant="success">Dispensed</Badge>;
-      case 'cancelled':
+      case 'CANCELLED':
         return <Badge variant="destructive">Cancelled</Badge>;
       default:
         return <Badge>{status}</Badge>;
+    }
+  };
+
+  const handleUpdateStatus = async (id: string, status: 'PENDING' | 'DISPENSED' | 'CANCELLED') => {
+    try {
+      if (status === 'DISPENSED') {
+        // For dispensed status, you might want to pass the current user's ID
+        // This depends on your backend implementation
+        await updatePrescriptionStatus(id, status, user?.id);
+      } else {
+        await updatePrescriptionStatus(id, status);
+      }
+      
+      toast({
+        title: 'Status Updated',
+        description: `Prescription status updated to ${status.toLowerCase()}`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update status',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -348,7 +387,7 @@ export default function Prescriptions() {
                 <div>
                   <p className="text-sm text-muted-foreground">Pending</p>
                   <p className="text-2xl font-bold">
-                    {prescriptions.filter(rx => rx.status === 'pending').length}
+                    {prescriptions.filter(rx => rx.status === 'PENDING').length}
                   </p>
                 </div>
               </div>
@@ -363,7 +402,7 @@ export default function Prescriptions() {
                 <div>
                   <p className="text-sm text-muted-foreground">Dispensed</p>
                   <p className="text-2xl font-bold">
-                    {prescriptions.filter(rx => rx.status === 'dispensed').length}
+                    {prescriptions.filter(rx => rx.status === 'DISPENSED').length}
                   </p>
                 </div>
               </div>
@@ -400,6 +439,7 @@ export default function Prescriptions() {
                     <TableHead>Patient</TableHead>
                     <TableHead>Diagnosis</TableHead>
                     <TableHead>Medicines</TableHead>
+                    <TableHead>Prescribed By</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -421,6 +461,9 @@ export default function Prescriptions() {
                       <TableCell>
                         <Badge variant="outline">{rx.items.length} medicine(s)</Badge>
                       </TableCell>
+                      <TableCell>
+                        <p className="text-sm">{rx.createdByName || 'Unknown'}</p>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">
                         {format(new Date(rx.createdAt), 'MMM dd, yyyy')}
                       </TableCell>
@@ -430,10 +473,21 @@ export default function Prescriptions() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setSelectedPrescription(rx)}
+                          className="mr-2"
                         >
                           <Eye className="h-4 w-4 mr-1" />
                           View
                         </Button>
+                        {rx.status === 'PENDING' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleUpdateStatus(rx.id, 'DISPENSED')}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Dispense
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -487,10 +541,14 @@ export default function Prescriptions() {
                   <span className="text-muted-foreground">Status:</span>
                   {getStatusBadge(selectedPrescription.status)}
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Prescribed by:</span>
+                  <span>{selectedPrescription.createdByName || 'Unknown'}</span>
+                </div>
                 {selectedPrescription.dispensedAt && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Dispensed:</span>
-                    <span>{format(new Date(selectedPrescription.dispensedAt), 'PPP')} by {selectedPrescription.dispensedBy}</span>
+                    <span>{format(new Date(selectedPrescription.dispensedAt), 'PPP')} by {selectedPrescription.dispensedByName || 'Unknown'}</span>
                   </div>
                 )}
               </div>
@@ -523,7 +581,7 @@ export default function Prescriptions() {
               )}
 
               <div className="border-t pt-4 text-xs text-muted-foreground text-center">
-                <p>Prescribed by: {selectedPrescription.createdBy}</p>
+                <p>Prescribed by: {selectedPrescription.createdByName || 'Unknown'}</p>
               </div>
             </div>
           )}

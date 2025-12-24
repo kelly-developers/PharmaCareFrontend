@@ -15,11 +15,13 @@ export interface Prescription {
   diagnosis: string;
   items: PrescriptionItem[];
   notes: string;
-  createdBy: string;
+  createdBy: string; // This will be the user's ID from backend
+  createdByName: string; // User's name from backend
   createdAt: string;
-  status: 'pending' | 'dispensed' | 'cancelled';
+  status: 'PENDING' | 'DISPENSED' | 'CANCELLED';
   dispensedAt?: string;
   dispensedBy?: string;
+  dispensedByName?: string;
 }
 
 interface CreatePrescriptionRequest {
@@ -28,11 +30,11 @@ interface CreatePrescriptionRequest {
   diagnosis: string;
   items: PrescriptionItem[];
   notes: string;
-  createdBy: string;
+  // REMOVED: createdBy - backend will set it from authentication
 }
 
 interface UpdatePrescriptionStatusRequest {
-  status: 'pending' | 'dispensed' | 'cancelled';
+  status: 'PENDING' | 'DISPENSED' | 'CANCELLED';
   dispensedBy?: string;
 }
 
@@ -49,6 +51,7 @@ export const prescriptionService = {
 
   // Create new prescription
   async create(prescription: CreatePrescriptionRequest): Promise<ApiResponse<Prescription>> {
+    // Don't send createdBy - backend will get it from authentication
     return api.post<Prescription>('/prescriptions', prescription);
   },
 
