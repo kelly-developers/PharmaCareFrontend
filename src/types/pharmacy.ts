@@ -13,8 +13,20 @@ export interface User {
   updatedAt?: string | Date;
 }
 
-// Medicine unit types - MUST MATCH BACKEND ENUM
+// Medicine unit types - supports both uppercase and lowercase
 export type UnitType = 'SINGLE' | 'STRIP' | 'BOX' | 'PAIR' | 'BOTTLE' | 'single' | 'strip' | 'box' | 'pair' | 'bottle';
+
+// Helper to get unit labels for both cases
+export const getUnitLabel = (type: UnitType): string => {
+  const labels: Record<string, string> = {
+    single: 'Tab', SINGLE: 'Tab',
+    strip: 'Strip', STRIP: 'Strip',
+    box: 'Box', BOX: 'Box',
+    pair: 'Pair', PAIR: 'Pair',
+    bottle: 'Bottle', BOTTLE: 'Bottle',
+  };
+  return labels[type] || type;
+};
 
 export interface MedicineUnit {
   type: UnitType;

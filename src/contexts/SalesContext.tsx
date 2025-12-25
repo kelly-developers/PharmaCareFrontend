@@ -15,7 +15,7 @@ interface SalesContextType {
   getAllSales: () => Sale[];
   refreshSales: () => Promise<void>;
   fetchCashierTodaySales: (cashierId: string) => Promise<void>;
-  refreshCashierTodaySales: (cashierId: string) => Promise<void>;
+  refreshCashierTodaySales: (cashierId: string) => Promise<Sale[]>;
   fetchAllSales: (filters?: any) => Promise<Sale[]>;
 }
 

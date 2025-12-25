@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSales } from '@/contexts/SalesContext';
-import { Sale, UnitType } from '@/types/pharmacy';
+import { Sale, getUnitLabel } from '@/types/pharmacy';
 import {
   Table,
   TableBody,
@@ -29,54 +29,17 @@ import {
   Smartphone,
   CreditCard,
   RefreshCw,
-  Clock,
   TrendingUp,
 } from 'lucide-react';
-import { format, startOfTomorrow, differenceInMilliseconds, isToday } from 'date-fns';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
-
-const unitLabels: Record<UnitType, string> = {
-  single: 'Tab',
-  strip: 'Strip',
-  box: 'Box',
-  pair: 'Pair',
-  bottle: 'Bottle',
-};
 
 export default function MySales() {
   const { user } = useAuth();
   const { cashierTodaySales, isLoading, refreshCashierTodaySales } = useSales();
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
-  const [timeUntilReset, setTimeUntilReset] = useState<string>('');
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [autoRefreshCount, setAutoRefreshCount] = useState(0);
   
   const cashierId = user?.id || '';
-  const resetIntervalRef = useRef<NodeJS.Timeout>();
-
-  // Format time until reset
-  const formatTimeUntilReset = (milliseconds: number) => {
-    const hours = Math.floor(milliseconds / (1000 * 60 * 60));
-    const minutes = Math.floor((milliseconds % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((milliseconds % (1000 * 60)) / 1000);
-    
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  // Update countdown timer
-  useEffect(() => {
-    const updateCountdown = () => {
-      const now = new Date();
-      const tomorrow = startOfTomorrow();
-      const diff = differenceInMilliseconds(tomorrow, now);
-      setTimeUntilReset(formatTimeUntilReset(diff));
-    };
-    
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    
-    return () => clearInterval(interval);
-  }, []);
 
   // Fetch today's sales for current cashier
   const fetchTodaySales = useCallback(async () => {
@@ -84,8 +47,6 @@ export default function MySales() {
     
     try {
       const sales = await refreshCashierTodaySales(cashierId);
-      setLastUpdated(new Date());
-      
       if (sales && sales.length > 0) {
         console.log(`Loaded ${sales.length} sales for today`);
       }
@@ -100,50 +61,6 @@ export default function MySales() {
     if (cashierId) {
       fetchTodaySales();
     }
-  }, [cashierId, fetchTodaySales]);
-
-  // Set up auto-refresh every 2 minutes
-  useEffect(() => {
-    if (!cashierId) return;
-    
-    const interval = setInterval(() => {
-      fetchTodaySales();
-      setAutoRefreshCount(prev => prev + 1);
-    }, 2 * 60 * 1000); // 2 minutes
-    
-    return () => clearInterval(interval);
-  }, [cashierId, fetchTodaySales]);
-
-  // Set up midnight auto-clear localStorage
-  useEffect(() => {
-    if (!cashierId) return;
-    
-    const now = new Date();
-    const tomorrow = startOfTomorrow();
-    const timeUntilMidnight = tomorrow.getTime() - now.getTime();
-    
-    // Clear any existing timeout
-    if (resetIntervalRef.current) {
-      clearTimeout(resetIntervalRef.current);
-    }
-    
-    resetIntervalRef.current = setTimeout(() => {
-      // Clear localStorage for this cashier's today sales
-      const todayKey = `cashier_${cashierId}_today_sales_${new Date().toISOString().split('T')[0]}`;
-      localStorage.removeItem(todayKey);
-      
-      // Show notification
-      toast.info('New day started! Yesterday\'s sales have been cleared.');
-      
-      // Fetch fresh data for the new day
-      fetchTodaySales();
-    }, timeUntilMidnight + 1000);
-    
-    return () => {
-      if (resetIntervalRef.current) {
-        clearTimeout(resetIntervalRef.current);
-      }
-    };
   }, [cashierId, fetchTodaySales]);
 
   // Calculate daily stats from cashierTodaySales
@@ -194,20 +111,6 @@ export default function MySales() {
             <p className="text-muted-foreground mt-1">
               Today's sales summary • {format(new Date(), 'EEEE, MMMM d, yyyy')}
             </p>
-            <div className="flex items-center gap-4 mt-2">
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                Resets in: <span className="font-medium">{timeUntilReset}</span>
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Last updated: {format(lastUpdated, 'HH:mm:ss')}
-              </p>
-              {autoRefreshCount > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Auto-refreshed: {autoRefreshCount} times
-                </p>
-              )}
-            </div>
           </div>
           <div className="flex gap-2">
             <Button 
@@ -389,30 +292,6 @@ export default function MySales() {
             )}
           </CardContent>
         </Card>
-
-        {/* Data Persistence Info */}
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-full bg-blue-100">
-                <Clock className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="font-medium text-blue-800">Data Persistence</p>
-                <p className="text-sm text-blue-600 mt-1">
-                  Your sales data is automatically saved and will persist even if you refresh the page or log out.
-                  Data resets automatically at midnight (00:00).
-                </p>
-                <div className="flex gap-4 mt-2 text-xs text-blue-500">
-                  <span>✓ Saved locally</span>
-                  <span>✓ Auto-refresh every 2 min</span>
-                  <span>✓ Auto-reset at midnight</span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
       </div>
 
       {/* Sale Details Dialog */}
@@ -450,7 +329,7 @@ export default function MySales() {
                 {selectedSale.items.map((item, idx) => (
                   <div key={idx} className="flex justify-between text-xs">
                     <span className="flex-1">
-                      {item.medicineName} ({unitLabels[item.unitType]}) x{item.quantity}
+                      {item.medicineName} ({getUnitLabel(item.unitType)}) x{item.quantity}
                     </span>
                     <span className="font-medium">KSh {item.totalPrice.toLocaleString()}</span>
                   </div>

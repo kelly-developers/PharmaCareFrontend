@@ -38,12 +38,11 @@ const normalizeUser = (raw: any): User => {
 
   return {
     id: String(raw?.id ?? raw?._id ?? ''),
-    // Some backends return `username` or `fullName` instead of `name`
     name: String(raw?.name ?? raw?.fullName ?? raw?.username ?? fallbackName),
     email,
     role: normalizeRole(raw?.role),
     avatar: raw?.avatar,
-    // Backend likely returns a string; keep as-is to avoid crashes in UI
+    isActive: raw?.isActive ?? true,
     createdAt: (raw?.createdAt ?? new Date()) as any,
   };
 };

@@ -51,13 +51,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs';
 
-const unitLabels: Record<UnitType, string> = {
-  single: 'Tab',
-  strip: 'Strip',
-  box: 'Box',
-  pair: 'Pair',
-  bottle: 'Bottle',
-};
+import { getUnitLabel } from '@/types/pharmacy';
 
 // Store carts per cashier in memory
 const cashierCarts: Record<string, SaleItem[]> = {};
@@ -139,7 +133,7 @@ export default function POS() {
 
     toast({
       title: 'Added to cart',
-      description: `${medicine.name} (${unitLabels[unitType]})`,
+      description: `${medicine.name} (${getUnitLabel(unitType)})`,
       duration: 1500,
     });
   };
@@ -162,7 +156,7 @@ export default function POS() {
     setCart((prev) => prev.filter((_, i) => i !== index));
     toast({
       title: 'Removed from cart',
-      description: `${item.medicineName} (${unitLabels[item.unitType]})`,
+      description: `${item.medicineName} (${getUnitLabel(item.unitType)})`,
       duration: 1500,
     });
   };
@@ -319,7 +313,7 @@ export default function POS() {
     
     // Mark prescription as dispensed if loaded from prescription
     if (loadedPrescriptionId) {
-      updatePrescriptionStatus(loadedPrescriptionId, 'dispensed', user?.name);
+      updatePrescriptionStatus(loadedPrescriptionId, 'DISPENSED', user?.name);
       setLoadedPrescriptionId(null);
     }
     
@@ -529,7 +523,7 @@ export default function POS() {
                                     }}
                                   >
                                     <Plus className="h-2 w-2 mr-0.5" />
-                                    {unitLabels[unit.type]} {unit.price}
+                                    {getUnitLabel(unit.type)} {unit.price}
                                   </Button>
                                 ))}
                               </div>
@@ -798,7 +792,7 @@ export default function POS() {
                               </Button>
                             </div>
                             <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
-                              <span>{item.quantity} {unitLabels[item.unitType]}(s) @ KSh {item.unitPrice} each</span>
+                              <span>{item.quantity} {getUnitLabel(item.unitType)}(s) @ KSh {item.unitPrice} each</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1">
@@ -953,9 +947,9 @@ export default function POS() {
                     <div className="font-medium text-[11px] truncate">{item.medicineName}</div>
                     <div className="flex text-[10px]">
                       <span className="flex-1 text-gray-600">
-                        @KSh {item.unitPrice.toLocaleString()}/{unitLabels[item.unitType]}
+                        @KSh {item.unitPrice.toLocaleString()}/{getUnitLabel(item.unitType)}
                       </span>
-                      <span className="w-12 text-center">{item.quantity} {unitLabels[item.unitType]}</span>
+                      <span className="w-12 text-center">{item.quantity} {getUnitLabel(item.unitType)}</span>
                       <span className="w-14 text-right">KSh {item.unitPrice.toLocaleString()}</span>
                       <span className="w-16 text-right font-medium">KSh {item.totalPrice.toLocaleString()}</span>
                     </div>

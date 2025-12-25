@@ -53,13 +53,7 @@ import {
 } from 'lucide-react';
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter } from 'date-fns';
 
-const unitLabels: Record<UnitType, string> = {
-  single: 'Tab',
-  strip: 'Strip',
-  box: 'Box',
-  pair: 'Pair',
-  bottle: 'Bottle',
-};
+import { getUnitLabel } from '@/types/pharmacy';
 
 type Period = 'today' | 'week' | 'month' | 'all';
 
@@ -202,7 +196,7 @@ Cashier: ${sale.cashierName}
 ITEMS:
 ${sale.items.map(item => 
   `${item.medicineName}
-   ${item.quantity} x ${unitLabels[item.unitType]} @ KSh ${item.unitPrice.toLocaleString()}
+   ${item.quantity} x ${getUnitLabel(item.unitType)} @ KSh ${item.unitPrice.toLocaleString()}
    Subtotal: KSh ${item.totalPrice.toLocaleString()}`
 ).join('\n')}
 ----------------------------------------
@@ -629,7 +623,7 @@ ${sale.customerPhone ? `Phone: ${sale.customerPhone}` : ''}
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{item.medicineName}</p>
                           <p className="text-xs text-muted-foreground">
-                            {item.quantity} x {unitLabels[item.unitType]} @ KSh {item.unitPrice.toLocaleString()}
+                            {item.quantity} x {getUnitLabel(item.unitType)} @ KSh {item.unitPrice.toLocaleString()}
                           </p>
                         </div>
                         <p className="font-semibold ml-2">KSh {item.totalPrice.toLocaleString()}</p>

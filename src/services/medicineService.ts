@@ -54,17 +54,20 @@ export const medicineService = {
     
     // Extract the array from backend response structure
     if (response.success && response.data) {
+      const data = response.data as any;
       return {
         ...response,
-        data: Array.isArray(response.data.content) 
-          ? response.data.content 
-          : Array.isArray(response.data.data) 
-            ? response.data.data 
-            : [],
+        data: Array.isArray(data.content) 
+          ? data.content 
+          : Array.isArray(data.data) 
+            ? data.data 
+            : Array.isArray(data)
+              ? data
+              : [],
       };
     }
     
-    return response as ApiResponse<Medicine[]>;
+    return { ...response, data: [] } as ApiResponse<Medicine[]>;
   },
 
   // Get medicine by ID

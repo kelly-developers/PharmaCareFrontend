@@ -88,7 +88,7 @@ function AppRoutes() {
       <Route path="/orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
       <Route path="/sales" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Sales /></ProtectedRoute>} />
       <Route path="/my-sales" element={<ProtectedRoute allowedRoles={['cashier']}><MySales /></ProtectedRoute>} />
-      <Route path="/my-expenses" element={<ProtectedRoute allowedRoles={['cashier']}><CashierExpenses /></ProtectedRoute>} />
+      <Route path="/my-expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><CashierExpenses /></ProtectedRoute>} />
       <Route path="/cashier-tracking" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><CashierTracking /></ProtectedRoute>} />
       <Route path="/expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Expenses /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Reports /></ProtectedRoute>} />

@@ -65,7 +65,6 @@ const navItems = {
   cashier: [
     { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
     { to: '/my-sales', icon: Receipt, label: 'My Sales' },
-    { to: '/my-expenses', icon: Wallet, label: 'Record Expenses' },
   ],
 };
 
