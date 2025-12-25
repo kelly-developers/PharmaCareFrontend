@@ -29,6 +29,7 @@ import {
   Eye,
   Users,
   RefreshCw,
+  Bug,
 } from 'lucide-react';
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter, subDays } from 'date-fns';
 import { toast } from 'sonner';
@@ -36,10 +37,16 @@ import { toast } from 'sonner';
 export default function Sales() {
   const [period, setPeriod] = useState('today');
   const [cashierFilter, setCashierFilter] = useState('all');
-  const { getAllSales, fetchAllSales, isLoading } = useSales();
+  const { getAllSales, fetchAllSales, isLoading, sales } = useSales();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const allSales = getAllSales();
+
+  // DEBUG: Log sales data
+  useEffect(() => {
+    console.log('🔄 Sales component - allSales:', allSales.length);
+    console.log('📊 Sales state:', sales);
+  }, [allSales, sales]);
 
   // Get unique cashiers
   const cashiers = useMemo(() => {
@@ -93,7 +100,8 @@ export default function Sales() {
   // Calculate by payment method
   const byPaymentMethod = useMemo(() => {
     return filteredSales.reduce((acc, sale) => {
-      acc[sale.paymentMethod] = (acc[sale.paymentMethod] || 0) + sale.total;
+      const method = sale.paymentMethod.toLowerCase();
+      acc[method] = (acc[method] || 0) + sale.total;
       return acc;
     }, {} as Record<string, number>);
   }, [filteredSales]);
@@ -111,7 +119,8 @@ export default function Sales() {
   }, [filteredSales]);
 
   const getPaymentBadge = (method: string) => {
-    switch (method) {
+    const lowerMethod = method.toLowerCase();
+    switch (lowerMethod) {
       case 'cash':
         return <Badge variant="success">Cash</Badge>;
       case 'mpesa':
@@ -145,8 +154,30 @@ export default function Sales() {
     }
   };
 
+  const handleDebug = async () => {
+    const token = sessionStorage.getItem('auth_token');
+    console.log('🔑 Token present:', !!token);
+    
+    try {
+      const response = await fetch('https://pharmacare-ywjs.onrender.com/api/sales', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await response.json();
+      console.log('🔍 Direct API response:', data);
+      console.log('📊 Data structure:', data.data?.data?.length || 'No data');
+      toast.info(`API returned ${data.data?.data?.length || 0} sales`);
+    } catch (error) {
+      console.error('❌ API test error:', error);
+      toast.error('API test failed');
+    }
+  };
+
   // Initial fetch on component mount
   useEffect(() => {
+    console.log('🎯 Sales component mounted, fetching data...');
     fetchAllSales();
   }, []);
 
@@ -158,6 +189,9 @@ export default function Sales() {
           <div>
             <h1 className="text-2xl lg:text-3xl font-bold font-display">Sales</h1>
             <p className="text-muted-foreground mt-1">Track and manage your sales</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Showing {filteredSales.length} of {allSales.length} total sales
+            </p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Select value={period} onValueChange={setPeriod}>
@@ -185,6 +219,13 @@ export default function Sales() {
                 ))}
               </SelectContent>
             </Select>
+            <Button 
+              variant="outline" 
+              onClick={handleDebug}
+            >
+              <Bug className="h-4 w-4 mr-2" />
+              Debug
+            </Button>
             <Button 
               variant="outline" 
               onClick={handleRefresh}
@@ -279,9 +320,11 @@ export default function Sales() {
         {/* Sales Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Transactions</CardTitle>
-            <div className="text-sm text-muted-foreground">
-              Total {filteredSales.length} transactions
+            <div className="flex items-center justify-between">
+              <CardTitle>Recent Transactions</CardTitle>
+              <div className="text-sm text-muted-foreground">
+                Total {filteredSales.length} transactions • KSh {totalSales.toLocaleString()}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -289,6 +332,20 @@ export default function Sales() {
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
                 <p className="mt-4 text-muted-foreground">Loading sales data...</p>
+              </div>
+            ) : filteredSales.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <ShoppingCart className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No sales found</p>
+                <p className="text-sm">Try changing the filters or refresh the data</p>
+                <Button 
+                  variant="outline" 
+                  className="mt-4"
+                  onClick={handleRefresh}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh Data
+                </Button>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -306,53 +363,45 @@ export default function Sales() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredSales.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                          No sales found for the selected period
+                    {filteredSales.map((sale) => (
+                      <TableRow key={sale.id}>
+                        <TableCell className="font-mono font-medium text-xs">
+                          {sale.id.substring(0, 8)}...
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{sale.customerName || 'Walk-in'}</p>
+                            {sale.customerPhone && (
+                              <p className="text-xs text-muted-foreground">{sale.customerPhone}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-xs">
+                            <p className="truncate text-sm">
+                              {sale.items.map((i) => `${i.medicineName} x${i.quantity}`).join(', ')}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {sale.items.length} item(s)
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          KSh {sale.total.toLocaleString()}
+                        </TableCell>
+                        <TableCell>{getPaymentBadge(sale.paymentMethod)}</TableCell>
+                        <TableCell>{sale.cashierName}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {format(new Date(sale.createdAt), 'MMM dd, yyyy HH:mm')}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm">
+                            <Eye className="h-4 w-4 mr-1" />
+                            View
+                          </Button>
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      filteredSales.map((sale) => (
-                        <TableRow key={sale.id}>
-                          <TableCell className="font-mono font-medium text-xs">
-                            {sale.id.substring(0, 8)}...
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{sale.customerName || 'Walk-in'}</p>
-                              {sale.customerPhone && (
-                                <p className="text-xs text-muted-foreground">{sale.customerPhone}</p>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="max-w-xs">
-                              <p className="truncate text-sm">
-                                {sale.items.map((i) => `${i.medicineName} x${i.quantity}`).join(', ')}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {sale.items.length} item(s)
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            KSh {sale.total.toLocaleString()}
-                          </TableCell>
-                          <TableCell>{getPaymentBadge(sale.paymentMethod)}</TableCell>
-                          <TableCell>{sale.cashierName}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {format(new Date(sale.createdAt), 'MMM dd, yyyy HH:mm')}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button variant="ghost" size="sm">
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
+                    ))}
                   </TableBody>
                 </Table>
               </div>
