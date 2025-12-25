@@ -36,18 +36,10 @@ interface SalesFilters {
   limit?: number;
 }
 
-// IMPORTANT: Backend returns PaginatedResponse structure
-interface PaginatedSalesResponse {
-  content: Sale[];
-  page: number;
-  limit: number;
-  total: number;
-  pages: number;
-}
-
+// IMPORTANT: Backend returns data in nested structure { data: [...], pagination: {...} }
 export const salesService = {
-  // Get all sales with optional filters - FIXED VERSION
-  async getAll(filters?: SalesFilters): Promise<ApiResponse<PaginatedSalesResponse>> {
+  // Get all sales with optional filters - UPDATED FOR NESTED STRUCTURE
+  async getAll(filters?: SalesFilters): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     if (filters?.startDate) queryParams.append('startDate', filters.startDate);
     if (filters?.endDate) queryParams.append('endDate', filters.endDate);
@@ -57,7 +49,7 @@ export const salesService = {
     if (filters?.limit) queryParams.append('limit', filters.limit.toString());
     
     const query = queryParams.toString();
-    return api.get<PaginatedSalesResponse>(`/sales${query ? `?${query}` : ''}`);
+    return api.get<any>(`/sales${query ? `?${query}` : ''}`);
   },
 
   // Get sale by ID
@@ -70,9 +62,9 @@ export const salesService = {
     return api.post<Sale>('/sales', sale);
   },
 
-  // Get today's sales for a specific cashier - CRITICAL ENDPOINT
-  async getCashierTodaySales(cashierId: string): Promise<ApiResponse<Sale[]>> {
-    return api.get<Sale[]>(`/sales/cashier/${cashierId}/today`);
+  // Get today's sales for a specific cashier
+  async getCashierTodaySales(cashierId: string): Promise<ApiResponse<any>> {
+    return api.get<any>(`/sales/cashier/${cashierId}/today`);
   },
 
   // Get today's sales summary for all cashiers
@@ -82,17 +74,17 @@ export const salesService = {
   },
 
   // Get sales by cashier
-  async getByCashier(cashierId: string): Promise<ApiResponse<PaginatedSalesResponse>> {
-    return api.get<PaginatedSalesResponse>(`/sales/cashier/${cashierId}`);
+  async getByCashier(cashierId: string): Promise<ApiResponse<any>> {
+    return api.get<any>(`/sales/cashier/${cashierId}`);
   },
 
   // Get sales by date range
-  async getByDateRange(startDate: string, endDate: string, cashierId?: string): Promise<ApiResponse<PaginatedSalesResponse>> {
+  async getByDateRange(startDate: string, endDate: string, cashierId?: string): Promise<ApiResponse<any>> {
     let url = `/sales?startDate=${startDate}&endDate=${endDate}`;
     if (cashierId) {
       url += `&cashierId=${cashierId}`;
     }
-    return api.get<PaginatedSalesResponse>(url);
+    return api.get<any>(url);
   },
 
   // Get daily sales report
@@ -110,27 +102,5 @@ export const salesService = {
     salesByCategory: { category: string; total: number }[];
   }>> {
     return api.get(`/sales/report?startDate=${startDate}&endDate=${endDate}`);
-  },
-
-  // Get sales statistics
-  async getStatistics(cashierId?: string): Promise<ApiResponse<{
-    today: {
-      total: number;
-      count: number;
-      cash: number;
-      mpesa: number;
-      card: number;
-    };
-    week: {
-      total: number;
-      count: number;
-    };
-    month: {
-      total: number;
-      count: number;
-    };
-  }>> {
-    const url = cashierId ? `/sales/statistics?cashierId=${cashierId}` : '/sales/statistics';
-    return api.get(url);
   },
 };

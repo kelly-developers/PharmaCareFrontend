@@ -21,20 +21,46 @@ interface SalesContextType {
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
 
-// Helper to extract array from various response formats
+// UPDATED: Helper to extract array from various response formats
 function extractArray<T>(data: unknown): T[] {
   if (!data) return [];
-  if (Array.isArray(data)) return data;
+  
+  console.log('🔍 extractArray received:', data);
+  
+  // If it's already an array, return it
+  if (Array.isArray(data)) {
+    console.log('✅ Direct array found, length:', data.length);
+    return data;
+  }
   
   const obj = data as Record<string, unknown>;
   
-  // Handle PaginatedResponse structure
-  if (obj.content && Array.isArray(obj.content)) return obj.content;
-  // Handle regular array
-  if (obj.data && Array.isArray(obj.data)) return obj.data;
-  // Handle direct array
-  if (Array.isArray(obj)) return obj;
+  // CRITICAL FIX: Your API returns data in nested structure: data.data
+  if (obj.data && Array.isArray(obj.data)) {
+    console.log('✅ Found data.data array, length:', obj.data.length);
+    return obj.data as T[];
+  }
   
+  // Handle PaginatedResponse structure
+  if (obj.content && Array.isArray(obj.content)) {
+    console.log('✅ Found content array, length:', obj.content.length);
+    return obj.content as T[];
+  }
+  
+  // Handle items array
+  if (obj.items && Array.isArray(obj.items)) {
+    console.log('✅ Found items array, length:', obj.items.length);
+    return obj.items as T[];
+  }
+  
+  // Handle direct object (single sale)
+  if (obj.id) {
+    console.log('✅ Single object found, wrapping in array');
+    return [obj as T];
+  }
+  
+  console.log('❌ No array found in data structure');
+  console.log('Object keys:', Object.keys(obj));
   return [];
 }
 
@@ -94,7 +120,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Fetch all sales (for admins/managers)
+  // Fetch all sales (for admins/managers) - SIMPLIFIED VERSION
   const fetchAllSales = useCallback(async (filters?: any) => {
     if (!isAuthenticated || !user) return [];
     
@@ -102,28 +128,48 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await salesService.getAll(filters);
-      console.log('Sales API Response:', response);
+      console.log('📦 API Response:', response);
       
       if (response.success && response.data) {
-        // Extract sales from the response structure
-        const salesArray = extractArray<Sale>(response.data);
-        console.log('Extracted sales:', salesArray.length);
+        // DIRECT APPROACH: Get sales directly from response.data.data
+        let salesArray: Sale[] = [];
+        
+        // Check if response.data has a data property (nested)
+        if (response.data.data && Array.isArray(response.data.data)) {
+          console.log('✅ Found nested data.data array');
+          salesArray = response.data.data;
+        } 
+        // Check if response.data is directly an array
+        else if (Array.isArray(response.data)) {
+          console.log('✅ response.data is directly an array');
+          salesArray = response.data;
+        }
+        // Try extractArray as fallback
+        else {
+          console.log('⚠️ Trying extractArray fallback');
+          salesArray = extractArray<Sale>(response.data);
+        }
+        
+        console.log(`✅ Extracted ${salesArray.length} sales`);
         
         // Map and set sales
         const mappedSales = salesArray.map(sale => ({
           ...sale,
           createdAt: new Date(sale.createdAt),
+          // Ensure paymentMethod is lowercase for frontend consistency
+          paymentMethod: sale.paymentMethod.toLowerCase() as 'cash' | 'mpesa' | 'card',
         }));
         
         setSales(mappedSales);
+        console.log('📊 Sales state updated:', mappedSales.length, 'sales');
         return mappedSales;
       } else {
-        console.warn('Failed to fetch sales:', response.error);
+        console.warn('❌ Failed to fetch sales:', response.error);
         setSales([]);
         return [];
       }
     } catch (err) {
-      console.error('Failed to fetch sales:', err);
+      console.error('❌ Failed to fetch sales:', err);
       setSales([]);
       return [];
     } finally {
@@ -141,7 +187,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, user, fetchAllSales]);
 
-  // Fetch cashier's today sales from backend
+  // Fetch cashier's today sales from backend - UPDATED
   const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
     if (!cashierId) return;
     
@@ -149,30 +195,40 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await salesService.getCashierTodaySales(cashierId);
-      console.log('Cashier today sales response:', response);
+      console.log('👤 Cashier today sales response:', response);
       
       if (response.success && response.data) {
-        const todaySales = extractArray<Sale>(response.data).map(sale => ({
+        let todaySales: Sale[] = [];
+        
+        // Handle nested data.data structure
+        if (response.data.data && Array.isArray(response.data.data)) {
+          todaySales = response.data.data;
+        } else {
+          todaySales = extractArray<Sale>(response.data);
+        }
+        
+        const mappedSales = todaySales.map(sale => ({
           ...sale,
           createdAt: new Date(sale.createdAt),
+          paymentMethod: sale.paymentMethod.toLowerCase() as 'cash' | 'mpesa' | 'card',
         }));
         
-        console.log('Cashier today sales:', todaySales);
+        console.log('👤 Cashier today sales:', mappedSales.length, 'sales');
         
         // Store in state
-        setCashierTodaySales(todaySales);
+        setCashierTodaySales(mappedSales);
         
         // Save to localStorage for persistence
-        saveCashierTodaySales(cashierId, todaySales);
+        saveCashierTodaySales(cashierId, mappedSales);
         
       } else {
-        console.warn('API failed, trying localStorage...');
+        console.warn('❌ API failed, trying localStorage...');
         // Try to get from localStorage if API fails
         const stored = loadStoredCashierTodaySales(cashierId);
         setCashierTodaySales(stored);
       }
     } catch (err) {
-      console.error('Failed to fetch today sales:', err);
+      console.error('❌ Failed to fetch today sales:', err);
       // Fallback to localStorage
       const stored = loadStoredCashierTodaySales(cashierId);
       setCashierTodaySales(stored);
@@ -189,18 +245,27 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     try {
       const response = await salesService.getCashierTodaySales(cashierId);
       if (response.success && response.data) {
-        const todaySales = extractArray<Sale>(response.data).map(sale => ({
+        let todaySales: Sale[] = [];
+        
+        if (response.data.data && Array.isArray(response.data.data)) {
+          todaySales = response.data.data;
+        } else {
+          todaySales = extractArray<Sale>(response.data);
+        }
+        
+        const mappedSales = todaySales.map(sale => ({
           ...sale,
           createdAt: new Date(sale.createdAt),
+          paymentMethod: sale.paymentMethod.toLowerCase() as 'cash' | 'mpesa' | 'card',
         }));
         
         // Store in state
-        setCashierTodaySales(todaySales);
+        setCashierTodaySales(mappedSales);
         
         // Save to localStorage for persistence
-        saveCashierTodaySales(cashierId, todaySales);
+        saveCashierTodaySales(cashierId, mappedSales);
         
-        return todaySales;
+        return mappedSales;
       }
     } catch (err) {
       console.error('Failed to refresh today sales:', err);
@@ -213,7 +278,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   // Initialize based on user role
   useEffect(() => {
     if (isAuthenticated && user) {
-      console.log('Initializing sales for user:', user.role, user.id);
+      console.log('🚀 Initializing sales for user:', user.role, user.id);
       
       if (user.role === 'cashier') {
         // For cashiers, load their today sales from localStorage first
@@ -255,7 +320,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
           createdAt: new Date(response.data.createdAt),
         };
         
-        console.log('New sale added:', newSale);
+        console.log('➕ New sale added:', newSale);
         
         // Update both states
         setSales(prev => [newSale, ...prev]);
@@ -310,6 +375,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
 
   // Get all sales
   const getAllSales = () => {
+    console.log('📊 getAllSales returning:', sales.length, 'sales');
     return sales;
   };
 
