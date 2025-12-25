@@ -16,6 +16,7 @@ interface SalesContextType {
   refreshSales: () => Promise<void>;
   fetchCashierTodaySales: (cashierId: string) => Promise<void>;
   refreshCashierTodaySales: (cashierId: string) => Promise<void>;
+  fetchAllSales: (filters?: any) => Promise<Sale[]>;
 }
 
 const SalesContext = createContext<SalesContextType | undefined>(undefined);
@@ -26,9 +27,13 @@ function extractArray<T>(data: unknown): T[] {
   if (Array.isArray(data)) return data;
   
   const obj = data as Record<string, unknown>;
+  
+  // Handle PaginatedResponse structure
   if (obj.content && Array.isArray(obj.content)) return obj.content;
+  // Handle regular array
   if (obj.data && Array.isArray(obj.data)) return obj.data;
-  if (obj.items && Array.isArray(obj.items)) return obj.items;
+  // Handle direct array
+  if (Array.isArray(obj)) return obj;
   
   return [];
 }
@@ -90,33 +95,51 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   };
 
   // Fetch all sales (for admins/managers)
+  const fetchAllSales = useCallback(async (filters?: any) => {
+    if (!isAuthenticated || !user) return [];
+    
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await salesService.getAll(filters);
+      console.log('Sales API Response:', response);
+      
+      if (response.success && response.data) {
+        // Extract sales from the response structure
+        const salesArray = extractArray<Sale>(response.data);
+        console.log('Extracted sales:', salesArray.length);
+        
+        // Map and set sales
+        const mappedSales = salesArray.map(sale => ({
+          ...sale,
+          createdAt: new Date(sale.createdAt),
+        }));
+        
+        setSales(mappedSales);
+        return mappedSales;
+      } else {
+        console.warn('Failed to fetch sales:', response.error);
+        setSales([]);
+        return [];
+      }
+    } catch (err) {
+      console.error('Failed to fetch sales:', err);
+      setSales([]);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, user]);
+
+  // Refresh all sales (alias for fetchAllSales)
   const refreshSales = useCallback(async () => {
     if (!isAuthenticated || !user) return;
     
     // Only fetch all sales for admins/managers
     if (user.role === 'admin' || user.role === 'manager') {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await salesService.getAll();
-        if (response.success && response.data) {
-          const salesArray = extractArray<Sale>(response.data);
-          setSales(salesArray.map(sale => ({
-            ...sale,
-            createdAt: new Date(sale.createdAt),
-          })));
-        } else {
-          console.warn('Failed to fetch sales:', response.error);
-          setSales([]);
-        }
-      } catch (err) {
-        console.error('Failed to fetch sales:', err);
-        setSales([]);
-      } finally {
-        setIsLoading(false);
-      }
+      await fetchAllSales();
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, fetchAllSales]);
 
   // Fetch cashier's today sales from backend
   const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
@@ -126,11 +149,15 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await salesService.getCashierTodaySales(cashierId);
+      console.log('Cashier today sales response:', response);
+      
       if (response.success && response.data) {
         const todaySales = extractArray<Sale>(response.data).map(sale => ({
           ...sale,
           createdAt: new Date(sale.createdAt),
         }));
+        
+        console.log('Cashier today sales:', todaySales);
         
         // Store in state
         setCashierTodaySales(todaySales);
@@ -139,6 +166,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
         saveCashierTodaySales(cashierId, todaySales);
         
       } else {
+        console.warn('API failed, trying localStorage...');
         // Try to get from localStorage if API fails
         const stored = loadStoredCashierTodaySales(cashierId);
         setCashierTodaySales(stored);
@@ -155,7 +183,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
 
   // Refresh cashier's today sales (force update from backend)
   const refreshCashierTodaySales = async (cashierId: string) => {
-    if (!cashierId) return;
+    if (!cashierId) return [];
     
     setIsLoading(true);
     try {
@@ -185,6 +213,8 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   // Initialize based on user role
   useEffect(() => {
     if (isAuthenticated && user) {
+      console.log('Initializing sales for user:', user.role, user.id);
+      
       if (user.role === 'cashier') {
         // For cashiers, load their today sales from localStorage first
         const storedSales = loadStoredCashierTodaySales(user.id);
@@ -194,13 +224,14 @@ export function SalesProvider({ children }: { children: ReactNode }) {
         fetchCashierTodaySales(user.id);
       } else if (user.role === 'admin' || user.role === 'manager') {
         // For admins/managers, fetch all sales
-        refreshSales();
+        fetchAllSales();
       }
     } else {
-      // Don't clear sales when logging out - they stay in context
-      // The filtering happens in getTodaySales() method
+      // Reset sales when logging out
+      setSales([]);
+      setCashierTodaySales([]);
     }
-  }, [isAuthenticated, user, refreshSales, fetchCashierTodaySales]);
+  }, [isAuthenticated, user, fetchAllSales, fetchCashierTodaySales]);
 
   // Add a new sale
   const addSale = async (saleData: Omit<Sale, 'id'>): Promise<Sale | null> => {
@@ -224,6 +255,8 @@ export function SalesProvider({ children }: { children: ReactNode }) {
           createdAt: new Date(response.data.createdAt),
         };
         
+        console.log('New sale added:', newSale);
+        
         // Update both states
         setSales(prev => [newSale, ...prev]);
         
@@ -244,7 +277,8 @@ export function SalesProvider({ children }: { children: ReactNode }) {
         return newSale;
       }
       return null;
-    } catch {
+    } catch (error) {
+      console.error('Error adding sale:', error);
       return null;
     }
   };
@@ -292,6 +326,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       refreshSales,
       fetchCashierTodaySales,
       refreshCashierTodaySales,
+      fetchAllSales,
     }}>
       {children}
     </SalesContext.Provider>

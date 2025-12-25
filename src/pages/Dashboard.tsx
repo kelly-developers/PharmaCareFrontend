@@ -16,15 +16,18 @@ import {
   AlertTriangle,
   Clock,
   ArrowRight,
+  RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
+import { toast } from 'sonner';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { getAllSales, getTodaySales } = useSales();
-  const { medicines } = useStock();
+  const { getAllSales, getTodaySales, fetchAllSales } = useSales();
+  const { medicines, refreshMedicines } = useStock();
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Only admin and manager can see profits
   const canViewProfit = user?.role === 'admin' || user?.role === 'manager';
@@ -70,6 +73,21 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 4);
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        fetchAllSales(),
+        refreshMedicines()
+      ]);
+      toast.success('Dashboard data refreshed');
+    } catch (error) {
+      toast.error('Failed to refresh dashboard data');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -83,14 +101,24 @@ export default function Dashboard() {
             </h1>
             <p className="text-muted-foreground mt-1">Here's what's happening at your pharmacy today</p>
           </div>
-          {user?.role !== 'pharmacist' && (
-            <Link to="/pos">
-              <Button variant="hero" size="lg">
-                <ShoppingCart className="h-4 w-4" />
-                New Sale
-              </Button>
-            </Link>
-          )}
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            {user?.role !== 'pharmacist' && (
+              <Link to="/pos">
+                <Button variant="hero" size="lg">
+                  <ShoppingCart className="h-4 w-4" />
+                  New Sale
+                </Button>
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* Stats Grid */}
@@ -132,11 +160,21 @@ export default function Dashboard() {
           <Card variant="elevated" className="lg:col-span-2">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Recent Sales</CardTitle>
-              <Link to="/sales">
-                <Button variant="ghost" size="sm">
-                  View All <ArrowRight className="h-4 w-4 ml-1" />
+              <div className="flex gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw className={`h-3 w-3 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
                 </Button>
-              </Link>
+                <Link to="/sales">
+                  <Button variant="ghost" size="sm">
+                    View All <ArrowRight className="h-4 w-4 ml-1" />
+                  </Button>
+                </Link>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">

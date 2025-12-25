@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,13 +28,16 @@ import {
   Download,
   Eye,
   Users,
+  RefreshCw,
 } from 'lucide-react';
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter, subDays } from 'date-fns';
+import { toast } from 'sonner';
 
 export default function Sales() {
   const [period, setPeriod] = useState('today');
   const [cashierFilter, setCashierFilter] = useState('all');
-  const { getAllSales } = useSales();
+  const { getAllSales, fetchAllSales, isLoading } = useSales();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const allSales = getAllSales();
 
@@ -71,6 +74,8 @@ export default function Sales() {
         case 'year':
           matchesPeriod = saleDate.getFullYear() === now.getFullYear();
           break;
+        default:
+          matchesPeriod = true;
       }
       
       // Cashier filter
@@ -128,6 +133,23 @@ export default function Sales() {
     }
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchAllSales();
+      toast.success('Sales data refreshed');
+    } catch (error) {
+      toast.error('Failed to refresh sales data');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Initial fetch on component mount
+  useEffect(() => {
+    fetchAllSales();
+  }, []);
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -148,6 +170,7 @@ export default function Sales() {
                 <SelectItem value="week">This Week</SelectItem>
                 <SelectItem value="month">This Month</SelectItem>
                 <SelectItem value="year">This Year</SelectItem>
+                <SelectItem value="all">All Time</SelectItem>
               </SelectContent>
             </Select>
             <Select value={cashierFilter} onValueChange={setCashierFilter}>
@@ -162,6 +185,14 @@ export default function Sales() {
                 ))}
               </SelectContent>
             </Select>
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh}
+              disabled={isLoading || isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${(isLoading || isRefreshing) ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
             <Button variant="outline">
               <Download className="h-4 w-4 mr-2" />
               Export
@@ -179,7 +210,7 @@ export default function Sales() {
           />
           <StatCard
             title="Transactions"
-            value={transactionCount}
+            value={transactionCount.toString()}
             icon={<ShoppingCart className="h-6 w-6" />}
             iconClassName="bg-info/10 text-info"
           />
@@ -249,62 +280,83 @@ export default function Sales() {
         <Card>
           <CardHeader>
             <CardTitle>Recent Transactions</CardTitle>
+            <div className="text-sm text-muted-foreground">
+              Total {filteredSales.length} transactions
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Cashier</TableHead>
-                    <TableHead>Date & Time</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredSales.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+                <p className="mt-4 text-muted-foreground">Loading sales data...</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                        No sales found for the selected period
-                      </TableCell>
+                      <TableHead>Invoice</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Items</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Payment</TableHead>
+                      <TableHead>Cashier</TableHead>
+                      <TableHead>Date & Time</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ) : (
-                    filteredSales.map((sale) => (
-                      <TableRow key={sale.id}>
-                        <TableCell className="font-mono font-medium">{sale.id}</TableCell>
-                        <TableCell>
-                          <div className="max-w-xs">
-                            <p className="truncate text-sm">
-                              {sale.items.map((i) => `${i.medicineName} x${i.quantity}`).join(', ')}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {sale.items.length} item(s)
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right font-semibold">
-                          KSh {sale.total.toLocaleString()}
-                        </TableCell>
-                        <TableCell>{getPaymentBadge(sale.paymentMethod)}</TableCell>
-                        <TableCell>{sale.cashierName}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {format(new Date(sale.createdAt), 'MMM dd, yyyy HH:mm')}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </Button>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSales.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          No sales found for the selected period
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    ) : (
+                      filteredSales.map((sale) => (
+                        <TableRow key={sale.id}>
+                          <TableCell className="font-mono font-medium text-xs">
+                            {sale.id.substring(0, 8)}...
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{sale.customerName || 'Walk-in'}</p>
+                              {sale.customerPhone && (
+                                <p className="text-xs text-muted-foreground">{sale.customerPhone}</p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-xs">
+                              <p className="truncate text-sm">
+                                {sale.items.map((i) => `${i.medicineName} x${i.quantity}`).join(', ')}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {sale.items.length} item(s)
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            KSh {sale.total.toLocaleString()}
+                          </TableCell>
+                          <TableCell>{getPaymentBadge(sale.paymentMethod)}</TableCell>
+                          <TableCell>{sale.cashierName}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {format(new Date(sale.createdAt), 'MMM dd, yyyy HH:mm')}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
