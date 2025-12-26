@@ -22,14 +22,13 @@ import {
   Image as ImageIcon,
   Upload,
   Package,
-  DollarSign,
   Calendar,
   Building2,
   Hash,
-  X,
   Loader2,
   Calculator,
   Box,
+  DollarSign,
 } from 'lucide-react';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
@@ -62,9 +61,9 @@ export default function CreateMedicine() {
     { type: 'BOX', quantity: 100, price: 0 },
   ]);
   const [loading, setLoading] = useState(false);
-  const [pricingMethod, setPricingMethod] = useState<'box' | 'perTablet'>('box');
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
+  const [boxPrice, setBoxPrice] = useState<string>('0');
   const [formData, setFormData] = useState({
     name: '',
     genericName: '',
@@ -75,7 +74,6 @@ export default function CreateMedicine() {
     stockQuantity: '0',
     reorderLevel: '50',
     costPrice: '0',
-    sellingPricePerTablet: '0',
     description: '',
   });
 
@@ -86,40 +84,24 @@ export default function CreateMedicine() {
     return date instanceof Date && !isNaN(date.getTime());
   };
 
-  // Calculate price per tablet from box price
-  const calculatePerTabletPrice = () => {
-    if (pricingMethod === 'box' && units.length > 0) {
-      const boxUnit = units.find(unit => unit.type === 'BOX');
-      if (boxUnit && tabletsPerBox > 0) {
-        const pricePerTablet = boxUnit.price / tabletsPerBox;
-        setFormData(prev => ({
-          ...prev,
-          sellingPricePerTablet: pricePerTablet.toFixed(2)
-        }));
-        
-        // Also update SINGLE unit price
-        const updatedUnits = [...units];
-        const singleIndex = updatedUnits.findIndex(unit => unit.type === 'SINGLE');
-        if (singleIndex > -1) {
-          updatedUnits[singleIndex].price = parseFloat(pricePerTablet.toFixed(2));
-        }
-        setUnits(updatedUnits);
-      }
-    }
-  };
-
-  // Calculate box price from per-tablet price
-  const calculateBoxPrice = () => {
-    if (pricingMethod === 'perTablet' && tabletsPerBox > 0) {
-      const perTabletPrice = parseFloat(formData.sellingPricePerTablet) || 0;
-      const boxPrice = perTabletPrice * tabletsPerBox;
+  // Calculate tablet price from box price
+  const calculateTabletPrice = (price: number) => {
+    if (tabletsPerBox > 0) {
+      const tabletPrice = price / tabletsPerBox;
       
-      // Update BOX unit price
-      const updatedUnits = [...units];
-      const boxIndex = updatedUnits.findIndex(unit => unit.type === 'BOX');
-      if (boxIndex > -1) {
-        updatedUnits[boxIndex].price = parseFloat(boxPrice.toFixed(2));
-      }
+      // Update units with calculated prices
+      const updatedUnits = units.map(unit => {
+        if (unit.type === 'SINGLE') {
+          return { ...unit, quantity: 1, price: parseFloat(tabletPrice.toFixed(2)) };
+        } else if (unit.type === 'STRIP' && tabletsPerStrip > 0) {
+          const stripPrice = tabletPrice * tabletsPerStrip;
+          return { ...unit, quantity: tabletsPerStrip, price: parseFloat(stripPrice.toFixed(2)) };
+        } else if (unit.type === 'BOX') {
+          return { ...unit, quantity: tabletsPerBox, price: parseFloat(price.toFixed(2)) };
+        }
+        return unit;
+      });
+      
       setUnits(updatedUnits);
     }
   };
@@ -137,6 +119,12 @@ export default function CreateMedicine() {
       return unit;
     });
     setUnits(updatedUnits);
+    
+    // Recalculate prices if box price is set
+    const price = parseFloat(boxPrice) || 0;
+    if (price > 0) {
+      calculateTabletPrice(price);
+    }
   };
 
   // Initialize units when component mounts
@@ -144,35 +132,20 @@ export default function CreateMedicine() {
     updateUnitQuantities();
   }, [tabletsPerBox, tabletsPerStrip]);
 
-  // Handle pricing method change
+  // Handle box price change
   useEffect(() => {
-    if (pricingMethod === 'box') {
-      calculatePerTabletPrice();
-    } else {
-      calculateBoxPrice();
-    }
-  }, [pricingMethod, tabletsPerBox]);
+    const price = parseFloat(boxPrice) || 0;
+    calculateTabletPrice(price);
+  }, [boxPrice]);
 
-  // Add or remove units based on selection
-  const initializeUnits = () => {
-    const defaultUnits: UnitPrice[] = [];
-    
-    // Always include SINGLE and BOX
-    defaultUnits.push(
+  // Initialize default units
+  useEffect(() => {
+    const defaultUnits: UnitPrice[] = [
       { type: 'SINGLE', quantity: 1, price: 0 },
+      { type: 'STRIP', quantity: tabletsPerStrip, price: 0 },
       { type: 'BOX', quantity: tabletsPerBox, price: 0 }
-    );
-    
-    // Include STRIP if tabletsPerStrip > 0
-    if (tabletsPerStrip > 0) {
-      defaultUnits.push({ type: 'STRIP', quantity: tabletsPerStrip, price: 0 });
-    }
-    
+    ];
     setUnits(defaultUnits);
-  };
-
-  useEffect(() => {
-    initializeUnits();
   }, []);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -194,23 +167,6 @@ export default function CreateMedicine() {
       };
       reader.readAsDataURL(file);
       setImageFile(file);
-    }
-  };
-
-  const removeUnit = (index: number) => {
-    if (units.length > 1) {
-      setUnits(units.filter((_, i) => i !== index));
-    }
-  };
-
-  const updateUnit = (index: number, field: keyof UnitPrice, value: string | number) => {
-    const updated = [...units];
-    updated[index] = { ...updated[index], [field]: value };
-    setUnits(updated);
-    
-    // If BOX price changes and pricing method is box, recalculate per tablet price
-    if (field === 'price' && updated[index].type === 'BOX' && pricingMethod === 'box') {
-      calculatePerTabletPrice();
     }
   };
 
@@ -248,15 +204,6 @@ export default function CreateMedicine() {
       return;
     }
 
-    if (units.length === 0) {
-      toast({
-        title: 'Error',
-        description: 'Please add at least one pricing unit',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     // Validate tablets per box and strip
     if (tabletsPerBox <= 0) {
       toast({
@@ -276,6 +223,17 @@ export default function CreateMedicine() {
       return;
     }
 
+    // Validate box price
+    const price = parseFloat(boxPrice) || 0;
+    if (price <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Selling price must be greater than 0',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -286,7 +244,7 @@ export default function CreateMedicine() {
         category: formData.category,
         manufacturer: formData.manufacturer.trim(),
         batchNumber: formData.batchNumber.trim(),
-        expiryDate: formData.expiryDate, // Already in YYYY-MM-DD format from input type="date"
+        expiryDate: formData.expiryDate,
         units: units.map(u => ({
           type: u.type,
           quantity: u.quantity,
@@ -318,7 +276,7 @@ export default function CreateMedicine() {
           units: response.data.units || [],
           stockQuantity: response.data.stockQuantity || 0,
           reorderLevel: response.data.reorderLevel || 50,
-          supplierId: response.data.supplierId || undefined, // Keep as undefined if not provided
+          supplierId: response.data.supplierId || undefined,
           costPrice: response.data.costPrice || 0,
           imageUrl: response.data.imageUrl,
           createdAt: new Date(response.data.createdAt || new Date()),
@@ -363,6 +321,10 @@ export default function CreateMedicine() {
 
   // Set minimum date to today for expiry date
   const today = new Date().toISOString().split('T')[0];
+
+  // Calculate tablet price for display
+  const tabletPrice = tabletsPerBox > 0 ? (parseFloat(boxPrice) || 0) / tabletsPerBox : 0;
+  const stripPrice = tabletsPerStrip > 0 ? tabletPrice * tabletsPerStrip : 0;
 
   return (
     <MainLayout>
@@ -573,7 +535,6 @@ export default function CreateMedicine() {
                     onChange={(e) => {
                       const value = parseInt(e.target.value) || 100;
                       setTabletsPerBox(value);
-                      updateUnitQuantities();
                     }}
                     placeholder="e.g., 100"
                   />
@@ -591,7 +552,6 @@ export default function CreateMedicine() {
                     onChange={(e) => {
                       const value = parseInt(e.target.value) || 10;
                       setTabletsPerStrip(value);
-                      updateUnitQuantities();
                     }}
                     placeholder="e.g., 10"
                   />
@@ -649,138 +609,110 @@ export default function CreateMedicine() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calculator className="h-5 w-5" />
-                Pricing Configuration
+                Pricing
               </CardTitle>
-              <CardDescription>Set pricing method and calculate prices</CardDescription>
+              <CardDescription>Enter the selling price for the entire box</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Pricing Method Selection */}
-              <div className="space-y-4">
-                <Label className="text-base font-medium">Pricing Method</Label>
-                <div className="grid grid-cols-2 gap-4">
-                  <Button
-                    type="button"
-                    variant={pricingMethod === 'box' ? "default" : "outline"}
-                    className={`h-auto py-4 ${pricingMethod === 'box' ? 'bg-primary text-primary-foreground' : ''}`}
-                    onClick={() => setPricingMethod('box')}
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <Box className="h-6 w-6" />
-                      <span className="font-medium">Set Box Price</span>
-                      <span className="text-xs opacity-80">Price per tablet calculated automatically</span>
-                    </div>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={pricingMethod === 'perTablet' ? "default" : "outline"}
-                    className={`h-auto py-4 ${pricingMethod === 'perTablet' ? 'bg-primary text-primary-foreground' : ''}`}
-                    onClick={() => setPricingMethod('perTablet')}
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <Pill className="h-6 w-6" />
-                      <span className="font-medium">Set Per-Tablet Price</span>
-                      <span className="text-xs opacity-80">Box price calculated automatically</span>
-                    </div>
-                  </Button>
+              {/* Box Price Input */}
+              <div className="space-y-2">
+                <Label htmlFor="boxPrice">Selling Price (per Box)</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
+                  <Input
+                    id="boxPrice"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={boxPrice}
+                    onChange={(e) => setBoxPrice(e.target.value)}
+                    placeholder="Enter selling price for entire box"
+                    className="pl-12"
+                  />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Enter the price you want to sell the entire box for
+                </p>
               </div>
 
-              {/* Price Input based on Method */}
-              <div className="space-y-4">
-                {pricingMethod === 'box' ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="boxPrice">Selling Price (per Box)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
-                      <Input
-                        id="boxPrice"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={units.find(u => u.type === 'BOX')?.price || 0}
-                        onChange={(e) => {
-                          const boxPrice = parseFloat(e.target.value) || 0;
-                          const boxUnitIndex = units.findIndex(u => u.type === 'BOX');
-                          if (boxUnitIndex > -1) {
-                            updateUnit(boxUnitIndex, 'price', boxPrice);
-                          }
-                        }}
-                        placeholder="Enter box selling price"
-                        className="pl-12"
-                      />
-                    </div>
-                    <div className="p-3 bg-secondary/30 rounded-lg">
-                      <p className="text-sm">
-                        <span className="font-medium">Price per tablet:</span> KSh{' '}
-                        <span className="text-lg font-bold text-primary">
-                          {formData.sellingPricePerTablet}
-                        </span>
+              {/* Price Calculation Display */}
+              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calculator className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-medium">Price Calculation</Label>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Price per tablet</p>
+                      <p className="text-xs text-muted-foreground">
+                        Box price ÷ {tabletsPerBox} tablets
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Calculated: Box Price ÷ {tabletsPerBox} tablets = KSh {formData.sellingPricePerTablet} per tablet
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-primary">
+                        KSh {tabletPrice.toFixed(2)}
                       </p>
                     </div>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label htmlFor="perTabletPrice">Selling Price (per Tablet)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
-                      <Input
-                        id="perTabletPrice"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={formData.sellingPricePerTablet}
-                        onChange={(e) => {
-                          setFormData({ ...formData, sellingPricePerTablet: e.target.value });
-                        }}
-                        placeholder="Enter price per tablet"
-                        className="pl-12"
-                      />
-                    </div>
-                    <div className="p-3 bg-secondary/30 rounded-lg">
-                      <p className="text-sm">
-                        <span className="font-medium">Box price:</span> KSh{' '}
-                        <span className="text-lg font-bold text-primary">
-                          {(parseFloat(formData.sellingPricePerTablet) * tabletsPerBox).toFixed(2)}
-                        </span>
+                  
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Price per strip</p>
+                      <p className="text-xs text-muted-foreground">
+                        Tablet price × {tabletsPerStrip} tablets
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Calculated: {formData.sellingPricePerTablet} × {tabletsPerBox} tablets = KSh {(parseFloat(formData.sellingPricePerTablet) * tabletsPerBox).toFixed(2)} per box
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-primary">
+                        KSh {stripPrice.toFixed(2)}
                       </p>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Pricing Summary */}
               <div className="border rounded-lg p-4 space-y-3">
                 <h4 className="font-medium">Pricing Summary</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="text-center p-3 bg-secondary/30 rounded-lg">
                     <p className="text-xs text-muted-foreground">Single Tablet</p>
-                    <p className="text-lg font-bold">KSh {units.find(u => u.type === 'SINGLE')?.price?.toFixed(2) || '0.00'}</p>
+                    <p className="text-lg font-bold">KSh {tabletPrice.toFixed(2)}</p>
                   </div>
                   <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Strip ({tabletsPerStrip} tablets)</p>
-                    <p className="text-lg font-bold">KSh {units.find(u => u.type === 'STRIP')?.price?.toFixed(2) || '0.00'}</p>
-                  </div>
-                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Box ({tabletsPerBox} tablets)</p>
-                    <p className="text-lg font-bold">KSh {units.find(u => u.type === 'BOX')?.price?.toFixed(2) || '0.00'}</p>
-                  </div>
-                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Markup</p>
-                    <p className="text-lg font-bold text-primary">
-                      {(() => {
-                        const cost = parseFloat(formData.costPrice) || 0;
-                        const boxPrice = units.find(u => u.type === 'BOX')?.price || 0;
-                        if (cost === 0) return 'N/A';
-                        const markup = ((boxPrice - cost) / cost * 100).toFixed(1);
-                        return `${markup}%`;
-                      })()}
+                    <p className="text-xs text-muted-foreground">
+                      Strip ({tabletsPerStrip} tablets)
                     </p>
+                    <p className="text-lg font-bold">KSh {stripPrice.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">
+                      Box ({tabletsPerBox} tablets)
+                    </p>
+                    <p className="text-lg font-bold">KSh {parseFloat(boxPrice).toFixed(2)}</p>
+                  </div>
+                </div>
+                
+                {/* Markup */}
+                <div className="mt-3 p-3 bg-secondary/30 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-medium">Markup</p>
+                      <p className="text-xs text-muted-foreground">Profit margin percentage</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-primary">
+                        {(() => {
+                          const cost = parseFloat(formData.costPrice) || 0;
+                          const sellingPrice = parseFloat(boxPrice) || 0;
+                          if (cost === 0) return 'N/A';
+                          const markup = ((sellingPrice - cost) / cost * 100).toFixed(1);
+                          return `${markup}%`;
+                        })()}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
