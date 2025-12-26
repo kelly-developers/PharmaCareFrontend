@@ -28,6 +28,8 @@ import {
   Hash,
   X,
   Loader2,
+  Calculator,
+  Box,
 } from 'lucide-react';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
@@ -57,9 +59,12 @@ export default function CreateMedicine() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [units, setUnits] = useState<UnitPrice[]>([
-    { type: 'SINGLE', quantity: 1, price: 0 },
+    { type: 'BOX', quantity: 100, price: 0 },
   ]);
   const [loading, setLoading] = useState(false);
+  const [pricingMethod, setPricingMethod] = useState<'box' | 'perTablet'>('box');
+  const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
+  const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
   const [formData, setFormData] = useState({
     name: '',
     genericName: '',
@@ -70,7 +75,7 @@ export default function CreateMedicine() {
     stockQuantity: '0',
     reorderLevel: '50',
     costPrice: '0',
-    sellingPrice: '0',
+    sellingPricePerTablet: '0',
     description: '',
   });
 
@@ -81,18 +86,94 @@ export default function CreateMedicine() {
     return date instanceof Date && !isNaN(date.getTime());
   };
 
-  // Helper function to validate price units
-  const validateUnits = () => {
-    for (const unit of units) {
-      if (unit.quantity <= 0) {
-        return { valid: false, message: 'Unit quantity must be greater than 0' };
-      }
-      if (unit.price < 0) {
-        return { valid: false, message: 'Unit price cannot be negative' };
+  // Calculate price per tablet from box price
+  const calculatePerTabletPrice = () => {
+    if (pricingMethod === 'box' && units.length > 0) {
+      const boxUnit = units.find(unit => unit.type === 'BOX');
+      if (boxUnit && tabletsPerBox > 0) {
+        const pricePerTablet = boxUnit.price / tabletsPerBox;
+        setFormData(prev => ({
+          ...prev,
+          sellingPricePerTablet: pricePerTablet.toFixed(2)
+        }));
+        
+        // Also update SINGLE unit price
+        const updatedUnits = [...units];
+        const singleIndex = updatedUnits.findIndex(unit => unit.type === 'SINGLE');
+        if (singleIndex > -1) {
+          updatedUnits[singleIndex].price = parseFloat(pricePerTablet.toFixed(2));
+        }
+        setUnits(updatedUnits);
       }
     }
-    return { valid: true };
   };
+
+  // Calculate box price from per-tablet price
+  const calculateBoxPrice = () => {
+    if (pricingMethod === 'perTablet' && tabletsPerBox > 0) {
+      const perTabletPrice = parseFloat(formData.sellingPricePerTablet) || 0;
+      const boxPrice = perTabletPrice * tabletsPerBox;
+      
+      // Update BOX unit price
+      const updatedUnits = [...units];
+      const boxIndex = updatedUnits.findIndex(unit => unit.type === 'BOX');
+      if (boxIndex > -1) {
+        updatedUnits[boxIndex].price = parseFloat(boxPrice.toFixed(2));
+      }
+      setUnits(updatedUnits);
+    }
+  };
+
+  // Update units based on tablets per box and strip
+  const updateUnitQuantities = () => {
+    const updatedUnits = units.map(unit => {
+      if (unit.type === 'BOX') {
+        return { ...unit, quantity: tabletsPerBox };
+      } else if (unit.type === 'STRIP') {
+        return { ...unit, quantity: tabletsPerStrip };
+      } else if (unit.type === 'SINGLE') {
+        return { ...unit, quantity: 1 };
+      }
+      return unit;
+    });
+    setUnits(updatedUnits);
+  };
+
+  // Initialize units when component mounts
+  useEffect(() => {
+    updateUnitQuantities();
+  }, [tabletsPerBox, tabletsPerStrip]);
+
+  // Handle pricing method change
+  useEffect(() => {
+    if (pricingMethod === 'box') {
+      calculatePerTabletPrice();
+    } else {
+      calculateBoxPrice();
+    }
+  }, [pricingMethod, tabletsPerBox]);
+
+  // Add or remove units based on selection
+  const initializeUnits = () => {
+    const defaultUnits: UnitPrice[] = [];
+    
+    // Always include SINGLE and BOX
+    defaultUnits.push(
+      { type: 'SINGLE', quantity: 1, price: 0 },
+      { type: 'BOX', quantity: tabletsPerBox, price: 0 }
+    );
+    
+    // Include STRIP if tabletsPerStrip > 0
+    if (tabletsPerStrip > 0) {
+      defaultUnits.push({ type: 'STRIP', quantity: tabletsPerStrip, price: 0 });
+    }
+    
+    setUnits(defaultUnits);
+  };
+
+  useEffect(() => {
+    initializeUnits();
+  }, []);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -116,10 +197,6 @@ export default function CreateMedicine() {
     }
   };
 
-  const addUnit = () => {
-    setUnits([...units, { type: 'STRIP', quantity: 10, price: 0 }]);
-  };
-
   const removeUnit = (index: number) => {
     if (units.length > 1) {
       setUnits(units.filter((_, i) => i !== index));
@@ -130,6 +207,11 @@ export default function CreateMedicine() {
     const updated = [...units];
     updated[index] = { ...updated[index], [field]: value };
     setUnits(updated);
+    
+    // If BOX price changes and pricing method is box, recalculate per tablet price
+    if (field === 'price' && updated[index].type === 'BOX' && pricingMethod === 'box') {
+      calculatePerTabletPrice();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -175,12 +257,20 @@ export default function CreateMedicine() {
       return;
     }
 
-    // Validate units
-    const unitValidation = validateUnits();
-    if (!unitValidation.valid) {
+    // Validate tablets per box and strip
+    if (tabletsPerBox <= 0) {
       toast({
         title: 'Error',
-        description: unitValidation.message || 'Invalid unit data',
+        description: 'Tablets per box must be greater than 0',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (tabletsPerStrip <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Tablets per strip must be greater than 0',
         variant: 'destructive',
       });
       return;
@@ -204,8 +294,6 @@ export default function CreateMedicine() {
         })),
         stockQuantity: parseInt(formData.stockQuantity) || 0,
         reorderLevel: parseInt(formData.reorderLevel) || 50,
-        // Do NOT send supplierId unless it's a valid UUID
-        // supplierId: undefined, // Remove this line completely
         costPrice: parseFloat(formData.costPrice) || 0,
         imageUrl: imagePreview || undefined,
       };
@@ -470,9 +558,50 @@ export default function CreateMedicine() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Tablets Configuration */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-secondary/30 rounded-lg">
                 <div className="space-y-2">
-                  <Label htmlFor="stockQuantity">Initial Stock Quantity</Label>
+                  <Label htmlFor="tabletsPerBox" className="flex items-center gap-2">
+                    <Box className="h-4 w-4" />
+                    Tablets per Box *
+                  </Label>
+                  <Input
+                    id="tabletsPerBox"
+                    type="number"
+                    min="1"
+                    value={tabletsPerBox}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value) || 100;
+                      setTabletsPerBox(value);
+                      updateUnitQuantities();
+                    }}
+                    placeholder="e.g., 100"
+                  />
+                  <p className="text-xs text-muted-foreground">Total tablets in one box</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tabletsPerStrip">
+                    Tablets per Strip *
+                  </Label>
+                  <Input
+                    id="tabletsPerStrip"
+                    type="number"
+                    min="1"
+                    value={tabletsPerStrip}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value) || 10;
+                      setTabletsPerStrip(value);
+                      updateUnitQuantities();
+                    }}
+                    placeholder="e.g., 10"
+                  />
+                  <p className="text-xs text-muted-foreground">Tablets in one strip</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="stockQuantity">Initial Stock Quantity (Tablets)</Label>
                   <Input
                     id="stockQuantity"
                     type="number"
@@ -483,7 +612,7 @@ export default function CreateMedicine() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reorderLevel">Reorder Level</Label>
+                  <Label htmlFor="reorderLevel">Reorder Level (Tablets)</Label>
                   <Input
                     id="reorderLevel"
                     type="number"
@@ -495,7 +624,7 @@ export default function CreateMedicine() {
                   <p className="text-xs text-muted-foreground">Low stock alert threshold</p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="costPrice">Buying Price (per unit)</Label>
+                  <Label htmlFor="costPrice">Buying Price (per Box)</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                     <Input
@@ -509,105 +638,152 @@ export default function CreateMedicine() {
                       className="pl-12"
                     />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sellingPrice">Selling Price (per unit)</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
-                    <Input
-                      id="sellingPrice"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.sellingPrice}
-                      onChange={(e) => setFormData({ ...formData, sellingPrice: e.target.value })}
-                      placeholder="0"
-                      className="pl-12"
-                    />
-                  </div>
+                  <p className="text-xs text-muted-foreground">Price you pay for one box</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Pricing Units */}
+          {/* Pricing Configuration */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Pricing Units
+                <Calculator className="h-5 w-5" />
+                Pricing Configuration
               </CardTitle>
-              <CardDescription>Set prices for different selling units</CardDescription>
+              <CardDescription>Set pricing method and calculate prices</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {units.map((unit, index) => (
-                <div key={index} className="flex items-center gap-4 p-3 rounded-lg bg-secondary/50">
-                  <div className="flex-1 grid grid-cols-3 gap-4">
-                    <div className="space-y-1">
-                      <Label htmlFor={`unit-type-${index}`} className="text-xs">Unit Type</Label>
-                      <Select
-                        value={unit.type}
-                        onValueChange={(value) => updateUnit(index, 'type', value)}
-                      >
-                        <SelectTrigger id={`unit-type-${index}`}>
-                          <SelectValue placeholder="Unit type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {unitTypes.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              {type.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+            <CardContent className="space-y-6">
+              {/* Pricing Method Selection */}
+              <div className="space-y-4">
+                <Label className="text-base font-medium">Pricing Method</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <Button
+                    type="button"
+                    variant={pricingMethod === 'box' ? "default" : "outline"}
+                    className={`h-auto py-4 ${pricingMethod === 'box' ? 'bg-primary text-primary-foreground' : ''}`}
+                    onClick={() => setPricingMethod('box')}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <Box className="h-6 w-6" />
+                      <span className="font-medium">Set Box Price</span>
+                      <span className="text-xs opacity-80">Price per tablet calculated automatically</span>
                     </div>
-                    <div className="space-y-1">
-                      <Label htmlFor={`unit-quantity-${index}`} className="text-xs">Quantity</Label>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={pricingMethod === 'perTablet' ? "default" : "outline"}
+                    className={`h-auto py-4 ${pricingMethod === 'perTablet' ? 'bg-primary text-primary-foreground' : ''}`}
+                    onClick={() => setPricingMethod('perTablet')}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <Pill className="h-6 w-6" />
+                      <span className="font-medium">Set Per-Tablet Price</span>
+                      <span className="text-xs opacity-80">Box price calculated automatically</span>
+                    </div>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Price Input based on Method */}
+              <div className="space-y-4">
+                {pricingMethod === 'box' ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="boxPrice">Selling Price (per Box)</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                       <Input
-                        id={`unit-quantity-${index}`}
+                        id="boxPrice"
                         type="number"
-                        min="1"
-                        value={unit.quantity}
-                        onChange={(e) => updateUnit(index, 'quantity', parseInt(e.target.value) || 1)}
-                        placeholder="Quantity"
+                        min="0"
+                        step="0.01"
+                        value={units.find(u => u.type === 'BOX')?.price || 0}
+                        onChange={(e) => {
+                          const boxPrice = parseFloat(e.target.value) || 0;
+                          const boxUnitIndex = units.findIndex(u => u.type === 'BOX');
+                          if (boxUnitIndex > -1) {
+                            updateUnit(boxUnitIndex, 'price', boxPrice);
+                          }
+                        }}
+                        placeholder="Enter box selling price"
+                        className="pl-12"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label htmlFor={`unit-price-${index}`} className="text-xs">Price (KSh)</Label>
-                      <div className="relative">
-                        <Input
-                          id={`unit-price-${index}`}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={unit.price}
-                          onChange={(e) => updateUnit(index, 'price', parseFloat(e.target.value) || 0)}
-                          placeholder="Price"
-                        />
-                      </div>
+                    <div className="p-3 bg-secondary/30 rounded-lg">
+                      <p className="text-sm">
+                        <span className="font-medium">Price per tablet:</span> KSh{' '}
+                        <span className="text-lg font-bold text-primary">
+                          {formData.sellingPricePerTablet}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Calculated: Box Price ÷ {tabletsPerBox} tablets = KSh {formData.sellingPricePerTablet} per tablet
+                      </p>
                     </div>
                   </div>
-                  {units.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:text-destructive h-8 w-8"
-                      onClick={() => removeUnit(index)}
-                      title="Remove unit"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="perTabletPrice">Selling Price (per Tablet)</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
+                      <Input
+                        id="perTabletPrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.sellingPricePerTablet}
+                        onChange={(e) => {
+                          setFormData({ ...formData, sellingPricePerTablet: e.target.value });
+                        }}
+                        placeholder="Enter price per tablet"
+                        className="pl-12"
+                      />
+                    </div>
+                    <div className="p-3 bg-secondary/30 rounded-lg">
+                      <p className="text-sm">
+                        <span className="font-medium">Box price:</span> KSh{' '}
+                        <span className="text-lg font-bold text-primary">
+                          {(parseFloat(formData.sellingPricePerTablet) * tabletsPerBox).toFixed(2)}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Calculated: {formData.sellingPricePerTablet} × {tabletsPerBox} tablets = KSh {(parseFloat(formData.sellingPricePerTablet) * tabletsPerBox).toFixed(2)} per box
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Pricing Summary */}
+              <div className="border rounded-lg p-4 space-y-3">
+                <h4 className="font-medium">Pricing Summary</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Single Tablet</p>
+                    <p className="text-lg font-bold">KSh {units.find(u => u.type === 'SINGLE')?.price?.toFixed(2) || '0.00'}</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Strip ({tabletsPerStrip} tablets)</p>
+                    <p className="text-lg font-bold">KSh {units.find(u => u.type === 'STRIP')?.price?.toFixed(2) || '0.00'}</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Box ({tabletsPerBox} tablets)</p>
+                    <p className="text-lg font-bold">KSh {units.find(u => u.type === 'BOX')?.price?.toFixed(2) || '0.00'}</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Markup</p>
+                    <p className="text-lg font-bold text-primary">
+                      {(() => {
+                        const cost = parseFloat(formData.costPrice) || 0;
+                        const boxPrice = units.find(u => u.type === 'BOX')?.price || 0;
+                        if (cost === 0) return 'N/A';
+                        const markup = ((boxPrice - cost) / cost * 100).toFixed(1);
+                        return `${markup}%`;
+                      })()}
+                    </p>
+                  </div>
                 </div>
-              ))}
-              <Button type="button" variant="outline" onClick={addUnit} className="w-full">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Another Unit
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Example: A strip might contain 10 tablets. Set the quantity to 10 and price for the whole strip.
-              </p>
+              </div>
             </CardContent>
           </Card>
 
