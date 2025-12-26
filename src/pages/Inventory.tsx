@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,7 +42,6 @@ import {
   Package,
   AlertTriangle,
   Edit2,
-  X,
   Calculator,
   Box,
   Pill,
@@ -72,7 +71,6 @@ export default function Inventory() {
   const [editUnits, setEditUnits] = useState<UnitPrice[]>([]);
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
-  const [pricingMethod, setPricingMethod] = useState<'box' | 'perTablet'>('box');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { medicines, addMedicine } = useStock();
   const { getCategoryNames } = useCategories();
@@ -111,6 +109,7 @@ export default function Inventory() {
     // Extract tablets per box and strip from units
     const boxUnit = med.units.find(u => u.type === 'box' || u.type === 'BOX');
     const stripUnit = med.units.find(u => u.type === 'strip' || u.type === 'STRIP');
+    const singleUnit = med.units.find(u => u.type === 'single' || u.type === 'SINGLE');
     
     if (boxUnit) {
       setTabletsPerBox(boxUnit.quantity);
@@ -118,10 +117,6 @@ export default function Inventory() {
     if (stripUnit) {
       setTabletsPerStrip(stripUnit.quantity);
     }
-    
-    // Determine pricing method
-    const hasBoxPrice = boxUnit && boxUnit.price > 0;
-    setPricingMethod(hasBoxPrice ? 'box' : 'perTablet');
     
     setEditFormData({
       name: med.name,
@@ -133,86 +128,105 @@ export default function Inventory() {
       stockQuantity: med.stockQuantity.toString(),
       reorderLevel: med.reorderLevel.toString(),
       costPrice: med.costPrice.toString(),
-      sellingPricePerTablet: med.units.find(u => u.type === 'single' || u.type === 'SINGLE')?.price.toString() || '0',
+      boxPrice: boxUnit?.price?.toString() || '0',
+      tabletPrice: singleUnit?.price?.toString() || '0',
     });
     
-    setEditUnits(med.units.map(u => ({
-      type: u.type.toLowerCase(),
-      quantity: u.quantity,
-      price: u.price,
-    })));
-  };
-
-  // Update unit quantities based on tablets per box/strip
-  const updateUnitQuantities = () => {
-    const updatedUnits = editUnits.map(unit => {
-      if (unit.type === 'box') {
-        return { ...unit, quantity: tabletsPerBox };
-      } else if (unit.type === 'strip') {
-        return { ...unit, quantity: tabletsPerStrip };
-      } else if (unit.type === 'single') {
-        return { ...unit, quantity: 1 };
-      }
-      return unit;
-    });
-    setEditUnits(updatedUnits);
-  };
-
-  // Calculate price per tablet from box price
-  const calculatePerTabletPrice = () => {
-    if (pricingMethod === 'box') {
-      const boxUnit = editUnits.find(unit => unit.type === 'box');
-      if (boxUnit && tabletsPerBox > 0) {
-        const pricePerTablet = boxUnit.price / tabletsPerBox;
-        setEditFormData(prev => ({
-          ...prev,
-          sellingPricePerTablet: pricePerTablet.toFixed(2)
-        }));
-        
-        // Update SINGLE unit price
-        const updatedUnits = [...editUnits];
-        const singleIndex = updatedUnits.findIndex(unit => unit.type === 'single');
-        if (singleIndex > -1) {
-          updatedUnits[singleIndex].price = parseFloat(pricePerTablet.toFixed(2));
-        }
-        setEditUnits(updatedUnits);
-      }
+    // Initialize units based on medicine data
+    const defaultUnits: UnitPrice[] = [];
+    
+    // Add single unit
+    if (singleUnit) {
+      defaultUnits.push({
+        type: 'single',
+        quantity: 1,
+        price: singleUnit.price,
+      });
     }
+    
+    // Add strip unit if exists
+    if (stripUnit) {
+      defaultUnits.push({
+        type: 'strip',
+        quantity: stripUnit.quantity,
+        price: stripUnit.price,
+      });
+    }
+    
+    // Add box unit
+    if (boxUnit) {
+      defaultUnits.push({
+        type: 'box',
+        quantity: boxUnit.quantity,
+        price: boxUnit.price,
+      });
+    }
+    
+    setEditUnits(defaultUnits.length > 0 ? defaultUnits : [
+      { type: 'single', quantity: 1, price: 0 },
+      { type: 'strip', quantity: 10, price: 0 },
+      { type: 'box', quantity: 100, price: 0 },
+    ]);
   };
 
-  // Calculate box price from per-tablet price
-  const calculateBoxPrice = () => {
-    if (pricingMethod === 'perTablet' && tabletsPerBox > 0) {
-      const perTabletPrice = parseFloat(editFormData.sellingPricePerTablet) || 0;
-      const boxPrice = perTabletPrice * tabletsPerBox;
+  // Calculate tablet price from box price
+  const calculateTabletPrice = (boxPrice: number) => {
+    if (tabletsPerBox > 0) {
+      const tabletPrice = boxPrice / tabletsPerBox;
       
-      // Update BOX unit price
+      // Update tablet price in form
+      setEditFormData(prev => ({
+        ...prev,
+        tabletPrice: tabletPrice.toFixed(2)
+      }));
+      
+      // Update single unit price
       const updatedUnits = [...editUnits];
-      const boxIndex = updatedUnits.findIndex(unit => unit.type === 'box');
-      if (boxIndex > -1) {
-        updatedUnits[boxIndex].price = parseFloat(boxPrice.toFixed(2));
+      const singleIndex = updatedUnits.findIndex(unit => unit.type === 'single');
+      if (singleIndex > -1) {
+        updatedUnits[singleIndex].price = parseFloat(tabletPrice.toFixed(2));
       }
+      
+      // Update strip unit price
+      const stripIndex = updatedUnits.findIndex(unit => unit.type === 'strip');
+      if (stripIndex > -1 && tabletsPerStrip > 0) {
+        const stripPrice = tabletPrice * tabletsPerStrip;
+        updatedUnits[stripIndex].price = parseFloat(stripPrice.toFixed(2));
+      }
+      
       setEditUnits(updatedUnits);
     }
   };
 
-  // Update units when tablets per box/strip changes
+  // Update unit quantities based on tablets per box/strip
   useEffect(() => {
     if (editingMedicine) {
-      updateUnitQuantities();
+      const updatedUnits = editUnits.map(unit => {
+        if (unit.type === 'box') {
+          return { ...unit, quantity: tabletsPerBox };
+        } else if (unit.type === 'strip') {
+          return { ...unit, quantity: tabletsPerStrip };
+        }
+        return unit;
+      });
+      
+      // Recalculate prices based on new quantities
+      const boxPrice = parseFloat(editFormData.boxPrice) || 0;
+      if (boxPrice > 0) {
+        calculateTabletPrice(boxPrice);
+      }
+      
+      setEditUnits(updatedUnits);
     }
   }, [tabletsPerBox, tabletsPerStrip]);
 
-  // Recalculate prices when pricing method changes
+  // Update tablet price when box price changes
   useEffect(() => {
     if (editingMedicine) {
-      if (pricingMethod === 'box') {
-        calculatePerTabletPrice();
-      } else {
-        calculateBoxPrice();
-      }
+      const boxPrice = parseFloat(editFormData.boxPrice) || 0;
+      calculateTabletPrice(boxPrice);
     }
-  }, [pricingMethod, tabletsPerBox]);
+  }, [editFormData.boxPrice]);
 
   // Save edited medicine via API
   const saveEdit = async () => {
@@ -260,17 +274,6 @@ export default function Inventory() {
     }
 
     setEditingMedicine(null);
-  };
-
-  const updateEditUnit = (index: number, field: keyof UnitPrice, value: string | number) => {
-    const updated = [...editUnits];
-    updated[index] = { ...updated[index], [field]: value };
-    setEditUnits(updated);
-    
-    // If BOX price changes and pricing method is box, recalculate per tablet price
-    if (field === 'price' && updated[index].type === 'box' && pricingMethod === 'box') {
-      calculatePerTabletPrice();
-    }
   };
 
   // Export medicines to Excel
@@ -523,4 +526,308 @@ export default function Inventory() {
                           ) : isOutOfStock ? (
                             <Badge variant="destructive">Out of Stock</Badge>
                           ) : isLowStock ? (
-                            <Badge
+                            <Badge variant="warning">Low Stock</Badge>
+                          ) : isExpiring ? (
+                            <Badge variant="warning">Expiring Soon</Badge>
+                          ) : (
+                            <Badge variant="success">In Stock</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => startEdit(med)}>
+                            <Edit2 className="h-4 w-4 mr-1" />
+                            Edit
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Edit Medicine Dialog */}
+      <Dialog open={!!editingMedicine} onOpenChange={() => setEditingMedicine(null)}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Medicine</DialogTitle>
+          </DialogHeader>
+          {editingMedicine && (
+            <div className="space-y-6 pt-4">
+              {/* Basic Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Medicine Name *</Label>
+                  <Input
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Generic Name</Label>
+                  <Input
+                    value={editFormData.genericName}
+                    onChange={(e) => setEditFormData({ ...editFormData, genericName: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Category *</Label>
+                  <Select
+                    value={editFormData.category}
+                    onValueChange={(value) => setEditFormData({ ...editFormData, category: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categoryNames.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                      {categories.map((cat) => (
+                        !categoryNames.includes(cat) && <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Manufacturer</Label>
+                  <Input
+                    value={editFormData.manufacturer}
+                    onChange={(e) => setEditFormData({ ...editFormData, manufacturer: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Batch Number *</Label>
+                  <Input
+                    value={editFormData.batchNumber}
+                    onChange={(e) => setEditFormData({ ...editFormData, batchNumber: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Expiry Date *</Label>
+                  <Input
+                    type="date"
+                    value={editFormData.expiryDate}
+                    onChange={(e) => setEditFormData({ ...editFormData, expiryDate: e.target.value })}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+              </div>
+
+              {/* Tablets Configuration */}
+              <div className="grid grid-cols-2 gap-4 p-4 bg-secondary/30 rounded-lg">
+                <div className="space-y-2">
+                  <Label htmlFor="tabletsPerBox" className="flex items-center gap-2">
+                    <Box className="h-4 w-4" />
+                    Tablets per Box *
+                  </Label>
+                  <Input
+                    id="tabletsPerBox"
+                    type="number"
+                    min="1"
+                    value={tabletsPerBox}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value) || 100;
+                      setTabletsPerBox(value);
+                    }}
+                    placeholder="e.g., 100"
+                  />
+                  <p className="text-xs text-muted-foreground">Total tablets in one box</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tabletsPerStrip">
+                    Tablets per Strip *
+                  </Label>
+                  <Input
+                    id="tabletsPerStrip"
+                    type="number"
+                    min="1"
+                    value={tabletsPerStrip}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value) || 10;
+                      setTabletsPerStrip(value);
+                    }}
+                    placeholder="e.g., 10"
+                  />
+                  <p className="text-xs text-muted-foreground">Tablets in one strip</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Stock Quantity (Tablets)</Label>
+                  <Input
+                    type="number"
+                    value={editFormData.stockQuantity}
+                    onChange={(e) => setEditFormData({ ...editFormData, stockQuantity: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Reorder Level (Tablets)</Label>
+                  <Input
+                    type="number"
+                    value={editFormData.reorderLevel}
+                    onChange={(e) => setEditFormData({ ...editFormData, reorderLevel: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Buying Price (per Box)</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editFormData.costPrice}
+                      onChange={(e) => setEditFormData({ ...editFormData, costPrice: e.target.value })}
+                      className="pl-12"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Price you pay for one box</p>
+                </div>
+              </div>
+
+              {/* Pricing Configuration */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Calculator className="h-5 w-5" />
+                  <Label className="text-base font-medium">Pricing</Label>
+                </div>
+                
+                {/* Box Price Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="boxPrice">Selling Price (per Box)</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
+                    <Input
+                      id="boxPrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editFormData.boxPrice}
+                      onChange={(e) => setEditFormData({ ...editFormData, boxPrice: e.target.value })}
+                      placeholder="Enter selling price for entire box"
+                      className="pl-12"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enter the price you want to sell the entire box for
+                  </p>
+                </div>
+
+                {/* Price Calculation Display */}
+                <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calculator className="h-4 w-4 text-primary" />
+                    <Label className="text-sm font-medium">Price Calculation</Label>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Price per tablet</p>
+                        <p className="text-xs text-muted-foreground">
+                          Box price ÷ {tabletsPerBox} tablets
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-primary">
+                          KSh {editFormData.tabletPrice || '0.00'}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Price per strip</p>
+                        <p className="text-xs text-muted-foreground">
+                          Tablet price × {tabletsPerStrip} tablets
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-primary">
+                          KSh {(() => {
+                            const tabletPrice = parseFloat(editFormData.tabletPrice) || 0;
+                            const stripPrice = tabletPrice * tabletsPerStrip;
+                            return stripPrice.toFixed(2);
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pricing Summary */}
+                <div className="border rounded-lg p-4 space-y-3">
+                  <h4 className="font-medium">Pricing Summary</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Single Tablet</p>
+                      <p className="text-lg font-bold">KSh {editFormData.tabletPrice || '0.00'}</p>
+                    </div>
+                    <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground">
+                        Strip ({tabletsPerStrip} tablets)
+                      </p>
+                      <p className="text-lg font-bold">
+                        KSh {(() => {
+                          const tabletPrice = parseFloat(editFormData.tabletPrice) || 0;
+                          return (tabletPrice * tabletsPerStrip).toFixed(2);
+                        })()}
+                      </p>
+                    </div>
+                    <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground">
+                        Box ({tabletsPerBox} tablets)
+                      </p>
+                      <p className="text-lg font-bold">KSh {editFormData.boxPrice || '0.00'}</p>
+                    </div>
+                  </div>
+                  
+                  {/* Markup */}
+                  <div className="mt-3 p-3 bg-secondary/30 rounded-lg">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-medium">Markup</p>
+                        <p className="text-xs text-muted-foreground">Profit margin percentage</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-primary">
+                          {(() => {
+                            const cost = parseFloat(editFormData.costPrice) || 0;
+                            const sellingPrice = parseFloat(editFormData.boxPrice) || 0;
+                            if (cost === 0) return 'N/A';
+                            const markup = ((sellingPrice - cost) / cost * 100).toFixed(1);
+                            return `${markup}%`;
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <Button variant="outline" className="flex-1" onClick={() => setEditingMedicine(null)}>
+                  Cancel
+                </Button>
+                <Button variant="hero" className="flex-1" onClick={saveEdit}>
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </MainLayout>
+  );
+}
