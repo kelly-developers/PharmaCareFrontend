@@ -43,6 +43,9 @@ import {
   AlertTriangle,
   Edit2,
   X,
+  Calculator,
+  Box,
+  Pill,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -67,6 +70,9 @@ export default function Inventory() {
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [editUnits, setEditUnits] = useState<UnitPrice[]>([]);
+  const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
+  const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
+  const [pricingMethod, setPricingMethod] = useState<'box' | 'perTablet'>('box');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { medicines, addMedicine } = useStock();
   const { getCategoryNames } = useCategories();
@@ -101,6 +107,22 @@ export default function Inventory() {
   // Start editing a medicine
   const startEdit = (med: Medicine) => {
     setEditingMedicine(med);
+    
+    // Extract tablets per box and strip from units
+    const boxUnit = med.units.find(u => u.type === 'box' || u.type === 'BOX');
+    const stripUnit = med.units.find(u => u.type === 'strip' || u.type === 'STRIP');
+    
+    if (boxUnit) {
+      setTabletsPerBox(boxUnit.quantity);
+    }
+    if (stripUnit) {
+      setTabletsPerStrip(stripUnit.quantity);
+    }
+    
+    // Determine pricing method
+    const hasBoxPrice = boxUnit && boxUnit.price > 0;
+    setPricingMethod(hasBoxPrice ? 'box' : 'perTablet');
+    
     setEditFormData({
       name: med.name,
       genericName: med.genericName || '',
@@ -111,13 +133,86 @@ export default function Inventory() {
       stockQuantity: med.stockQuantity.toString(),
       reorderLevel: med.reorderLevel.toString(),
       costPrice: med.costPrice.toString(),
+      sellingPricePerTablet: med.units.find(u => u.type === 'single' || u.type === 'SINGLE')?.price.toString() || '0',
     });
+    
     setEditUnits(med.units.map(u => ({
-      type: u.type,
+      type: u.type.toLowerCase(),
       quantity: u.quantity,
       price: u.price,
     })));
   };
+
+  // Update unit quantities based on tablets per box/strip
+  const updateUnitQuantities = () => {
+    const updatedUnits = editUnits.map(unit => {
+      if (unit.type === 'box') {
+        return { ...unit, quantity: tabletsPerBox };
+      } else if (unit.type === 'strip') {
+        return { ...unit, quantity: tabletsPerStrip };
+      } else if (unit.type === 'single') {
+        return { ...unit, quantity: 1 };
+      }
+      return unit;
+    });
+    setEditUnits(updatedUnits);
+  };
+
+  // Calculate price per tablet from box price
+  const calculatePerTabletPrice = () => {
+    if (pricingMethod === 'box') {
+      const boxUnit = editUnits.find(unit => unit.type === 'box');
+      if (boxUnit && tabletsPerBox > 0) {
+        const pricePerTablet = boxUnit.price / tabletsPerBox;
+        setEditFormData(prev => ({
+          ...prev,
+          sellingPricePerTablet: pricePerTablet.toFixed(2)
+        }));
+        
+        // Update SINGLE unit price
+        const updatedUnits = [...editUnits];
+        const singleIndex = updatedUnits.findIndex(unit => unit.type === 'single');
+        if (singleIndex > -1) {
+          updatedUnits[singleIndex].price = parseFloat(pricePerTablet.toFixed(2));
+        }
+        setEditUnits(updatedUnits);
+      }
+    }
+  };
+
+  // Calculate box price from per-tablet price
+  const calculateBoxPrice = () => {
+    if (pricingMethod === 'perTablet' && tabletsPerBox > 0) {
+      const perTabletPrice = parseFloat(editFormData.sellingPricePerTablet) || 0;
+      const boxPrice = perTabletPrice * tabletsPerBox;
+      
+      // Update BOX unit price
+      const updatedUnits = [...editUnits];
+      const boxIndex = updatedUnits.findIndex(unit => unit.type === 'box');
+      if (boxIndex > -1) {
+        updatedUnits[boxIndex].price = parseFloat(boxPrice.toFixed(2));
+      }
+      setEditUnits(updatedUnits);
+    }
+  };
+
+  // Update units when tablets per box/strip changes
+  useEffect(() => {
+    if (editingMedicine) {
+      updateUnitQuantities();
+    }
+  }, [tabletsPerBox, tabletsPerStrip]);
+
+  // Recalculate prices when pricing method changes
+  useEffect(() => {
+    if (editingMedicine) {
+      if (pricingMethod === 'box') {
+        calculatePerTabletPrice();
+      } else {
+        calculateBoxPrice();
+      }
+    }
+  }, [pricingMethod, tabletsPerBox]);
 
   // Save edited medicine via API
   const saveEdit = async () => {
@@ -135,7 +230,7 @@ export default function Inventory() {
         reorderLevel: parseInt(editFormData.reorderLevel) || 50,
         costPrice: parseFloat(editFormData.costPrice) || 0,
         units: editUnits.map(u => ({
-          type: u.type as MedicineUnit['type'],
+          type: u.type.toUpperCase() as MedicineUnit['type'],
           quantity: u.quantity,
           price: u.price,
         })),
@@ -171,15 +266,10 @@ export default function Inventory() {
     const updated = [...editUnits];
     updated[index] = { ...updated[index], [field]: value };
     setEditUnits(updated);
-  };
-
-  const addEditUnit = () => {
-    setEditUnits([...editUnits, { type: 'strip', quantity: 10, price: 0 }]);
-  };
-
-  const removeEditUnit = (index: number) => {
-    if (editUnits.length > 1) {
-      setEditUnits(editUnits.filter((_, i) => i !== index));
+    
+    // If BOX price changes and pricing method is box, recalculate per tablet price
+    if (field === 'price' && updated[index].type === 'box' && pricingMethod === 'box') {
+      calculatePerTabletPrice();
     }
   };
 
@@ -433,198 +523,4 @@ export default function Inventory() {
                           ) : isOutOfStock ? (
                             <Badge variant="destructive">Out of Stock</Badge>
                           ) : isLowStock ? (
-                            <Badge variant="warning">Low Stock</Badge>
-                          ) : isExpiring ? (
-                            <Badge variant="warning">Expiring Soon</Badge>
-                          ) : (
-                            <Badge variant="success">In Stock</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => startEdit(med)}>
-                            <Edit2 className="h-4 w-4 mr-1" />
-                            Edit
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Edit Medicine Dialog */}
-      <Dialog open={!!editingMedicine} onOpenChange={() => setEditingMedicine(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Medicine</DialogTitle>
-          </DialogHeader>
-          {editingMedicine && (
-            <div className="space-y-6 pt-4">
-              {/* Basic Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Medicine Name *</Label>
-                  <Input
-                    value={editFormData.name}
-                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Generic Name</Label>
-                  <Input
-                    value={editFormData.genericName}
-                    onChange={(e) => setEditFormData({ ...editFormData, genericName: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Category *</Label>
-                  <Select
-                    value={editFormData.category}
-                    onValueChange={(value) => setEditFormData({ ...editFormData, category: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categoryNames.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
-                      {categories.map((cat) => (
-                        !categoryNames.includes(cat) && <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Manufacturer</Label>
-                  <Input
-                    value={editFormData.manufacturer}
-                    onChange={(e) => setEditFormData({ ...editFormData, manufacturer: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Batch Number *</Label>
-                  <Input
-                    value={editFormData.batchNumber}
-                    onChange={(e) => setEditFormData({ ...editFormData, batchNumber: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Expiry Date *</Label>
-                  <Input
-                    type="date"
-                    value={editFormData.expiryDate}
-                    onChange={(e) => setEditFormData({ ...editFormData, expiryDate: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="space-y-2">
-                  <Label>Stock Quantity</Label>
-                  <Input
-                    type="number"
-                    value={editFormData.stockQuantity}
-                    onChange={(e) => setEditFormData({ ...editFormData, stockQuantity: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Reorder Level</Label>
-                  <Input
-                    type="number"
-                    value={editFormData.reorderLevel}
-                    onChange={(e) => setEditFormData({ ...editFormData, reorderLevel: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Cost Price</Label>
-                  <Input
-                    type="number"
-                    value={editFormData.costPrice}
-                    onChange={(e) => setEditFormData({ ...editFormData, costPrice: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              {/* Unit Prices */}
-              <div className="space-y-4">
-                <Label className="text-base font-semibold">Pricing Units</Label>
-                {editUnits.map((unit, index) => (
-                  <div key={index} className="flex items-center gap-4 p-3 rounded-lg bg-secondary/50">
-                    <div className="flex-1 grid grid-cols-3 gap-4">
-                      <Select
-                        value={unit.type}
-                        onValueChange={(value) => updateEditUnit(index, 'type', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Unit type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {unitTypes.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              {type.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        type="number"
-                        value={unit.quantity}
-                        onChange={(e) => updateEditUnit(index, 'quantity', parseInt(e.target.value) || 0)}
-                        placeholder="Quantity"
-                      />
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
-                        <Input
-                          type="number"
-                          value={unit.price}
-                          onChange={(e) => updateEditUnit(index, 'price', parseFloat(e.target.value) || 0)}
-                          placeholder="Price"
-                          className="pl-12"
-                        />
-                      </div>
-                    </div>
-                    {editUnits.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => removeEditUnit(index)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                <Button type="button" variant="outline" onClick={addEditUnit} className="w-full">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Another Unit
-                </Button>
-              </div>
-
-              <div className="flex gap-4 pt-4">
-                <Button variant="outline" className="flex-1" onClick={() => setEditingMedicine(null)}>
-                  Cancel
-                </Button>
-                <Button variant="hero" className="flex-1" onClick={saveEdit}>
-                  Save Changes
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </MainLayout>
-  );
-}
+                            <Badge
