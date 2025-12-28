@@ -1,25 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
-import { useStock } from '@/contexts/StockContext';
-import { useCategories } from '@/contexts/CategoriesContext';
-import { categories } from '@/data/medicines';
 import { useToast } from '@/hooks/use-toast';
-import { Medicine, MedicineUnit } from '@/types/pharmacy';
-import { medicineService } from '@/services/medicineService';
-import * as XLSX from 'xlsx';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useNavigate } from 'react-router-dom';
 import {
   Select,
   SelectContent,
@@ -28,33 +15,26 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Search,
   Plus,
+  Pill,
+  Image as ImageIcon,
   Upload,
-  Download,
-  Filter,
   Package,
-  AlertTriangle,
-  Edit2,
+  Calendar,
+  Building2,
+  Hash,
+  Loader2,
   Calculator,
   Box,
-  Pill,
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { Link } from 'react-router-dom';
+import { medicineService } from '@/services/medicineService';
 
 const unitTypes = [
-  { value: 'single', label: 'Single/Tablet' },
-  { value: 'strip', label: 'Strip' },
-  { value: 'box', label: 'Box' },
-  { value: 'pair', label: 'Pair' },
-  { value: 'bottle', label: 'Bottle' },
+  { value: 'SINGLE', label: 'Single/Tablet' },
+  { value: 'STRIP', label: 'Strip' },
+  { value: 'BOX', label: 'Box' },
+  { value: 'PAIR', label: 'Pair' },
+  { value: 'BOTTLE', label: 'Bottle' },
 ];
 
 interface UnitPrice {
@@ -63,568 +43,509 @@ interface UnitPrice {
   price: number;
 }
 
-export default function Inventory() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
-  const [editFormData, setEditFormData] = useState<any>({});
-  const [editUnits, setEditUnits] = useState<UnitPrice[]>([]);
+export default function CreateMedicine() {
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [units, setUnits] = useState<UnitPrice[]>([
+    { type: 'BOX', quantity: 100, price: 0 },
+    { type: 'STRIP', quantity: 10, price: 0 },
+    { type: 'SINGLE', quantity: 1, price: 0 },
+  ]);
+  const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { medicines, addMedicine } = useStock();
-  const { getCategoryNames } = useCategories();
-  const { toast } = useToast();
-
-  const categoryNames = getCategoryNames();
-
-  const filteredMedicines = medicines.filter((med) => {
-    const matchesSearch = med.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      med.genericName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      med.batchNumber.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = categoryFilter === 'all' || med.category === categoryFilter;
-    return matchesSearch && matchesCategory;
+  const [boxPrice, setBoxPrice] = useState<string>('0');
+  const [formData, setFormData] = useState({
+    name: '',
+    genericName: '',
+    category: '',
+    manufacturer: '',
+    batchNumber: '',
+    expiryDate: '',
+    stockQuantity: '0',
+    reorderLevel: '50',
+    costPrice: '0',
+    description: '',
   });
 
-  const totalValue = filteredMedicines.reduce(
-    (sum, med) => sum + med.stockQuantity * med.costPrice,
-    0
-  );
-
-  const lowStockCount = filteredMedicines.filter(
-    (med) => med.stockQuantity <= med.reorderLevel
-  ).length;
-
-  const expiringCount = filteredMedicines.filter((med) => {
-    const daysToExpiry = Math.ceil(
-      (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-    );
-    return daysToExpiry <= 90;
-  }).length;
-
-  // Start editing a medicine
-  const startEdit = (med: Medicine) => {
-    setEditingMedicine(med);
-    
-    // Extract tablets per box and strip from units
-    const boxUnit = med.units.find(u => u.type === 'box' || u.type === 'BOX');
-    const stripUnit = med.units.find(u => u.type === 'strip' || u.type === 'STRIP');
-    const singleUnit = med.units.find(u => u.type === 'single' || u.type === 'SINGLE');
-    
-    if (boxUnit) {
-      setTabletsPerBox(boxUnit.quantity);
-    }
-    if (stripUnit) {
-      setTabletsPerStrip(stripUnit.quantity);
-    }
-    
-    setEditFormData({
-      name: med.name,
-      genericName: med.genericName || '',
-      category: med.category,
-      manufacturer: med.manufacturer || '',
-      batchNumber: med.batchNumber,
-      expiryDate: format(new Date(med.expiryDate), 'yyyy-MM-dd'),
-      stockQuantity: med.stockQuantity.toString(),
-      reorderLevel: med.reorderLevel.toString(),
-      costPrice: med.costPrice.toString(),
-      boxPrice: boxUnit?.price?.toString() || '0',
-      tabletPrice: singleUnit?.price?.toString() || '0',
-    });
-    
-    // Initialize units based on medicine data
-    const defaultUnits: UnitPrice[] = [];
-    
-    // Add single unit
-    if (singleUnit) {
-      defaultUnits.push({
-        type: 'single',
-        quantity: 1,
-        price: singleUnit.price,
-      });
-    }
-    
-    // Add strip unit if exists
-    if (stripUnit) {
-      defaultUnits.push({
-        type: 'strip',
-        quantity: stripUnit.quantity,
-        price: stripUnit.price,
-      });
-    }
-    
-    // Add box unit
-    if (boxUnit) {
-      defaultUnits.push({
-        type: 'box',
-        quantity: boxUnit.quantity,
-        price: boxUnit.price,
-      });
-    }
-    
-    setEditUnits(defaultUnits.length > 0 ? defaultUnits : [
-      { type: 'single', quantity: 1, price: 0 },
-      { type: 'strip', quantity: 10, price: 0 },
-      { type: 'box', quantity: 100, price: 0 },
-    ]);
-  };
-
-  // Calculate tablet price from box price
-  const calculateTabletPrice = (boxPrice: number) => {
-    if (tabletsPerBox > 0) {
-      const tabletPrice = boxPrice / tabletsPerBox;
-      
-      // Update tablet price in form
-      setEditFormData(prev => ({
-        ...prev,
-        tabletPrice: tabletPrice.toFixed(2)
-      }));
-      
-      // Update single unit price
-      const updatedUnits = [...editUnits];
-      const singleIndex = updatedUnits.findIndex(unit => unit.type === 'single');
-      if (singleIndex > -1) {
-        updatedUnits[singleIndex].price = parseFloat(tabletPrice.toFixed(2));
-      }
-      
-      // Update strip unit price
-      const stripIndex = updatedUnits.findIndex(unit => unit.type === 'strip');
-      if (stripIndex > -1 && tabletsPerStrip > 0) {
-        const stripPrice = tabletPrice * tabletsPerStrip;
-        updatedUnits[stripIndex].price = parseFloat(stripPrice.toFixed(2));
-      }
-      
-      setEditUnits(updatedUnits);
-    }
-  };
-
-  // Update unit quantities based on tablets per box/strip
+  // Load categories from backend on component mount
   useEffect(() => {
-    if (editingMedicine) {
-      const updatedUnits = editUnits.map(unit => {
-        if (unit.type === 'box') {
-          return { ...unit, quantity: tabletsPerBox };
-        } else if (unit.type === 'strip') {
-          return { ...unit, quantity: tabletsPerStrip };
-        }
-        return unit;
-      });
-      
-      // Recalculate prices based on new quantities
-      const boxPrice = parseFloat(editFormData.boxPrice) || 0;
-      if (boxPrice > 0) {
-        calculateTabletPrice(boxPrice);
-      }
-      
-      setEditUnits(updatedUnits);
-    }
-  }, [tabletsPerBox, tabletsPerStrip]);
+    loadCategories();
+  }, []);
 
-  // Update tablet price when box price changes
-  useEffect(() => {
-    if (editingMedicine) {
-      const boxPrice = parseFloat(editFormData.boxPrice) || 0;
-      calculateTabletPrice(boxPrice);
-    }
-  }, [editFormData.boxPrice]);
-
-  // Save edited medicine via API
-  const saveEdit = async () => {
-    if (!editingMedicine) return;
-
+  const loadCategories = async () => {
     try {
-      const response = await medicineService.update(editingMedicine.id, {
-        name: editFormData.name,
-        genericName: editFormData.genericName || undefined,
-        category: editFormData.category,
-        manufacturer: editFormData.manufacturer,
-        batchNumber: editFormData.batchNumber,
-        expiryDate: editFormData.expiryDate,
-        stockQuantity: parseInt(editFormData.stockQuantity) || 0,
-        reorderLevel: parseInt(editFormData.reorderLevel) || 50,
-        costPrice: parseFloat(editFormData.costPrice) || 0,
-        units: editUnits.map(u => ({
-          type: u.type.toUpperCase() as MedicineUnit['type'],
-          quantity: u.quantity,
-          price: u.price,
-        })),
-      });
-
-      if (response.success) {
+      setCategoriesLoading(true);
+      const response = await medicineService.getCategories();
+      console.log('Categories response:', response);
+      
+      if (response.success && response.data && Array.isArray(response.data)) {
+        setCategories(response.data);
         toast({
-          title: 'Medicine Updated',
-          description: `${editFormData.name} has been updated successfully`,
+          title: 'Categories loaded',
+          description: `Found ${response.data.length} categories`,
         });
-        
-        // Refresh medicines from context
-        window.location.reload();
       } else {
         toast({
-          title: 'Update Failed',
-          description: response.error || 'Failed to update medicine',
+          title: 'Warning',
+          description: 'Could not load categories. Please check backend connection.',
           variant: 'destructive',
         });
       }
     } catch (error) {
+      console.error('Failed to load categories:', error);
       toast({
-        title: 'Update Failed',
-        description: 'An error occurred while updating the medicine',
+        title: 'Error',
+        description: 'Failed to load categories from server',
         variant: 'destructive',
       });
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
+  // Helper function to check if date is valid
+  const isValidDate = (dateStr: string) => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    return date instanceof Date && !isNaN(date.getTime());
+  };
+
+  // Calculate tablet price from box price
+  const calculateTabletPrice = (price: number) => {
+    if (tabletsPerBox > 0) {
+      const tabletPrice = price / tabletsPerBox;
+      
+      // Update units with calculated prices
+      const updatedUnits = units.map(unit => {
+        if (unit.type === 'SINGLE') {
+          return { ...unit, quantity: 1, price: parseFloat(tabletPrice.toFixed(2)) };
+        } else if (unit.type === 'STRIP' && tabletsPerStrip > 0) {
+          const stripPrice = tabletPrice * tabletsPerStrip;
+          return { ...unit, quantity: tabletsPerStrip, price: parseFloat(stripPrice.toFixed(2)) };
+        } else if (unit.type === 'BOX') {
+          return { ...unit, quantity: tabletsPerBox, price: parseFloat(price.toFixed(2)) };
+        }
+        return unit;
+      });
+      
+      setUnits(updatedUnits);
+    }
+  };
+
+  // Update units based on tablets per box and strip
+  const updateUnitQuantities = () => {
+    const updatedUnits = units.map(unit => {
+      if (unit.type === 'BOX') {
+        return { ...unit, quantity: tabletsPerBox };
+      } else if (unit.type === 'STRIP') {
+        return { ...unit, quantity: tabletsPerStrip };
+      } else if (unit.type === 'SINGLE') {
+        return { ...unit, quantity: 1 };
+      }
+      return unit;
+    });
+    setUnits(updatedUnits);
+    
+    // Recalculate prices if box price is set
+    const price = parseFloat(boxPrice) || 0;
+    if (price > 0) {
+      calculateTabletPrice(price);
+    }
+  };
+
+  // Initialize units when component mounts
+  useEffect(() => {
+    updateUnitQuantities();
+  }, [tabletsPerBox, tabletsPerStrip]);
+
+  // Handle box price change
+  useEffect(() => {
+    const price = parseFloat(boxPrice) || 0;
+    calculateTabletPrice(price);
+  }, [boxPrice]);
+
+  // Initialize default units
+  useEffect(() => {
+    const defaultUnits: UnitPrice[] = [
+      { type: 'SINGLE', quantity: 1, price: 0 },
+      { type: 'STRIP', quantity: tabletsPerStrip, price: 0 },
+      { type: 'BOX', quantity: tabletsPerBox, price: 0 }
+    ];
+    setUnits(defaultUnits);
+  }, []);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: 'Error',
+          description: 'Image size must be less than 5MB',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      setImageFile(file);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate required fields
+    if (!formData.name || !formData.category || !formData.batchNumber || !formData.expiryDate) {
+      toast({
+        title: 'Error',
+        description: 'Please fill all required fields (Name, Category, Batch Number, Expiry Date)',
+        variant: 'destructive',
+      });
+      return;
     }
 
-    setEditingMedicine(null);
-  };
+    // Validate expiry date
+    if (!isValidDate(formData.expiryDate)) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a valid expiry date',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-  // Export medicines to Excel
-  const handleExport = () => {
-    const exportData = medicines.map(med => ({
-      'Medicine Name': med.name,
-      'Generic Name': med.genericName || '',
-      'Category': med.category,
-      'Manufacturer': med.manufacturer || '',
-      'Batch Number': med.batchNumber,
-      'Expiry Date': format(new Date(med.expiryDate), 'yyyy-MM-dd'),
-      'Stock Quantity': med.stockQuantity,
-      'Reorder Level': med.reorderLevel,
-      'Cost Price': med.costPrice,
-      'Selling Price': med.units[0]?.price || 0,
-      'Status': med.stockQuantity === 0 ? 'Out of Stock' : med.stockQuantity <= med.reorderLevel ? 'Low Stock' : 'In Stock',
-    }));
+    // Check if expiry date is in the future
+    const expiryDate = new Date(formData.expiryDate);
+    if (expiryDate <= new Date()) {
+      toast({
+        title: 'Error',
+        description: 'Expiry date must be in the future',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
-    XLSX.writeFile(wb, `inventory_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    // Validate tablets per box and strip
+    if (tabletsPerBox <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Tablets per box must be greater than 0',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-    toast({
-      title: 'Export Successful',
-      description: 'Inventory has been exported to Excel',
-    });
-  };
+    if (tabletsPerStrip <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Tablets per strip must be greater than 0',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-  // Import medicines from Excel
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    // Validate box price
+    const price = parseFloat(boxPrice) || 0;
+    if (price <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Selling price must be greater than 0',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const binaryStr = evt.target?.result;
-        const wb = XLSX.read(binaryStr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+    setLoading(true);
 
-        let importedCount = 0;
-        data.forEach((row: any) => {
-          const medicine: Medicine = {
-            id: `med${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            name: row['Medicine Name'] || row['name'] || '',
-            genericName: row['Generic Name'] || row['genericName'] || undefined,
-            category: row['Category'] || row['category'] || 'General',
-            manufacturer: row['Manufacturer'] || row['manufacturer'] || '',
-            batchNumber: row['Batch Number'] || row['batchNumber'] || `BATCH-${Date.now()}`,
-            expiryDate: row['Expiry Date'] ? new Date(row['Expiry Date']) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-            units: [{
-              type: 'single' as const,
-              quantity: 1,
-              price: parseFloat(row['Selling Price']) || parseFloat(row['sellingPrice']) || 0,
-            }],
-            stockQuantity: parseInt(row['Stock Quantity']) || parseInt(row['stockQuantity']) || 0,
-            reorderLevel: parseInt(row['Reorder Level']) || parseInt(row['reorderLevel']) || 50,
-            supplierId: 'sup1',
-            costPrice: parseFloat(row['Cost Price']) || parseFloat(row['costPrice']) || 0,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
+    try {
+      // Prepare medicine data for backend
+      const medicineData = {
+        name: formData.name.trim(),
+        genericName: formData.genericName.trim() || '',
+        category: formData.category,
+        manufacturer: formData.manufacturer.trim() || '',
+        batchNumber: formData.batchNumber.trim(),
+        expiryDate: formData.expiryDate,
+        units: units.map(u => ({
+          type: u.type,
+          quantity: u.quantity,
+          price: parseFloat(u.price.toString()),
+        })),
+        stockQuantity: parseInt(formData.stockQuantity) || 0,
+        reorderLevel: parseInt(formData.reorderLevel) || 50,
+        costPrice: parseFloat(formData.costPrice) || 0,
+        imageUrl: imagePreview || '',
+        description: formData.description.trim() || ''
+      };
 
-          if (medicine.name) {
-            addMedicine(medicine);
-            importedCount++;
-          }
+      console.log('Sending medicine data to backend:', medicineData);
+
+      // Call backend API
+      const response = await medicineService.create(medicineData);
+      
+      console.log('Backend response:', response);
+      
+      if (response.success && response.data) {
+        toast({
+          title: 'Success!',
+          description: `${formData.name} has been successfully added to the inventory`,
         });
 
+        // Navigate back to inventory
+        navigate('/inventory');
+      } else {
         toast({
-          title: 'Import Successful',
-          description: `${importedCount} medicines imported from Excel`,
-        });
-
-        // Reset file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-      } catch (error) {
-        toast({
-          title: 'Import Failed',
-          description: 'Failed to parse Excel file. Please check the format.',
+          title: 'Error',
+          description: response.error || 'Failed to create medicine. Please try again.',
           variant: 'destructive',
         });
       }
-    };
-    reader.readAsBinaryString(file);
+    } catch (error: any) {
+      console.error('Error creating medicine:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'An unexpected error occurred. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Set minimum date to today for expiry date
+  const today = new Date().toISOString().split('T')[0];
+
+  // Calculate tablet price for display
+  const tabletPrice = tabletsPerBox > 0 ? (parseFloat(boxPrice) || 0) / tabletsPerBox : 0;
+  const stripPrice = tabletsPerStrip > 0 ? tabletPrice * tabletsPerStrip : 0;
 
   return (
     <MainLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl lg:text-3xl font-bold font-display">Inventory Management</h1>
-            <p className="text-muted-foreground mt-1">Manage your medicine stock</p>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept=".xlsx,.xls"
-              onChange={handleImport}
-              className="hidden"
-            />
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="h-4 w-4 mr-2" />
-              Import Excel
-            </Button>
-            <Button variant="outline" onClick={handleExport}>
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-            <Link to="/create-medicine">
-              <Button variant="hero">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Medicine
-              </Button>
-            </Link>
-          </div>
+        <div>
+          <h1 className="text-2xl lg:text-3xl font-bold font-display">Create Medicine</h1>
+          <p className="text-muted-foreground mt-1">Add a new medicine to the inventory system</p>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card variant="stat">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Package className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Items</p>
-                  <p className="text-2xl font-bold">{filteredMedicines.length}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card variant="stat" className="border-l-warning">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-warning/10">
-                  <AlertTriangle className="h-5 w-5 text-warning" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Low Stock Items</p>
-                  <p className="text-2xl font-bold text-destructive">{lowStockCount}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card variant="stat" className="border-l-success">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-success/10">
-                  <Package className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Stock Value</p>
-                  <p className="text-2xl font-bold">KSh {totalValue.toLocaleString()}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name, generic name, or batch number..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-full sm:w-48">
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Table */}
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Medicine</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Batch No.</TableHead>
-                    <TableHead>Expiry</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead className="text-right">Cost Price</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredMedicines.map((med) => {
-                    const isLowStock = med.stockQuantity <= med.reorderLevel;
-                    const isOutOfStock = med.stockQuantity === 0;
-                    const daysToExpiry = Math.ceil(
-                      (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-                    );
-                    const isExpiring = daysToExpiry <= 90;
-                    const isExpired = daysToExpiry <= 0;
-
-                    return (
-                      <TableRow key={med.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{med.name}</p>
-                            <p className="text-sm text-muted-foreground">{med.genericName}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{med.category}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">{med.batchNumber}</TableCell>
-                        <TableCell>
-                          <span className={isExpiring || isExpired ? 'text-destructive font-medium' : ''}>
-                            {format(new Date(med.expiryDate), 'MMM dd, yyyy')}
-                          </span>
-                        </TableCell>
-                        <TableCell className={`text-right font-medium ${isLowStock ? 'text-destructive' : ''}`}>
-                          {med.stockQuantity.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right">KSh {med.costPrice}</TableCell>
-                        <TableCell>
-                          {isExpired ? (
-                            <Badge variant="destructive">Expired</Badge>
-                          ) : isOutOfStock ? (
-                            <Badge variant="destructive">Out of Stock</Badge>
-                          ) : isLowStock ? (
-                            <Badge variant="warning">Low Stock</Badge>
-                          ) : isExpiring ? (
-                            <Badge variant="warning">Expiring Soon</Badge>
-                          ) : (
-                            <Badge variant="success">In Stock</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => startEdit(med)}>
-                            <Edit2 className="h-4 w-4 mr-1" />
-                            Edit
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Edit Medicine Dialog */}
-      <Dialog open={!!editingMedicine} onOpenChange={() => setEditingMedicine(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Medicine</DialogTitle>
-          </DialogHeader>
-          {editingMedicine && (
-            <div className="space-y-6 pt-4">
-              {/* Basic Info */}
-              <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Basic Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Pill className="h-5 w-5" />
+                Basic Information
+              </CardTitle>
+              <CardDescription>Enter the medicine details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Medicine Name *</Label>
+                  <Label htmlFor="name">
+                    Medicine Name <span className="text-destructive">*</span>
+                  </Label>
                   <Input
-                    value={editFormData.name}
-                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="e.g., Paracetamol 500mg"
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Generic Name</Label>
+                  <Label htmlFor="genericName">Generic Name</Label>
                   <Input
-                    value={editFormData.genericName}
-                    onChange={(e) => setEditFormData({ ...editFormData, genericName: e.target.value })}
+                    id="genericName"
+                    value={formData.genericName}
+                    onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
+                    placeholder="e.g., Acetaminophen"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Category *</Label>
+                  <Label htmlFor="category">
+                    Category <span className="text-destructive">*</span>
+                  </Label>
                   <Select
-                    value={editFormData.category}
-                    onValueChange={(value) => setEditFormData({ ...editFormData, category: value })}
+                    value={formData.category}
+                    onValueChange={(value) => setFormData({ ...formData, category: value })}
+                    required
+                    disabled={categoriesLoading}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
+                    <SelectTrigger id="category">
+                      {categoriesLoading ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Loading categories...</span>
+                        </div>
+                      ) : (
+                        <SelectValue placeholder="Select category" />
+                      )}
                     </SelectTrigger>
                     <SelectContent>
-                      {categoryNames.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
-                      {categories.map((cat) => (
-                        !categoryNames.includes(cat) && <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
+                      {categories.length === 0 ? (
+                        <div className="p-4 text-center text-muted-foreground">
+                          <p>No categories found</p>
+                          <p className="text-sm mt-1">Please create categories in the backend</p>
+                        </div>
+                      ) : (
+                        categories.map((cat) => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
+                  {!categoriesLoading && categories.length === 0 && (
+                    <p className="text-xs text-destructive mt-1">
+                      No categories available. Please create categories first in the backend.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Manufacturer</Label>
-                  <Input
-                    value={editFormData.manufacturer}
-                    onChange={(e) => setEditFormData({ ...editFormData, manufacturer: e.target.value })}
-                  />
+                  <Label htmlFor="manufacturer">Manufacturer</Label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="manufacturer"
+                      value={formData.manufacturer}
+                      onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
+                      placeholder="e.g., GSK Kenya"
+                      className="pl-10"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Batch Number *</Label>
-                  <Input
-                    value={editFormData.batchNumber}
-                    onChange={(e) => setEditFormData({ ...editFormData, batchNumber: e.target.value })}
-                  />
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Brief description of the medicine, usage, and dosage instructions"
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Image Upload */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ImageIcon className="h-5 w-5" />
+                Medicine Image
+              </CardTitle>
+              <CardDescription>Upload an image of the medicine package (Optional)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-6">
+                <div className="w-32 h-32 rounded-lg border-2 border-dashed border-muted-foreground/25 flex items-center justify-center overflow-hidden bg-secondary/50">
+                  {imagePreview ? (
+                    <img 
+                      src={imagePreview} 
+                      alt="Preview" 
+                      className="w-full h-full object-cover"
+                      onError={() => setImagePreview(null)}
+                    />
+                  ) : (
+                    <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
+                  )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Expiry Date *</Label>
+                  <Label htmlFor="image-upload" className="cursor-pointer">
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-lg border bg-background hover:bg-secondary transition-colors">
+                      <Upload className="h-4 w-4" />
+                      <span>Upload Image</span>
+                    </div>
+                  </Label>
                   <Input
-                    type="date"
-                    value={editFormData.expiryDate}
-                    onChange={(e) => setEditFormData({ ...editFormData, expiryDate: e.target.value })}
-                    min={new Date().toISOString().split('T')[0]}
+                    id="image-upload"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageChange}
                   />
+                  <p className="text-xs text-muted-foreground">PNG, JPG up to 5MB</p>
+                  {imagePreview && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setImagePreview(null);
+                        setImageFile(null);
+                      }}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      Remove Image
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Batch & Stock Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Batch & Stock Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="batchNumber">
+                    Batch Number <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="batchNumber"
+                      value={formData.batchNumber}
+                      onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
+                      placeholder="e.g., PCM-2024-001"
+                      className="pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="expiryDate">
+                    Expiry Date <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="expiryDate"
+                      type="date"
+                      value={formData.expiryDate}
+                      onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                      className="pl-10"
+                      min={today}
+                      required
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Tablets Configuration */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-secondary/30 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-secondary/30 rounded-lg">
                 <div className="space-y-2">
                   <Label htmlFor="tabletsPerBox" className="flex items-center gap-2">
                     <Box className="h-4 w-4" />
@@ -662,172 +583,209 @@ export default function Inventory() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Stock Quantity (Tablets)</Label>
+                  <Label htmlFor="stockQuantity">Initial Stock Quantity (Tablets)</Label>
                   <Input
+                    id="stockQuantity"
                     type="number"
-                    value={editFormData.stockQuantity}
-                    onChange={(e) => setEditFormData({ ...editFormData, stockQuantity: e.target.value })}
+                    min="0"
+                    value={formData.stockQuantity}
+                    onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
+                    placeholder="e.g., 1000"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Reorder Level (Tablets)</Label>
+                  <Label htmlFor="reorderLevel">Reorder Level (Tablets)</Label>
                   <Input
+                    id="reorderLevel"
                     type="number"
-                    value={editFormData.reorderLevel}
-                    onChange={(e) => setEditFormData({ ...editFormData, reorderLevel: e.target.value })}
+                    min="0"
+                    value={formData.reorderLevel}
+                    onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value })}
+                    placeholder="e.g., 100"
                   />
+                  <p className="text-xs text-muted-foreground">Low stock alert threshold</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Buying Price (per Box)</Label>
+                  <Label htmlFor="costPrice">Buying Price (per Box)</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                     <Input
+                      id="costPrice"
                       type="number"
                       min="0"
                       step="0.01"
-                      value={editFormData.costPrice}
-                      onChange={(e) => setEditFormData({ ...editFormData, costPrice: e.target.value })}
+                      value={formData.costPrice}
+                      onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
+                      placeholder="0"
                       className="pl-12"
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">Price you pay for one box</p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Pricing Configuration */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Calculator className="h-5 w-5" />
-                  <Label className="text-base font-medium">Pricing</Label>
+          {/* Pricing Configuration */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calculator className="h-5 w-5" />
+                Pricing
+              </CardTitle>
+              <CardDescription>Enter the selling price for the entire box</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Box Price Input */}
+              <div className="space-y-2">
+                <Label htmlFor="boxPrice">Selling Price (per Box)</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
+                  <Input
+                    id="boxPrice"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={boxPrice}
+                    onChange={(e) => setBoxPrice(e.target.value)}
+                    placeholder="Enter selling price for entire box"
+                    className="pl-12"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Enter the price you want to sell the entire box for
+                </p>
+              </div>
+
+              {/* Price Calculation Display */}
+              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calculator className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-medium">Price Calculation</Label>
                 </div>
                 
-                {/* Box Price Input */}
-                <div className="space-y-2">
-                  <Label htmlFor="boxPrice">Selling Price (per Box)</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
-                    <Input
-                      id="boxPrice"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={editFormData.boxPrice}
-                      onChange={(e) => setEditFormData({ ...editFormData, boxPrice: e.target.value })}
-                      placeholder="Enter selling price for entire box"
-                      className="pl-12"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Enter the price you want to sell the entire box for
-                  </p>
-                </div>
-
-                {/* Price Calculation Display */}
-                <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calculator className="h-4 w-4 text-primary" />
-                    <Label className="text-sm font-medium">Price Calculation</Label>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Price per tablet</p>
+                      <p className="text-xs text-muted-foreground">
+                        Box price ÷ {tabletsPerBox} tablets
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-primary">
+                        KSh {tabletPrice.toFixed(2)}
+                      </p>
+                    </div>
                   </div>
                   
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Price per tablet</p>
-                        <p className="text-xs text-muted-foreground">
-                          Box price ÷ {tabletsPerBox} tablets
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-primary">
-                          KSh {editFormData.tabletPrice || '0.00'}
-                        </p>
-                      </div>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Price per strip</p>
+                      <p className="text-xs text-muted-foreground">
+                        Tablet price × {tabletsPerStrip} tablets
+                      </p>
                     </div>
-                    
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Price per strip</p>
-                        <p className="text-xs text-muted-foreground">
-                          Tablet price × {tabletsPerStrip} tablets
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-primary">
-                          KSh {(() => {
-                            const tabletPrice = parseFloat(editFormData.tabletPrice) || 0;
-                            const stripPrice = tabletPrice * tabletsPerStrip;
-                            return stripPrice.toFixed(2);
-                          })()}
-                        </p>
-                      </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-primary">
+                        KSh {stripPrice.toFixed(2)}
+                      </p>
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Pricing Summary */}
-                <div className="border rounded-lg p-4 space-y-3">
-                  <h4 className="font-medium">Pricing Summary</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground">Single Tablet</p>
-                      <p className="text-lg font-bold">KSh {editFormData.tabletPrice || '0.00'}</p>
+              {/* Pricing Summary */}
+              <div className="border rounded-lg p-4 space-y-3">
+                <h4 className="font-medium">Pricing Summary</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Single Tablet</p>
+                    <p className="text-lg font-bold">KSh {tabletPrice.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">
+                      Strip ({tabletsPerStrip} tablets)
+                    </p>
+                    <p className="text-lg font-bold">KSh {stripPrice.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
+                    <p className="text-xs text-muted-foreground">
+                      Box ({tabletsPerBox} tablets)
+                    </p>
+                    <p className="text-lg font-bold">KSh {parseFloat(boxPrice).toFixed(2)}</p>
+                  </div>
+                </div>
+                
+                {/* Markup */}
+                <div className="mt-3 p-3 bg-secondary/30 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-medium">Markup</p>
+                      <p className="text-xs text-muted-foreground">Profit margin percentage</p>
                     </div>
-                    <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground">
-                        Strip ({tabletsPerStrip} tablets)
-                      </p>
-                      <p className="text-lg font-bold">
-                        KSh {(() => {
-                          const tabletPrice = parseFloat(editFormData.tabletPrice) || 0;
-                          return (tabletPrice * tabletsPerStrip).toFixed(2);
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-primary">
+                        {(() => {
+                          const cost = parseFloat(formData.costPrice) || 0;
+                          const sellingPrice = parseFloat(boxPrice) || 0;
+                          if (cost === 0) return 'N/A';
+                          const markup = ((sellingPrice - cost) / cost * 100).toFixed(1);
+                          return `${markup}%`;
                         })()}
                       </p>
                     </div>
-                    <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground">
-                        Box ({tabletsPerBox} tablets)
-                      </p>
-                      <p className="text-lg font-bold">KSh {editFormData.boxPrice || '0.00'}</p>
-                    </div>
-                  </div>
-                  
-                  {/* Markup */}
-                  <div className="mt-3 p-3 bg-secondary/30 rounded-lg">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-sm font-medium">Markup</p>
-                        <p className="text-xs text-muted-foreground">Profit margin percentage</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-primary">
-                          {(() => {
-                            const cost = parseFloat(editFormData.costPrice) || 0;
-                            const sellingPrice = parseFloat(editFormData.boxPrice) || 0;
-                            if (cost === 0) return 'N/A';
-                            const markup = ((sellingPrice - cost) / cost * 100).toFixed(1);
-                            return `${markup}%`;
-                          })()}
-                        </p>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
 
-              <div className="flex gap-4 pt-4">
-                <Button variant="outline" className="flex-1" onClick={() => setEditingMedicine(null)}>
-                  Cancel
-                </Button>
-                <Button variant="hero" className="flex-1" onClick={saveEdit}>
-                  Save Changes
-                </Button>
-              </div>
+          {/* Submit */}
+          <div className="flex gap-4 pt-4">
+            <Button 
+              type="button" 
+              variant="outline" 
+              className="flex-1" 
+              onClick={() => navigate(-1)}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              variant="hero" 
+              className="flex-1"
+              disabled={loading || categoriesLoading || categories.length === 0}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating Medicine...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Medicine
+                </>
+              )}
+            </Button>
+          </div>
+          {categories.length === 0 && !categoriesLoading && (
+            <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg">
+              <p className="text-sm text-warning font-medium">
+                ⚠️ No categories available
+              </p>
+              <p className="text-xs text-warning/80 mt-1">
+                You need to have categories created in the backend before you can create medicines.
+                Please check your backend categories API at <code>/medicines/categories</code>
+              </p>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </form>
+      </div>
     </MainLayout>
   );
 }
