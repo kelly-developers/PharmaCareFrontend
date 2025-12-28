@@ -1,4 +1,4 @@
-// services/medicineService.ts
+// services/medicineService.ts - UPDATED getCategories method
 import { api, ApiResponse } from './api';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 
@@ -118,15 +118,38 @@ export const medicineService = {
     return { ...response, data: [] };
   },
 
-  // Get all categories
-  async getCategories(): Promise<ApiResponse<string[]>> {
+  // Get all categories - FIXED VERSION
+  async getCategories(): Promise<ApiResponse<any>> {
     const response = await api.get<any>('/medicines/categories');
+    console.log('Categories API raw response:', response);
+    
     if (response.success && response.data) {
-      return {
-        ...response,
-        data: Array.isArray(response.data) ? response.data : []
-      };
+      // Handle different response structures
+      const data = response.data;
+      
+      // If it's an array of objects with name property
+      if (Array.isArray(data)) {
+        const categoryNames = data.map((item: any) => {
+          if (typeof item === 'string') {
+            return item;
+          } else if (item && typeof item === 'object') {
+            return item.name || '';
+          }
+          return '';
+        }).filter((name: string) => name.trim() !== '');
+        
+        return {
+          ...response,
+          data: categoryNames
+        };
+      }
+      
+      // If it's already an array of strings
+      if (Array.isArray(data)) {
+        return response;
+      }
     }
+    
     return { ...response, data: [] };
   },
 

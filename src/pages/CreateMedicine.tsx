@@ -1,4 +1,4 @@
-// components/CreateMedicine.tsx
+// CreateMedicine.tsx - FULLY UPDATED
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useCategories } from '@/contexts/CategoriesContext';
 import { useNavigate } from 'react-router-dom';
 import {
   Select,
@@ -28,6 +27,7 @@ import {
   Loader2,
   Calculator,
   Box,
+  RefreshCw,
 } from 'lucide-react';
 import { medicineService } from '@/services/medicineService';
 
@@ -45,12 +45,19 @@ interface UnitPrice {
   price: number;
 }
 
+interface Category {
+  id: string;
+  name: string;
+  description: string;
+  medicineCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function CreateMedicine() {
   const { toast } = useToast();
-  const { getCategoryNames, refreshCategories } = useCategories();
   const navigate = useNavigate();
   
-  const [categories, setCategories] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [units, setUnits] = useState<UnitPrice[]>([
@@ -59,6 +66,7 @@ export default function CreateMedicine() {
     { type: 'SINGLE', quantity: 1, price: 0 },
   ]);
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
@@ -84,19 +92,53 @@ export default function CreateMedicine() {
   const loadCategories = async () => {
     try {
       setCategoriesLoading(true);
+      console.log('Loading categories from backend...');
+      
       const response = await medicineService.getCategories();
+      console.log('Categories API response:', response);
+      
       if (response.success && response.data) {
-        setCategories(response.data);
+        // Extract category names from the response
+        const categoryNames = response.data.map((cat: any) => {
+          if (typeof cat === 'string') {
+            return cat;
+          } else if (cat && typeof cat === 'object' && cat.name) {
+            return cat.name;
+          }
+          return '';
+        }).filter((name: string) => name.trim() !== '');
+        
+        console.log('Extracted categories:', categoryNames);
+        setCategories(categoryNames);
+        
+        if (categoryNames.length > 0) {
+          toast({
+            title: 'Categories loaded',
+            description: `Found ${categoryNames.length} categories`,
+          });
+        }
       } else {
-        // Fallback to local categories if backend fails
-        setCategories(getCategoryNames());
+        console.error('Categories API error:', response.error);
+        toast({
+          title: 'Warning',
+          description: response.error || 'Could not load categories',
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       console.error('Failed to load categories:', error);
-      setCategories(getCategoryNames());
+      toast({
+        title: 'Error',
+        description: 'Failed to load categories from server',
+        variant: 'destructive',
+      });
     } finally {
       setCategoriesLoading(false);
     }
+  };
+
+  const handleRefreshCategories = async () => {
+    await loadCategories();
   };
 
   // Helper function to check if date is valid
@@ -292,11 +334,8 @@ export default function CreateMedicine() {
           description: `${formData.name} has been successfully added to the inventory`,
         });
 
-        // Refresh categories
-        await refreshCategories?.();
-
-        // Navigate back to medicine categories
-        navigate('/medicine-categories');
+        // Navigate back to inventory
+        navigate('/inventory');
       } else {
         toast({
           title: 'Error',
@@ -327,9 +366,30 @@ export default function CreateMedicine() {
     <MainLayout>
       <div className="space-y-6 max-w-4xl mx-auto">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl lg:text-3xl font-bold font-display">Create Medicine</h1>
-          <p className="text-muted-foreground mt-1">Add a new medicine to the inventory system</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl lg:text-3xl font-bold font-display">Create Medicine</h1>
+            <p className="text-muted-foreground mt-1">Add a new medicine to the inventory system</p>
+          </div>
+          <Button
+            onClick={handleRefreshCategories}
+            variant="outline"
+            size="sm"
+            disabled={categoriesLoading}
+            className="w-full sm:w-auto"
+          >
+            {categoriesLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh Categories
+              </>
+            )}
+          </Button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -372,28 +432,42 @@ export default function CreateMedicine() {
                   <Label htmlFor="category">
                     Category <span className="text-destructive">*</span>
                   </Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(value) => setFormData({ ...formData, category: value })}
-                    required
-                    disabled={categoriesLoading}
-                  >
-                    <SelectTrigger id="category">
-                      {categoriesLoading ? (
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Loading categories...</span>
-                        </div>
-                      ) : (
-                        <SelectValue placeholder="Select category" />
-                      )}
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-2">
+                    <Select
+                      value={formData.category}
+                      onValueChange={(value) => setFormData({ ...formData, category: value })}
+                      required
+                      disabled={categoriesLoading}
+                    >
+                      <SelectTrigger id="category" className="w-full">
+                        {categoriesLoading ? (
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Loading categories...</span>
+                          </div>
+                        ) : (
+                          <SelectValue placeholder="Select category" />
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.length === 0 ? (
+                          <div className="p-4 text-center text-muted-foreground">
+                            <p>No categories found</p>
+                            <p className="text-sm mt-1">Please create categories first</p>
+                          </div>
+                        ) : (
+                          categories.map((cat) => (
+                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {!categoriesLoading && categories.length === 0 && (
+                      <p className="text-xs text-destructive mt-1">
+                        No categories available. Please create categories in the backend first.
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="manufacturer">Manufacturer</Label>
@@ -739,7 +813,7 @@ export default function CreateMedicine() {
               type="submit" 
               variant="hero" 
               className="flex-1"
-              disabled={loading}
+              disabled={loading || categoriesLoading || categories.length === 0}
             >
               {loading ? (
                 <>
@@ -754,6 +828,41 @@ export default function CreateMedicine() {
               )}
             </Button>
           </div>
+          
+          {/* Categories debug info */}
+          {!categoriesLoading && (
+            <div className="p-4 border rounded-lg bg-muted/30">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium">Categories Status</p>
+                <Badge variant={categories.length > 0 ? "success" : "destructive"}>
+                  {categories.length} found
+                </Badge>
+              </div>
+              {categories.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Available categories:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {categories.map((cat, index) => (
+                      <Badge key={index} variant="outline" className="text-xs">
+                        {cat}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-xs text-destructive">
+                    ⚠️ No categories available. Please check:
+                  </p>
+                  <ul className="text-xs text-muted-foreground list-disc pl-4">
+                    <li>Backend API endpoint: <code>/medicines/categories</code></li>
+                    <li>Network connection to backend</li>
+                    <li>Backend database has categories</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </form>
       </div>
     </MainLayout>
