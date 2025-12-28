@@ -296,7 +296,6 @@ export function StockProvider({ children }: { children: ReactNode }) {
         })),
         stockQuantity: medicineData.stockQuantity,
         reorderLevel: medicineData.reorderLevel,
-        supplierId: medicineData.supplierId,
         costPrice: medicineData.costPrice,
         imageUrl: medicineData.imageUrl,
       });

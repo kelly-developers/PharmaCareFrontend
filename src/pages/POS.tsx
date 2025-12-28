@@ -5,13 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { categories } from '@/data/medicines';
 import { SaleItem, UnitType, Sale } from '@/types/pharmacy';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useStock } from '@/contexts/StockContext';
 import { useSales } from '@/contexts/SalesContext';
 import { usePrescriptions, Prescription } from '@/contexts/PrescriptionsContext';
+import { useCategories } from '@/contexts/CategoriesContext';
 import {
   Search,
   Plus,
@@ -69,6 +69,10 @@ export default function POS() {
   const { medicines, deductStock } = useStock();
   const { addSale } = useSales();
   const { getPendingPrescriptions, updatePrescriptionStatus } = usePrescriptions();
+  const { categories: categoryList } = useCategories();
+  
+  // Get category names from context
+  const categories = categoryList.map(cat => cat.name);
   
   const pendingPrescriptions = getPendingPrescriptions();
   const [activeTab, setActiveTab] = useState<'products' | 'prescriptions'>('products');

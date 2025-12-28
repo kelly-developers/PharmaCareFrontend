@@ -30,7 +30,11 @@ import {
 const navItems = {
   admin: [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
     { to: '/inventory', icon: Package, label: 'Inventory' },
+    { to: '/medicine-categories', icon: Layers, label: 'Medicine Categories' },
+    { to: '/create-medicine', icon: PlusCircle, label: 'Create Medicine' },
+    { to: '/prescriptions', icon: FileBox, label: 'Prescriptions' },
     { to: '/suppliers', icon: Truck, label: 'Suppliers' },
     { to: '/orders', icon: ClipboardList, label: 'Purchase Orders' },
     { to: '/sales', icon: DollarSign, label: 'Sales' },
@@ -46,6 +50,9 @@ const navItems = {
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
     { to: '/inventory', icon: Package, label: 'Inventory' },
+    { to: '/medicine-categories', icon: Layers, label: 'Medicine Categories' },
+    { to: '/create-medicine', icon: PlusCircle, label: 'Create Medicine' },
+    { to: '/prescriptions', icon: FileBox, label: 'Prescriptions' },
     { to: '/suppliers', icon: Truck, label: 'Suppliers' },
     { to: '/orders', icon: ClipboardList, label: 'Purchase Orders' },
     { to: '/sales', icon: DollarSign, label: 'Sales' },

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
+import { useCategories } from '@/contexts/CategoriesContext';
 import {
   Select,
   SelectContent,
@@ -46,18 +47,13 @@ interface UnitPrice {
   price: number;
 }
 
-interface Category {
-  id: string;
-  name: string;
-  description: string;
-  medicineCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export default function CreateMedicine() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { categories: categoryList, isLoading: categoriesLoading, refreshCategories } = useCategories();
+  
+  // Get category names from the context
+  const categories = categoryList.map(cat => cat.name);
   
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -67,8 +63,6 @@ export default function CreateMedicine() {
     { type: 'SINGLE', quantity: 1, price: 0 },
   ]);
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<string[]>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
   const [boxPrice, setBoxPrice] = useState<string>('0');
@@ -85,61 +79,12 @@ export default function CreateMedicine() {
     description: '',
   });
 
-  // Load categories from backend on component mount
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  const loadCategories = async () => {
-    try {
-      setCategoriesLoading(true);
-      console.log('Loading categories from backend...');
-      
-      const response = await medicineService.getCategories();
-      console.log('Categories API response:', response);
-      
-      if (response.success && response.data) {
-        // Extract category names from the response
-        const categoryNames = response.data.map((cat: any) => {
-          if (typeof cat === 'string') {
-            return cat;
-          } else if (cat && typeof cat === 'object' && cat.name) {
-            return cat.name;
-          }
-          return '';
-        }).filter((name: string) => name.trim() !== '');
-        
-        console.log('Extracted categories:', categoryNames);
-        setCategories(categoryNames);
-        
-        if (categoryNames.length > 0) {
-          toast({
-            title: 'Categories loaded',
-            description: `Found ${categoryNames.length} categories`,
-          });
-        }
-      } else {
-        console.error('Categories API error:', response.error);
-        toast({
-          title: 'Warning',
-          description: response.error || 'Could not load categories',
-          variant: 'destructive',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to load categories:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load categories from server',
-        variant: 'destructive',
-      });
-    } finally {
-      setCategoriesLoading(false);
-    }
-  };
-
   const handleRefreshCategories = async () => {
-    await loadCategories();
+    await refreshCategories();
+    toast({
+      title: 'Categories refreshed',
+      description: `Found ${categories.length} categories`,
+    });
   };
 
   // Helper function to check if date is valid

@@ -158,7 +158,7 @@ export default function PharmacistMedicines() {
   };
 
   const filteredMedicines = medicines.filter((med) => {
-    if (!med.active) return false;
+    if (med.isActive === false) return false;
     
     const matchesSearch = 
       med.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
