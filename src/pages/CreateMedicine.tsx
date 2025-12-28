@@ -74,6 +74,9 @@ export default function CreateMedicine() {
     batchNumber: '',
     expiryDate: '',
     stockQuantity: '0',
+    stockBoxes: '0',
+    stockStrips: '0',
+    stockTablets: '0',
     reorderLevel: '50',
     costPrice: '0',
     description: '',
@@ -584,18 +587,87 @@ export default function CreateMedicine() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="stockQuantity">Initial Stock Quantity (Tablets)</Label>
-                  <Input
-                    id="stockQuantity"
-                    type="number"
-                    min="0"
-                    value={formData.stockQuantity}
-                    onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
-                    placeholder="e.g., 1000"
-                  />
+              {/* Initial Stock Input - Boxes, Strips, Tablets */}
+              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <Package className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-medium">Initial Stock</Label>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="stockBoxes">Boxes</Label>
+                    <Input
+                      id="stockBoxes"
+                      type="number"
+                      min="0"
+                      value={formData.stockBoxes || '0'}
+                      onChange={(e) => {
+                        const boxes = parseInt(e.target.value) || 0;
+                        const strips = parseInt(formData.stockStrips) || 0;
+                        const tablets = parseInt(formData.stockTablets) || 0;
+                        const totalTablets = (boxes * tabletsPerBox) + (strips * tabletsPerStrip) + tablets;
+                        setFormData({ 
+                          ...formData, 
+                          stockBoxes: e.target.value,
+                          stockQuantity: totalTablets.toString()
+                        });
+                      }}
+                      placeholder="0"
+                    />
+                    <p className="text-xs text-muted-foreground">{tabletsPerBox} tablets each</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="stockStrips">Strips</Label>
+                    <Input
+                      id="stockStrips"
+                      type="number"
+                      min="0"
+                      value={formData.stockStrips || '0'}
+                      onChange={(e) => {
+                        const boxes = parseInt(formData.stockBoxes) || 0;
+                        const strips = parseInt(e.target.value) || 0;
+                        const tablets = parseInt(formData.stockTablets) || 0;
+                        const totalTablets = (boxes * tabletsPerBox) + (strips * tabletsPerStrip) + tablets;
+                        setFormData({ 
+                          ...formData, 
+                          stockStrips: e.target.value,
+                          stockQuantity: totalTablets.toString()
+                        });
+                      }}
+                      placeholder="0"
+                    />
+                    <p className="text-xs text-muted-foreground">{tabletsPerStrip} tablets each</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="stockTablets">Tablets</Label>
+                    <Input
+                      id="stockTablets"
+                      type="number"
+                      min="0"
+                      value={formData.stockTablets || '0'}
+                      onChange={(e) => {
+                        const boxes = parseInt(formData.stockBoxes) || 0;
+                        const strips = parseInt(formData.stockStrips) || 0;
+                        const tablets = parseInt(e.target.value) || 0;
+                        const totalTablets = (boxes * tabletsPerBox) + (strips * tabletsPerStrip) + tablets;
+                        setFormData({ 
+                          ...formData, 
+                          stockTablets: e.target.value,
+                          stockQuantity: totalTablets.toString()
+                        });
+                      }}
+                      placeholder="0"
+                    />
+                    <p className="text-xs text-muted-foreground">Individual tablets</p>
+                  </div>
+                </div>
+                <div className="mt-3 p-2 bg-secondary/50 rounded text-center">
+                  <p className="text-sm text-muted-foreground">Total Stock:</p>
+                  <p className="text-lg font-bold text-primary">{formData.stockQuantity || 0} tablets</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="reorderLevel">Reorder Level (Tablets)</Label>
                   <Input
@@ -616,7 +688,7 @@ export default function CreateMedicine() {
                       id="costPrice"
                       type="number"
                       min="0"
-                      step="0.01"
+                      step="1"
                       value={formData.costPrice}
                       onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
                       placeholder="0"
@@ -648,7 +720,7 @@ export default function CreateMedicine() {
                     id="boxPrice"
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="1"
                     value={boxPrice}
                     onChange={(e) => setBoxPrice(e.target.value)}
                     placeholder="Enter selling price for entire box"

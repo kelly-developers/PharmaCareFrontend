@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useCategories } from '@/contexts/CategoriesContext';
+import { useCategories, Category } from '@/contexts/CategoriesContext';
 import {
   Dialog,
   DialogContent,
@@ -29,16 +29,19 @@ import {
   Trash2,
   Package,
   Search,
+  Edit2,
 } from 'lucide-react';
 
 export default function MedicineCategories() {
-  const { categories, addCategory, deleteCategory } = useCategories();
+  const { categories, addCategory, updateCategory, deleteCategory } = useCategories();
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [newCategory, setNewCategory] = useState({
     name: '',
     description: '',
   });
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const { toast } = useToast();
 
   const filteredCategories = categories.filter(cat =>
@@ -69,6 +72,44 @@ export default function MedicineCategories() {
       title: 'Category Created',
       description: `${newCategory.name} has been added`,
     });
+  };
+
+  const handleEditCategory = async () => {
+    if (!editingCategory) return;
+    
+    if (!editingCategory.name) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a category name',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const success = await updateCategory(editingCategory.id, {
+      name: editingCategory.name,
+      description: editingCategory.description,
+    });
+
+    if (success) {
+      setShowEditDialog(false);
+      setEditingCategory(null);
+      toast({
+        title: 'Category Updated',
+        description: `${editingCategory.name} has been updated`,
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: 'Failed to update category',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const startEditCategory = (category: Category) => {
+    setEditingCategory({ ...category });
+    setShowEditDialog(true);
   };
 
   const handleDeleteCategory = (id: string) => {
@@ -130,6 +171,43 @@ export default function MedicineCategories() {
             </DialogContent>
           </Dialog>
         </div>
+
+        {/* Edit Category Dialog */}
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Category</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label>Category Name *</Label>
+                <Input
+                  value={editingCategory?.name || ''}
+                  onChange={(e) => setEditingCategory(prev => prev ? { ...prev, name: e.target.value } : null)}
+                  placeholder="e.g., Antibiotics, Pain Relief"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={editingCategory?.description || ''}
+                  onChange={(e) => setEditingCategory(prev => prev ? { ...prev, description: e.target.value } : null)}
+                  placeholder="Brief description of this category"
+                  rows={3}
+                />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button variant="outline" onClick={() => setShowEditDialog(false)} className="flex-1">
+                  Cancel
+                </Button>
+                <Button variant="hero" onClick={handleEditCategory} className="flex-1">
+                  <Edit2 className="h-4 w-4 mr-2" />
+                  Update Category
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -202,14 +280,24 @@ export default function MedicineCategories() {
                   <div className="p-2 rounded-lg bg-primary/10">
                     <Layers className="h-5 w-5 text-primary" />
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
-                    onClick={() => handleDeleteCategory(category.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => startEditCategory(category)}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                      onClick={() => handleDeleteCategory(category.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <h3 className="font-semibold text-lg mb-1">{category.name}</h3>
                 <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
@@ -250,14 +338,24 @@ export default function MedicineCategories() {
                         <Badge variant="outline">{category.medicineCount}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteCategory(category.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => startEditCategory(category)}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteCategory(category.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

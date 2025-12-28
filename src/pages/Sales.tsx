@@ -28,25 +28,20 @@ import {
   Download,
   Eye,
   Users,
-  RefreshCw,
-  Bug,
 } from 'lucide-react';
-import { format, startOfDay, startOfWeek, startOfMonth, isAfter, subDays } from 'date-fns';
-import { toast } from 'sonner';
+import { format, startOfDay, startOfWeek, startOfMonth, isAfter } from 'date-fns';
 
 export default function Sales() {
   const [period, setPeriod] = useState('today');
   const [cashierFilter, setCashierFilter] = useState('all');
-  const { getAllSales, fetchAllSales, isLoading, sales } = useSales();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { getAllSales, fetchAllSales, isLoading } = useSales();
 
   const allSales = getAllSales();
 
-  // DEBUG: Log sales data
+  // Fetch sales once on mount
   useEffect(() => {
-    console.log('🔄 Sales component - allSales:', allSales.length);
-    console.log('📊 Sales state:', sales);
-  }, [allSales, sales]);
+    fetchAllSales();
+  }, []);
 
   // Get unique cashiers
   const cashiers = useMemo(() => {
@@ -142,45 +137,6 @@ export default function Sales() {
     }
   };
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      await fetchAllSales();
-      toast.success('Sales data refreshed');
-    } catch (error) {
-      toast.error('Failed to refresh sales data');
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  const handleDebug = async () => {
-    const token = sessionStorage.getItem('auth_token');
-    console.log('🔑 Token present:', !!token);
-    
-    try {
-      const response = await fetch('https://pharmacare-ywjs.onrender.com/api/sales', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      const data = await response.json();
-      console.log('🔍 Direct API response:', data);
-      console.log('📊 Data structure:', data.data?.data?.length || 'No data');
-      toast.info(`API returned ${data.data?.data?.length || 0} sales`);
-    } catch (error) {
-      console.error('❌ API test error:', error);
-      toast.error('API test failed');
-    }
-  };
-
-  // Initial fetch on component mount
-  useEffect(() => {
-    console.log('🎯 Sales component mounted, fetching data...');
-    fetchAllSales();
-  }, []);
-
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -219,21 +175,6 @@ export default function Sales() {
                 ))}
               </SelectContent>
             </Select>
-            <Button 
-              variant="outline" 
-              onClick={handleDebug}
-            >
-              <Bug className="h-4 w-4 mr-2" />
-              Debug
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleRefresh}
-              disabled={isLoading || isRefreshing}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${(isLoading || isRefreshing) ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
             <Button variant="outline">
               <Download className="h-4 w-4 mr-2" />
               Export
@@ -337,15 +278,7 @@ export default function Sales() {
               <div className="text-center py-12 text-muted-foreground">
                 <ShoppingCart className="h-16 w-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">No sales found</p>
-                <p className="text-sm">Try changing the filters or refresh the data</p>
-                <Button 
-                  variant="outline" 
-                  className="mt-4"
-                  onClick={handleRefresh}
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh Data
-                </Button>
+                <p className="text-sm">Try changing the filters</p>
               </div>
             ) : (
               <div className="overflow-x-auto">

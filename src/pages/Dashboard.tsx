@@ -137,12 +137,6 @@ export default function Dashboard() {
             trend={{ value: todayTransactions > 0 ? 8 : 0, isPositive: true }}
             iconClassName="bg-info/10 text-info"
           />
-          <StatCard
-            title="Items in Stock"
-            value={totalStockItems.toLocaleString()}
-            icon={<Package className="h-6 w-6" />}
-            iconClassName="bg-warning/10 text-warning"
-          />
           {canViewProfit && (
             <StatCard
               title="Gross Profit"
