@@ -1,3 +1,4 @@
+// services/medicineService.ts
 import { api, ApiResponse } from './api';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 
@@ -5,7 +6,7 @@ interface CreateMedicineRequest {
   name: string;
   genericName?: string;
   category: string;
-  manufacturer: string;
+  manufacturer?: string;
   batchNumber: string;
   expiryDate: string;
   units: Array<{
@@ -15,13 +16,9 @@ interface CreateMedicineRequest {
   }>;
   stockQuantity: number;
   reorderLevel: number;
-  supplierId?: string;
   costPrice: number;
   imageUrl?: string;
-}
-
-interface UpdateMedicineRequest extends Partial<CreateMedicineRequest> {
-  id: string;
+  description?: string;
 }
 
 interface StockUpdateRequest {
@@ -39,35 +36,20 @@ export const medicineService = {
     category?: string;
     search?: string;
     lowStock?: boolean;
+    expiringSoon?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<ApiResponse<Medicine[]>> {
+  }): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     if (params?.category) queryParams.append('category', params.category);
     if (params?.search) queryParams.append('search', params.search);
     if (params?.lowStock) queryParams.append('lowStock', 'true');
-    if (params?.page) queryParams.append('page', (params.page).toString());
-    if (params?.limit) queryParams.append('limit', (params.limit).toString());
+    if (params?.expiringSoon) queryParams.append('expiringSoon', 'true');
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
     
     const query = queryParams.toString();
-    const response = await api.get<{ content: Medicine[] }>(`/medicines${query ? `?${query}` : ''}`);
-    
-    // Extract the array from backend response structure
-    if (response.success && response.data) {
-      const data = response.data as any;
-      return {
-        ...response,
-        data: Array.isArray(data.content) 
-          ? data.content 
-          : Array.isArray(data.data) 
-            ? data.data 
-            : Array.isArray(data)
-              ? data
-              : [],
-      };
-    }
-    
-    return { ...response, data: [] } as ApiResponse<Medicine[]>;
+    return api.get<any>(`/medicines${query ? `?${query}` : ''}`);
   },
 
   // Get medicine by ID
@@ -77,7 +59,28 @@ export const medicineService = {
 
   // Create new medicine
   async create(medicine: CreateMedicineRequest): Promise<ApiResponse<Medicine>> {
-    return api.post<Medicine>('/medicines', medicine);
+    // Ensure all required fields are properly formatted
+    const requestData = {
+      name: medicine.name,
+      genericName: medicine.genericName || '',
+      category: medicine.category,
+      manufacturer: medicine.manufacturer || '',
+      batchNumber: medicine.batchNumber,
+      expiryDate: medicine.expiryDate,
+      units: medicine.units.map(unit => ({
+        type: unit.type,
+        quantity: unit.quantity,
+        price: parseFloat(unit.price.toString())
+      })),
+      stockQuantity: parseInt(medicine.stockQuantity.toString()),
+      reorderLevel: parseInt(medicine.reorderLevel.toString()),
+      costPrice: parseFloat(medicine.costPrice.toString()),
+      imageUrl: medicine.imageUrl || '',
+      description: medicine.description || ''
+    };
+
+    console.log('Creating medicine with data:', requestData);
+    return api.post<Medicine>('/medicines', requestData);
   },
 
   // Update medicine
@@ -90,64 +93,80 @@ export const medicineService = {
     return api.delete<void>(`/medicines/${id}`);
   },
 
-  // Update stock
-  async updateStock(request: StockUpdateRequest): Promise<ApiResponse<Medicine>> {
-    return api.post<Medicine>('/medicines/stock', request);
+  // Get low stock medicines
+  async getLowStock(): Promise<ApiResponse<Medicine[]>> {
+    const response = await api.get<any>('/medicines/low-stock');
+    // Extract array from response
+    if (response.success && response.data) {
+      return {
+        ...response,
+        data: Array.isArray(response.data) ? response.data : []
+      };
+    }
+    return { ...response, data: [] };
   },
 
-  // Deduct stock (for sales)
+  // Get expiring medicines
+  async getExpiring(): Promise<ApiResponse<Medicine[]>> {
+    const response = await api.get<any>('/medicines/expiring');
+    if (response.success && response.data) {
+      return {
+        ...response,
+        data: Array.isArray(response.data) ? response.data : []
+      };
+    }
+    return { ...response, data: [] };
+  },
+
+  // Get all categories
+  async getCategories(): Promise<ApiResponse<string[]>> {
+    const response = await api.get<any>('/medicines/categories');
+    if (response.success && response.data) {
+      return {
+        ...response,
+        data: Array.isArray(response.data) ? response.data : []
+      };
+    }
+    return { ...response, data: [] };
+  },
+
+  // Get medicine statistics
+  async getStats(): Promise<ApiResponse<any>> {
+    return api.get<any>('/medicines/stats');
+  },
+
+  // Add stock
+  async addStock(
+    medicineId: string,
+    quantity: number,
+    referenceId: string,
+    performedById: string,
+    role: string
+  ): Promise<ApiResponse<any>> {
+    return api.post<any>(`/medicines/${medicineId}/add-stock`, {
+      quantity,
+      referenceId,
+      performedBy: performedById,
+      performedByRole: role
+    });
+  },
+
+  // Deduct stock
   async deductStock(
     medicineId: string,
     quantity: number,
     unitType: string,
     referenceId: string,
-    performedBy: string,
-    performedByRole: string
-  ): Promise<ApiResponse<Medicine>> {
-    return api.post<Medicine>(`/medicines/${medicineId}/deduct-stock`, {
+    performedById: string,
+    role: string
+  ): Promise<ApiResponse<any>> {
+    return api.post<any>(`/medicines/${medicineId}/deduct-stock`, {
       quantity,
       unitType,
       referenceId,
-      performedBy,
-      performedByRole,
+      performedById,
+      role
     });
-  },
-
-  // Add stock (for purchases)
-  async addStock(
-    medicineId: string,
-    quantity: number,
-    referenceId: string,
-    performedBy: string,
-    performedByRole: string
-  ): Promise<ApiResponse<Medicine>> {
-    return api.post<Medicine>(`/medicines/${medicineId}/add-stock`, {
-      quantity,
-      referenceId,
-      performedBy,
-      performedByRole,
-    });
-  },
-
-  // Get low stock medicines
-  async getLowStock(): Promise<ApiResponse<Medicine[]>> {
-    const response = await api.get<Medicine[]>('/medicines/low-stock');
-    return response;
-  },
-
-  // Get out of stock medicines
-  async getOutOfStock(): Promise<ApiResponse<Medicine[]>> {
-    return api.get<Medicine[]>('/medicines/out-of-stock');
-  },
-
-  // Get expiring soon medicines
-  async getExpiringSoon(days: number = 30): Promise<ApiResponse<Medicine[]>> {
-    return api.get<Medicine[]>(`/medicines/expiring-soon?days=${days}`);
-  },
-
-  // Get stock movements for a medicine
-  async getStockMovements(medicineId: string): Promise<ApiResponse<any[]>> {
-    return api.get<any[]>(`/medicines/${medicineId}/movements`);
   },
 
   // Upload medicine image
@@ -156,7 +175,7 @@ export const medicineService = {
     formData.append('image', file);
     
     const token = sessionStorage.getItem('auth_token');
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://pharmacare-ywjs.onrender.com/api';
     
     const response = await fetch(`${API_BASE_URL}/medicines/${medicineId}/image`, {
       method: 'POST',
@@ -173,15 +192,5 @@ export const medicineService = {
       message: data.message,
       error: data.error 
     };
-  },
-
-  // Get all categories
-  async getCategories(): Promise<ApiResponse<string[]>> {
-    return api.get<string[]>('/medicines/categories');
-  },
-
-  // Get medicine statistics
-  async getStats(): Promise<ApiResponse<any>> {
-    return api.get<any>('/medicines/stats');
-  },
+  }
 };

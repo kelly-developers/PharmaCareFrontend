@@ -1,3 +1,4 @@
+// components/CreateMedicine.tsx
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -6,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useStock } from '@/contexts/StockContext';
 import { useCategories } from '@/contexts/CategoriesContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -28,9 +28,7 @@ import {
   Loader2,
   Calculator,
   Box,
-  DollarSign,
 } from 'lucide-react';
-import { Medicine, MedicineUnit } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
 
 const unitTypes = [
@@ -49,18 +47,19 @@ interface UnitPrice {
 
 export default function CreateMedicine() {
   const { toast } = useToast();
-  const { addMedicine, refreshMedicines } = useStock();
-  const { getCategoryNames, incrementMedicineCount, refreshCategories } = useCategories();
+  const { getCategoryNames, refreshCategories } = useCategories();
   const navigate = useNavigate();
   
-  const categories = getCategoryNames();
-  
+  const [categories, setCategories] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [units, setUnits] = useState<UnitPrice[]>([
     { type: 'BOX', quantity: 100, price: 0 },
+    { type: 'STRIP', quantity: 10, price: 0 },
+    { type: 'SINGLE', quantity: 1, price: 0 },
   ]);
   const [loading, setLoading] = useState(false);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
   const [boxPrice, setBoxPrice] = useState<string>('0');
@@ -76,6 +75,29 @@ export default function CreateMedicine() {
     costPrice: '0',
     description: '',
   });
+
+  // Load categories from backend on component mount
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  const loadCategories = async () => {
+    try {
+      setCategoriesLoading(true);
+      const response = await medicineService.getCategories();
+      if (response.success && response.data) {
+        setCategories(response.data);
+      } else {
+        // Fallback to local categories if backend fails
+        setCategories(getCategoryNames());
+      }
+    } catch (error) {
+      console.error('Failed to load categories:', error);
+      setCategories(getCategoryNames());
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
 
   // Helper function to check if date is valid
   const isValidDate = (dateStr: string) => {
@@ -240,9 +262,9 @@ export default function CreateMedicine() {
       // Prepare medicine data for backend
       const medicineData = {
         name: formData.name.trim(),
-        genericName: formData.genericName.trim() || undefined,
+        genericName: formData.genericName.trim() || '',
         category: formData.category,
-        manufacturer: formData.manufacturer.trim(),
+        manufacturer: formData.manufacturer.trim() || '',
         batchNumber: formData.batchNumber.trim(),
         expiryDate: formData.expiryDate,
         units: units.map(u => ({
@@ -253,10 +275,11 @@ export default function CreateMedicine() {
         stockQuantity: parseInt(formData.stockQuantity) || 0,
         reorderLevel: parseInt(formData.reorderLevel) || 50,
         costPrice: parseFloat(formData.costPrice) || 0,
-        imageUrl: imagePreview || undefined,
+        imageUrl: imagePreview || '',
+        description: formData.description.trim() || ''
       };
 
-      console.log('Sending medicine data:', medicineData);
+      console.log('Sending medicine data to backend:', medicineData);
 
       // Call backend API
       const response = await medicineService.create(medicineData);
@@ -264,38 +287,12 @@ export default function CreateMedicine() {
       console.log('Backend response:', response);
       
       if (response.success && response.data) {
-        const newMedicine: Medicine = {
-          ...response.data,
-          id: response.data.id,
-          name: response.data.name,
-          genericName: response.data.genericName,
-          category: response.data.category,
-          manufacturer: response.data.manufacturer,
-          batchNumber: response.data.batchNumber,
-          expiryDate: new Date(response.data.expiryDate),
-          units: response.data.units || [],
-          stockQuantity: response.data.stockQuantity || 0,
-          reorderLevel: response.data.reorderLevel || 50,
-          supplierId: response.data.supplierId || undefined,
-          costPrice: response.data.costPrice || 0,
-          imageUrl: response.data.imageUrl,
-          createdAt: new Date(response.data.createdAt || new Date()),
-          updatedAt: new Date(response.data.updatedAt || new Date()),
-        };
-
-        // Add to local context
-        addMedicine(newMedicine);
-        
-        // Increment category medicine count
-        incrementMedicineCount(formData.category);
-
         toast({
           title: 'Success!',
           description: `${formData.name} has been successfully added to the inventory`,
         });
 
-        // Refresh data
-        await refreshMedicines();
+        // Refresh categories
         await refreshCategories?.();
 
         // Navigate back to medicine categories
@@ -379,9 +376,17 @@ export default function CreateMedicine() {
                     value={formData.category}
                     onValueChange={(value) => setFormData({ ...formData, category: value })}
                     required
+                    disabled={categoriesLoading}
                   >
                     <SelectTrigger id="category">
-                      <SelectValue placeholder="Select category" />
+                      {categoriesLoading ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Loading categories...</span>
+                        </div>
+                      ) : (
+                        <SelectValue placeholder="Select category" />
+                      )}
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map((cat) => (
