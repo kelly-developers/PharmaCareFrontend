@@ -103,15 +103,15 @@ export default function StockManagement() {
   const fetchStockData = async () => {
     setIsLoading(true);
     try {
-      // Fetch stock audit report
+      // Fetch stock audit report from report service
       const auditResponse = await reportService.getStockAuditReport();
-      const stockResponse = await stockService.getAuditReport();
+      const breakdownResponse = await stockService.getBreakdown();
       
-      if (auditResponse.success && auditResponse.data && stockResponse.success && stockResponse.data) {
+      if (auditResponse.success && auditResponse.data) {
         // Transform data for display
-        const transformedData = auditResponse.data.map(item => {
+        const transformedData = (Array.isArray(auditResponse.data) ? auditResponse.data : []).map((item: any) => {
           const med = medicines.find(m => m.id === item.medicineId);
-          const stockItem = stockResponse.data?.find(s => s.medicineId === item.medicineId);
+          
           
           return {
             id: item.medicineId,
@@ -345,11 +345,11 @@ export default function StockManagement() {
     data.push({
       'Medicine': 'TOTAL',
       'Cost': 0,
-      'Opening Stock': '',
+      'Opening Stock': 0,
       'Opening Value': stockStats.totalOpeningValue,
       'Sold': stockData.reduce((sum, d) => sum + d.totalSold, 0),
       'COGS': stockStats.totalCOGS,
-      'Closing Stock': '',
+      'Closing Stock': 0,
       'Closing Value': stockStats.totalClosingValue,
       'Loss': stockData.reduce((sum, d) => sum + d.totalLost, 0),
       'Loss Value': stockStats.totalMissingValue,

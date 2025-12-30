@@ -10,15 +10,27 @@ interface CreatePurchaseOrderRequest {
 
 interface UpdatePurchaseOrderRequest {
   items?: PurchaseOrderItem[];
-  status?: 'draft' | 'sent' | 'received' | 'cancelled';
   expectedDate?: string;
 }
 
+interface PurchaseOrderStats {
+  totalOrders: number;
+  draftCount: number;
+  pendingCount: number;
+  approvedCount: number;
+  receivedCount: number;
+  cancelledCount: number;
+  totalValue: number;
+}
+
 export const purchaseOrderService = {
-  // Get all purchase orders
-  async getAll(status?: string): Promise<ApiResponse<PurchaseOrder[]>> {
-    const query = status ? `?status=${status}` : '';
-    return api.get<PurchaseOrder[]>(`/purchase-orders${query}`);
+  // Get all purchase orders (paginated)
+  async getAll(page: number = 1, limit: number = 20, status?: string): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams();
+    queryParams.append('page', page.toString());
+    queryParams.append('limit', limit.toString());
+    if (status) queryParams.append('status', status);
+    return api.get<any>(`/purchase-orders?${queryParams.toString()}`);
   },
 
   // Get purchase order by ID
@@ -26,7 +38,7 @@ export const purchaseOrderService = {
     return api.get<PurchaseOrder>(`/purchase-orders/${id}`);
   },
 
-  // Create new purchase order
+  // Create purchase order
   async create(order: CreatePurchaseOrderRequest): Promise<ApiResponse<PurchaseOrder>> {
     return api.post<PurchaseOrder>('/purchase-orders', order);
   },
@@ -36,23 +48,54 @@ export const purchaseOrderService = {
     return api.put<PurchaseOrder>(`/purchase-orders/${id}`, updates);
   },
 
-  // Delete purchase order
-  async delete(id: string): Promise<ApiResponse<void>> {
-    return api.delete<void>(`/purchase-orders/${id}`);
+  // Submit purchase order
+  async submit(id: string): Promise<ApiResponse<PurchaseOrder>> {
+    return api.patch<PurchaseOrder>(`/purchase-orders/${id}/submit`, {});
   },
 
-  // Update status
-  async updateStatus(id: string, status: 'draft' | 'sent' | 'received' | 'cancelled'): Promise<ApiResponse<PurchaseOrder>> {
-    return api.patch<PurchaseOrder>(`/purchase-orders/${id}/status`, { status });
+  // Approve purchase order
+  async approve(id: string): Promise<ApiResponse<PurchaseOrder>> {
+    return api.patch<PurchaseOrder>(`/purchase-orders/${id}/approve`, {});
   },
 
-  // Mark as received (updates stock)
-  async markAsReceived(id: string): Promise<ApiResponse<PurchaseOrder>> {
-    return api.post<PurchaseOrder>(`/purchase-orders/${id}/receive`);
+  // Receive purchase order (updates stock)
+  async receive(id: string): Promise<ApiResponse<PurchaseOrder>> {
+    return api.patch<PurchaseOrder>(`/purchase-orders/${id}/receive`, {});
+  },
+
+  // Cancel purchase order
+  async cancel(id: string): Promise<ApiResponse<PurchaseOrder>> {
+    return api.patch<PurchaseOrder>(`/purchase-orders/${id}/cancel`, {});
   },
 
   // Get orders by supplier
   async getBySupplier(supplierId: string): Promise<ApiResponse<PurchaseOrder[]>> {
     return api.get<PurchaseOrder[]>(`/purchase-orders/supplier/${supplierId}`);
+  },
+
+  // Get orders by status
+  async getByStatus(status: string): Promise<ApiResponse<PurchaseOrder[]>> {
+    return api.get<PurchaseOrder[]>(`/purchase-orders/status/${status}`);
+  },
+
+  // Get purchase order statistics
+  async getStats(): Promise<ApiResponse<PurchaseOrderStats>> {
+    return api.get<PurchaseOrderStats>('/purchase-orders/stats');
+  },
+
+  // Legacy methods for backward compatibility
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return api.delete<void>(`/purchase-orders/${id}`);
+  },
+
+  async updateStatus(id: string, status: 'draft' | 'sent' | 'received' | 'cancelled'): Promise<ApiResponse<PurchaseOrder>> {
+    if (status === 'sent') return this.submit(id);
+    if (status === 'received') return this.receive(id);
+    if (status === 'cancelled') return this.cancel(id);
+    return api.patch<PurchaseOrder>(`/purchase-orders/${id}/status`, { status });
+  },
+
+  async markAsReceived(id: string): Promise<ApiResponse<PurchaseOrder>> {
+    return this.receive(id);
   },
 };

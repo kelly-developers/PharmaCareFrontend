@@ -134,8 +134,8 @@ export default function PharmacistMedicines() {
         const data = response.data;
         setStats({
           total: data.totalMedicines || 0,
-          inStock: data.totalMedicines - (data.outOfStock || 0),
-          outOfStock: data.outOfStock || 0,
+          inStock: data.activeMedicines || (data.totalMedicines - (data.outOfStockCount || 0)),
+          outOfStock: data.outOfStockCount || 0,
           lowStock: data.lowStockCount || 0
         });
       }

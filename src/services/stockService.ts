@@ -1,130 +1,114 @@
 import { api, ApiResponse } from './api';
 import { StockMovement, UserRole, UnitType } from '@/types/pharmacy';
 
-interface StockItem {
+interface StockBreakdown {
   medicineId: string;
-  name: string;
-  openingStock: number;
-  currentStock: number;
-  sold: number;
-  purchased: number;
+  medicineName: string;
+  boxes: number;
+  strips: number;
+  tablets: number;
+  totalTablets: number;
+  value: number;
 }
 
-interface MonthlyStock {
+interface MonthlyStockSummary {
   month: string;
-  openingStock: StockItem[];
-  closingStock: StockItem[];
-  uploadedAt?: string;
+  openingStock: number;
+  closingStock: number;
+  totalPurchased: number;
+  totalSold: number;
+  totalLost: number;
+  totalAdjusted: number;
 }
 
-interface StockComparisonResult {
-  item: StockItem;
-  expected: number;
-  actual: number;
-  variance: number;
-}
-
-interface RecordMovementRequest {
+interface RecordLossRequest {
   medicineId: string;
-  type: 'sale' | 'purchase' | 'adjustment' | 'loss' | 'return' | 'expired';
   quantity: number;
-  unitType?: UnitType;
-  referenceId?: string;
-  reason?: string;
-  performedBy: string;
-  performedByRole: UserRole;
+  reason: string;
+  performedBy?: string;
+  performedByRole?: UserRole;
+}
+
+interface RecordAdjustmentRequest {
+  medicineId: string;
+  quantity: number;
+  reason: string;
+  performedBy?: string;
+  performedByRole?: UserRole;
+}
+
+interface NetMovementResult {
+  medicineId: string;
+  startDate: string;
+  endDate: string;
+  netMovement: number;
+  totalIn: number;
+  totalOut: number;
 }
 
 export const stockService = {
-  // Get all stock movements
+  // Get stock movements (paginated)
   async getMovements(params?: {
+    page?: number;
+    limit?: number;
     medicineId?: string;
     type?: string;
     startDate?: string;
     endDate?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<ApiResponse<StockMovement[]>> {
+  }): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.medicineId) queryParams.append('medicineId', params.medicineId);
     if (params?.type) queryParams.append('type', params.type);
     if (params?.startDate) queryParams.append('startDate', params.startDate);
     if (params?.endDate) queryParams.append('endDate', params.endDate);
-    if (params?.page) queryParams.append('page', params.page.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
     
     const query = queryParams.toString();
-    return api.get<StockMovement[]>(`/stock/movements${query ? `?${query}` : ''}`);
-  },
-
-  // Record a stock movement
-  async recordMovement(request: RecordMovementRequest): Promise<ApiResponse<StockMovement>> {
-    return api.post<StockMovement>('/stock/movements', request);
-  },
-
-  // Get monthly stocks
-  async getMonthlyStocks(): Promise<ApiResponse<MonthlyStock[]>> {
-    return api.get<MonthlyStock[]>('/stock/monthly');
-  },
-
-  // Upload opening stock
-  async uploadOpeningStock(month: string, items: StockItem[]): Promise<ApiResponse<MonthlyStock>> {
-    return api.post<MonthlyStock>('/stock/opening', { month, items });
-  },
-
-  // Upload closing stock
-  async uploadClosingStock(month: string, items: StockItem[]): Promise<ApiResponse<MonthlyStock>> {
-    return api.post<MonthlyStock>('/stock/closing', { month, items });
-  },
-
-  // Get stock comparison for a month
-  async getStockComparison(month: string): Promise<ApiResponse<StockComparisonResult[]>> {
-    return api.get<StockComparisonResult[]>(`/stock/comparison/${month}`);
-  },
-
-  // Get stock audit report
-  async getAuditReport(): Promise<ApiResponse<{
-    medicineId: string;
-    medicineName: string;
-    totalSold: number;
-    totalLost: number;
-    totalAdjusted: number;
-    currentStock: number;
-  }[]>> {
-    return api.get('/stock/audit');
+    return api.get<any>(`/stock/movements${query ? `?${query}` : ''}`);
   },
 
   // Record stock loss
-  async recordLoss(
-    medicineId: string,
-    quantity: number,
-    reason: string,
-    performedBy: string,
-    performedByRole: UserRole
-  ): Promise<ApiResponse<StockMovement>> {
-    return api.post<StockMovement>('/stock/loss', {
-      medicineId,
-      quantity,
-      reason,
-      performedBy,
-      performedByRole,
-    });
+  async recordLoss(request: RecordLossRequest): Promise<ApiResponse<StockMovement>> {
+    return api.post<StockMovement>('/stock/loss', request);
   },
 
   // Record stock adjustment
-  async recordAdjustment(
-    medicineId: string,
-    quantity: number,
-    reason: string,
-    performedBy: string,
-    performedByRole: UserRole
-  ): Promise<ApiResponse<StockMovement>> {
-    return api.post<StockMovement>('/stock/adjustment', {
-      medicineId,
-      quantity,
-      reason,
-      performedBy,
-      performedByRole,
-    });
+  async recordAdjustment(request: RecordAdjustmentRequest): Promise<ApiResponse<StockMovement>> {
+    return api.post<StockMovement>('/stock/adjustment', request);
+  },
+
+  // Get movements by medicine
+  async getMovementsByMedicine(medicineId: string): Promise<ApiResponse<StockMovement[]>> {
+    return api.get<StockMovement[]>(`/stock/movements/medicine/${medicineId}`);
+  },
+
+  // Get movements by reference
+  async getMovementsByReference(referenceId: string): Promise<ApiResponse<StockMovement[]>> {
+    return api.get<StockMovement[]>(`/stock/movements/reference/${referenceId}`);
+  },
+
+  // Get monthly stock summary
+  async getMonthlyStock(): Promise<ApiResponse<MonthlyStockSummary[]>> {
+    return api.get<MonthlyStockSummary[]>('/stock/monthly');
+  },
+
+  // Get net movement for a medicine in a period
+  async getNetMovement(medicineId: string, startDate?: string, endDate?: string): Promise<ApiResponse<NetMovementResult>> {
+    const queryParams = new URLSearchParams();
+    if (startDate) queryParams.append('startDate', startDate);
+    if (endDate) queryParams.append('endDate', endDate);
+    const query = queryParams.toString();
+    return api.get<NetMovementResult>(`/stock/net-movement/${medicineId}${query ? `?${query}` : ''}`);
+  },
+
+  // Get stock breakdown for UI
+  async getBreakdown(): Promise<ApiResponse<StockBreakdown[]>> {
+    return api.get<StockBreakdown[]>('/stock/breakdown');
+  },
+
+  // Health check
+  async healthCheck(): Promise<ApiResponse<{ status: string }>> {
+    return api.get<{ status: string }>('/stock/health');
   },
 };

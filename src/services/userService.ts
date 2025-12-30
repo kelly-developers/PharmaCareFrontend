@@ -1,4 +1,3 @@
-// services/userService.ts
 import { api, ApiResponse } from './api';
 import { User, UserRole } from '@/types/pharmacy';
 
@@ -25,19 +24,31 @@ export interface PaginatedResponse<T> {
   };
 }
 
+interface UserStats {
+  totalUsersCount: number;
+  activeUsersCount: number;
+  inactiveUsersCount: number;
+  adminUsersCount: number;
+  managerUsersCount: number;
+  pharmacistUsersCount: number;
+  cashierUsersCount: number;
+}
+
 export const userService = {
-  // Get all users with pagination
+  // Get all users (paginated)
   async getAll(
     page: number = 1,
     limit: number = 20,
     search?: string,
     role?: UserRole
   ): Promise<ApiResponse<PaginatedResponse<User>>> {
-    let query = `?page=${page}&limit=${limit}`;
-    if (search) query += `&search=${encodeURIComponent(search)}`;
-    if (role) query += `&role=${role}`;
+    const queryParams = new URLSearchParams();
+    queryParams.append('page', page.toString());
+    queryParams.append('limit', limit.toString());
+    if (search) queryParams.append('search', encodeURIComponent(search));
+    if (role) queryParams.append('role', role);
     
-    return api.get<PaginatedResponse<User>>(`/users${query}`);
+    return api.get<PaginatedResponse<User>>(`/users?${queryParams.toString()}`);
   },
 
   // Get user by ID
@@ -45,7 +56,7 @@ export const userService = {
     return api.get<User>(`/users/${id}`);
   },
 
-  // Create new user
+  // Create user
   async create(user: CreateUserRequest): Promise<ApiResponse<User>> {
     return api.post<User>('/users', user);
   },
@@ -55,7 +66,7 @@ export const userService = {
     return api.put<User>(`/users/${id}`, updates);
   },
 
-  // Delete user (deactivate)
+  // Delete/deactivate user
   async delete(id: string): Promise<ApiResponse<void>> {
     return api.delete<void>(`/users/${id}`);
   },
@@ -75,23 +86,58 @@ export const userService = {
     return api.put<User>('/users/profile', updates);
   },
 
-  // Get user stats
-  async getStats(): Promise<ApiResponse<{
-    totalUsersCount: number;
-    adminUsersCount: number;
-    managerUsersCount: number;
-    pharmacistUsersCount: number;
-    cashierUsersCount: number;
-  }>> {
-    return api.get('/users/stats');
-  },
-
   // Get users by role
   async getByRole(
     role: UserRole, 
     page: number = 1, 
     limit: number = 20
   ): Promise<ApiResponse<PaginatedResponse<User>>> {
-    return api.get(`/users/role/${role}?page=${page}&limit=${limit}`);
+    return api.get<PaginatedResponse<User>>(`/users/role/${role}?page=${page}&limit=${limit}`);
+  },
+
+  // Get user statistics
+  async getStats(): Promise<ApiResponse<UserStats>> {
+    return api.get<UserStats>('/users/stats');
+  },
+};
+
+// Export employee-like functions that map to users (since users are employees)
+export const employeeService = {
+  async getAll(status?: 'active' | 'inactive'): Promise<ApiResponse<User[]>> {
+    const response = await userService.getAll(1, 1000);
+    if (response.success && response.data) {
+      let users = response.data.data || [];
+      if (status === 'active') {
+        users = users.filter(u => u.isActive);
+      } else if (status === 'inactive') {
+        users = users.filter(u => !u.isActive);
+      }
+      return { success: true, data: users };
+    }
+    return { success: false, error: response.error, data: [] };
+  },
+
+  async getById(id: string): Promise<ApiResponse<User>> {
+    return userService.getById(id);
+  },
+
+  async create(employee: CreateUserRequest): Promise<ApiResponse<User>> {
+    return userService.create(employee);
+  },
+
+  async update(id: string, updates: UpdateUserRequest): Promise<ApiResponse<User>> {
+    return userService.update(id, updates);
+  },
+
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return userService.delete(id);
+  },
+
+  async deactivate(id: string): Promise<ApiResponse<User>> {
+    return userService.delete(id) as unknown as Promise<ApiResponse<User>>;
+  },
+
+  async reactivate(id: string): Promise<ApiResponse<User>> {
+    return userService.activate(id);
   },
 };

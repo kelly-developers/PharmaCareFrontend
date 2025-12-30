@@ -1,18 +1,42 @@
 import { api, ApiResponse } from './api';
 
-interface IncomeStatementData {
-  period: string;
-  startDate: string;
-  endDate: string;
-  revenue: number;
-  costOfGoodsSold: number;
-  grossProfit: number;
-  expenses: { category: string; amount: number }[];
-  totalExpenses: number;
-  netProfit: number;
-  profitMargin: number;
+// Dashboard Summary
+interface DashboardStats {
+  todaySales: number;
+  todayTransactions: number;
+  todayProfit: number;
+  inventoryValue: number;
+  totalStockItems: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  expiringSoonCount: number;
+  todayExpenses: number;
+  pendingOrders: number;
+  pendingPrescriptions: number;
 }
 
+// Sales Summary
+interface SalesSummary {
+  totalRevenue: number;
+  totalCost: number;
+  grossProfit: number;
+  transactionCount: number;
+  averageTransactionValue: number;
+  salesByPaymentMethod: { method: string; total: number; count: number }[];
+  salesByCategory: { category: string; total: number }[];
+}
+
+// Stock Summary
+interface StockSummary {
+  totalItems: number;
+  totalValue: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  expiringSoonCount: number;
+  categoryBreakdown: { category: string; count: number; value: number }[];
+}
+
+// Balance Sheet
 interface BalanceSheetData {
   asOfDate: string;
   assets: {
@@ -34,45 +58,21 @@ interface BalanceSheetData {
   totalLiabilitiesAndEquity: number;
 }
 
-interface CashFlowData {
+// Income Statement
+interface IncomeStatementData {
   period: string;
   startDate: string;
   endDate: string;
-  operatingActivities: {
-    salesCashInflow: number;
-    inventoryPurchases: number;
-    operatingExpenses: number;
-    netOperatingCashFlow: number;
-  };
-  investingActivities: {
-    equipmentPurchases: number;
-    assetSales: number;
-    netInvestingCashFlow: number;
-  };
-  financingActivities: {
-    loansReceived: number;
-    loanRepayments: number;
-    netFinancingCashFlow: number;
-  };
-  netCashFlow: number;
-  openingCashBalance: number;
-  closingCashBalance: number;
+  revenue: number;
+  costOfGoodsSold: number;
+  grossProfit: number;
+  expenses: { category: string; amount: number }[];
+  totalExpenses: number;
+  netProfit: number;
+  profitMargin: number;
 }
 
-interface DashboardStats {
-  todaySales: number;
-  todayTransactions: number;
-  todayProfit: number;
-  inventoryValue: number;
-  totalStockItems: number;
-  lowStockCount: number;
-  outOfStockCount: number;
-  expiringSoonCount: number;
-  todayExpenses: number;
-  pendingOrders: number;
-  pendingPrescriptions: number;
-}
-
+// Inventory Value
 interface InventoryValueData {
   totalValue: number;
   categoryValues: Record<string, number>;
@@ -80,79 +80,156 @@ interface InventoryValueData {
   calculatedAt: string;
 }
 
-interface SalesTrendData {
-  date: string;
-  sales: number;
-  cost: number;
-  profit: number;
+// Stock Breakdown
+interface StockBreakdown {
+  medicineId: string;
+  medicineName: string;
+  category: string;
+  boxes: number;
+  strips: number;
+  tablets: number;
+  totalTablets: number;
+  costPrice: number;
+  sellingPrice: number;
+  value: number;
 }
 
-interface CategorySalesData {
+// Medicine Values
+interface MedicineValue {
+  medicineId: string;
+  medicineName: string;
   category: string;
-  sales: number;
-  percentage: number;
+  quantity: number;
+  costPrice: number;
+  sellingPrice: number;
+  totalCostValue: number;
+  totalSellingValue: number;
+}
+
+// Profit Reports
+interface MonthlyProfitReport {
+  yearMonth: string;
+  totalRevenue: number;
+  totalCost: number;
+  grossProfit: number;
+  totalExpenses: number;
+  netProfit: number;
+  profitMargin: number;
+  dailyBreakdown: { date: string; revenue: number; cost: number; profit: number }[];
+}
+
+interface DailyProfit {
+  date: string;
+  revenue: number;
+  cost: number;
+  profit: number;
+  transactionCount: number;
+}
+
+interface ProfitRangeResult {
+  startDate: string;
+  endDate: string;
+  totalRevenue: number;
+  totalCost: number;
+  grossProfit: number;
+  totalExpenses: number;
+  netProfit: number;
+}
+
+interface ProfitSummary {
+  today: number;
+  thisWeek: number;
+  thisMonth: number;
+  thisYear: number;
+  avgDailyProfit: number;
+  avgMonthlyProfit: number;
 }
 
 export const reportService = {
-  // Get dashboard statistics
+  // Dashboard Summary
   async getDashboardStats(): Promise<ApiResponse<DashboardStats>> {
     return api.get<DashboardStats>('/reports/dashboard');
   },
 
-  // Get inventory value from backend
-  async getInventoryValue(): Promise<ApiResponse<InventoryValueData>> {
-    return api.get<InventoryValueData>('/reports/inventory-value');
+  // Sales Summary
+  async getSalesSummary(startDate?: string, endDate?: string): Promise<ApiResponse<SalesSummary>> {
+    const queryParams = new URLSearchParams();
+    if (startDate) queryParams.append('startDate', startDate);
+    if (endDate) queryParams.append('endDate', endDate);
+    const query = queryParams.toString();
+    return api.get<SalesSummary>(`/reports/sales-summary${query ? `?${query}` : ''}`);
   },
 
-  // Get income statement
+  // Stock Summary
+  async getStockSummary(): Promise<ApiResponse<StockSummary>> {
+    return api.get<StockSummary>('/reports/stock-summary');
+  },
+
+  // Balance Sheet
+  async getBalanceSheet(asOfDate?: string): Promise<ApiResponse<BalanceSheetData>> {
+    const query = asOfDate ? `?asOfDate=${asOfDate}` : '';
+    return api.get<BalanceSheetData>(`/reports/balance-sheet${query}`);
+  },
+
+  // Income Statement
   async getIncomeStatement(startDate: string, endDate: string): Promise<ApiResponse<IncomeStatementData>> {
     return api.get<IncomeStatementData>(`/reports/income-statement?startDate=${startDate}&endDate=${endDate}`);
   },
 
-  // Get balance sheet
-  async getBalanceSheet(asOfDate: string): Promise<ApiResponse<BalanceSheetData>> {
-    return api.get<BalanceSheetData>(`/reports/balance-sheet?asOfDate=${asOfDate}`);
+  // Inventory Value
+  async getInventoryValue(): Promise<ApiResponse<InventoryValueData>> {
+    return api.get<InventoryValueData>('/reports/inventory-value');
   },
 
-  // Get cash flow statement
-  async getCashFlowStatement(startDate: string, endDate: string): Promise<ApiResponse<CashFlowData>> {
-    return api.get<CashFlowData>(`/reports/cash-flow?startDate=${startDate}&endDate=${endDate}`);
+  // Stock Breakdown
+  async getStockBreakdown(): Promise<ApiResponse<StockBreakdown[]>> {
+    return api.get<StockBreakdown[]>('/reports/stock-breakdown');
   },
 
-  // Get sales trend
-  async getSalesTrend(period: 'week' | 'month' | 'quarter' | 'year'): Promise<ApiResponse<SalesTrendData[]>> {
-    return api.get<SalesTrendData[]>(`/reports/sales-trend?period=${period}`);
+  // Individual Medicine Values
+  async getMedicineValues(): Promise<ApiResponse<MedicineValue[]>> {
+    return api.get<MedicineValue[]>('/reports/medicine-values');
   },
 
-  // Get sales by category
-  async getSalesByCategory(startDate: string, endDate: string): Promise<ApiResponse<CategorySalesData[]>> {
-    return api.get<CategorySalesData[]>(`/reports/sales-by-category?startDate=${startDate}&endDate=${endDate}`);
+  // Profit Reports
+  async getMonthlyProfit(yearMonth: string): Promise<ApiResponse<MonthlyProfitReport>> {
+    return api.get<MonthlyProfitReport>(`/reports/profit/monthly/${yearMonth}`);
   },
 
-  // Get stock audit report
-  async getStockAuditReport(): Promise<ApiResponse<{
-    medicineId: string;
-    medicineName: string;
-    totalSold: number;
-    totalLost: number;
-    totalAdjusted: number;
-    currentStock: number;
-  }[]>> {
+  async getDailyProfit(date?: string): Promise<ApiResponse<DailyProfit>> {
+    const query = date ? `?date=${date}` : '';
+    return api.get<DailyProfit>(`/reports/profit/daily${query}`);
+  },
+
+  async getProfitRange(startDate: string, endDate: string): Promise<ApiResponse<ProfitRangeResult>> {
+    return api.get<ProfitRangeResult>(`/reports/profit/range?startDate=${startDate}&endDate=${endDate}`);
+  },
+
+  async getProfitSummary(): Promise<ApiResponse<ProfitSummary>> {
+    return api.get<ProfitSummary>('/reports/profit/summary');
+  },
+
+  // Legacy methods for backward compatibility
+  async getCashFlowStatement(startDate: string, endDate: string): Promise<ApiResponse<any>> {
+    return api.get(`/reports/cash-flow?startDate=${startDate}&endDate=${endDate}`);
+  },
+
+  async getSalesTrend(period: 'week' | 'month' | 'quarter' | 'year'): Promise<ApiResponse<any>> {
+    return api.get(`/reports/sales-trend?period=${period}`);
+  },
+
+  async getSalesByCategory(startDate: string, endDate: string): Promise<ApiResponse<any>> {
+    return api.get(`/reports/sales-by-category?startDate=${startDate}&endDate=${endDate}`);
+  },
+
+  async getStockAuditReport(): Promise<ApiResponse<any>> {
     return api.get('/reports/stock-audit');
   },
 
-  // Get cashier performance report
-  async getCashierReport(startDate: string, endDate: string): Promise<ApiResponse<{
-    cashierId: string;
-    cashierName: string;
-    totalSales: number;
-    transactionCount: number;
-    avgTransactionValue: number;
-  }[]>> {
+  async getCashierReport(startDate: string, endDate: string): Promise<ApiResponse<any>> {
     return api.get(`/reports/cashier-performance?startDate=${startDate}&endDate=${endDate}`);
   },
 
-  // Export report as PDF (returns PDF URL)
   async exportPDF(reportType: 'income' | 'balance' | 'cashflow', params: Record<string, string>): Promise<ApiResponse<{ url: string }>> {
     const queryParams = new URLSearchParams(params);
     return api.get(`/reports/export/${reportType}?${queryParams.toString()}`);

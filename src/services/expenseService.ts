@@ -6,8 +6,8 @@ interface CreateExpenseRequest {
   description: string;
   amount: number;
   date: string;
-  createdBy: string;
-  createdByRole: UserRole;
+  createdBy?: string;
+  createdByRole?: UserRole;
 }
 
 interface UpdateExpenseRequest {
@@ -22,31 +22,40 @@ interface ExpenseFilters {
   startDate?: string;
   endDate?: string;
   createdBy?: string;
-  createdByRole?: UserRole;
   page?: number;
   limit?: number;
 }
 
-interface ExpenseSummary {
+interface ExpenseStats {
   totalExpenses: number;
+  pendingCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  todayTotal: number;
+  monthTotal: number;
   byCategory: { category: string; amount: number; count: number }[];
-  byRole: { role: string; amount: number; count: number }[];
+}
+
+interface PeriodTotal {
+  startDate: string;
+  endDate: string;
+  total: number;
+  count: number;
 }
 
 export const expenseService = {
-  // Get all expenses with optional filters
-  async getAll(filters?: ExpenseFilters): Promise<ApiResponse<Expense[]>> {
+  // Get all expenses (paginated)
+  async getAll(filters?: ExpenseFilters): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     if (filters?.category) queryParams.append('category', filters.category);
     if (filters?.startDate) queryParams.append('startDate', filters.startDate);
     if (filters?.endDate) queryParams.append('endDate', filters.endDate);
     if (filters?.createdBy) queryParams.append('createdBy', filters.createdBy);
-    if (filters?.createdByRole) queryParams.append('createdByRole', filters.createdByRole);
     if (filters?.page) queryParams.append('page', filters.page.toString());
     if (filters?.limit) queryParams.append('limit', filters.limit.toString());
     
     const query = queryParams.toString();
-    return api.get<Expense[]>(`/expenses${query ? `?${query}` : ''}`);
+    return api.get<any>(`/expenses${query ? `?${query}` : ''}`);
   },
 
   // Get expense by ID
@@ -54,7 +63,7 @@ export const expenseService = {
     return api.get<Expense>(`/expenses/${id}`);
   },
 
-  // Create new expense
+  // Create expense
   async create(expense: CreateExpenseRequest): Promise<ApiResponse<Expense>> {
     return api.post<Expense>('/expenses', expense);
   },
@@ -69,38 +78,67 @@ export const expenseService = {
     return api.delete<void>(`/expenses/${id}`);
   },
 
-  // Get expenses by role
+  // Approve expense
+  async approve(id: string): Promise<ApiResponse<Expense>> {
+    return api.patch<Expense>(`/expenses/${id}/approve`, {});
+  },
+
+  // Reject expense
+  async reject(id: string): Promise<ApiResponse<Expense>> {
+    return api.patch<Expense>(`/expenses/${id}/reject`, {});
+  },
+
+  // Get pending expenses
+  async getPending(): Promise<ApiResponse<Expense[]>> {
+    return api.get<Expense[]>('/expenses/pending');
+  },
+
+  // Get expenses by category
+  async getByCategory(category: string): Promise<ApiResponse<Expense[]>> {
+    return api.get<Expense[]>(`/expenses/category/${encodeURIComponent(category)}`);
+  },
+
+  // Get expenses total for period
+  async getPeriodTotal(startDate: string, endDate: string): Promise<ApiResponse<PeriodTotal>> {
+    return api.get<PeriodTotal>(`/expenses/period-total?startDate=${startDate}&endDate=${endDate}`);
+  },
+
+  // Get expense statistics
+  async getStats(): Promise<ApiResponse<ExpenseStats>> {
+    return api.get<ExpenseStats>('/expenses/stats');
+  },
+
+  // Legacy methods for backward compatibility
   async getByRole(role: UserRole): Promise<ApiResponse<Expense[]>> {
-    return api.get<Expense[]>(`/expenses/role/${role}`);
+    return api.get<Expense[]>(`/expenses?role=${role}`);
   },
 
-  // Get cashier expenses
   async getByCashier(cashierId: string): Promise<ApiResponse<Expense[]>> {
-    return api.get<Expense[]>(`/expenses/cashier/${cashierId}`);
+    return api.get<Expense[]>(`/expenses?createdBy=${cashierId}`);
   },
 
-  // Get today's expenses
   async getToday(): Promise<ApiResponse<Expense[]>> {
-    return api.get<Expense[]>('/expenses/today');
+    const today = new Date().toISOString().split('T')[0];
+    return api.get<Expense[]>(`/expenses?startDate=${today}&endDate=${today}`);
   },
 
-  // Get this month's expenses
   async getThisMonth(): Promise<ApiResponse<Expense[]>> {
-    return api.get<Expense[]>('/expenses/month');
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const endDate = now.toISOString().split('T')[0];
+    return api.get<Expense[]>(`/expenses?startDate=${startDate}&endDate=${endDate}`);
   },
 
-  // Get expense summary
-  async getSummary(startDate?: string, endDate?: string): Promise<ApiResponse<ExpenseSummary>> {
+  async getSummary(startDate?: string, endDate?: string): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     if (startDate) queryParams.append('startDate', startDate);
     if (endDate) queryParams.append('endDate', endDate);
-    
     const query = queryParams.toString();
-    return api.get<ExpenseSummary>(`/expenses/summary${query ? `?${query}` : ''}`);
+    return api.get(`/expenses/stats${query ? `?${query}` : ''}`);
   },
 
-  // Get expense categories
   async getCategories(): Promise<ApiResponse<string[]>> {
+    // Categories are typically static or can be fetched from medicine categories
     return api.get<string[]>('/expenses/categories');
   },
 };

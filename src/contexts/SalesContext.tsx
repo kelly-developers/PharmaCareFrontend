@@ -200,9 +200,12 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       if (response.success && response.data) {
         let todaySales: Sale[] = [];
         
-        // Handle nested data.data structure
-        if (response.data.data && Array.isArray(response.data.data)) {
-          todaySales = response.data.data;
+        // Handle nested data.data structure or extract from sales array
+        const data = response.data as any;
+        if (data.data && Array.isArray(data.data)) {
+          todaySales = data.data;
+        } else if (data.sales && Array.isArray(data.sales)) {
+          todaySales = data.sales;
         } else {
           todaySales = extractArray<Sale>(response.data);
         }
@@ -247,8 +250,11 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       if (response.success && response.data) {
         let todaySales: Sale[] = [];
         
-        if (response.data.data && Array.isArray(response.data.data)) {
-          todaySales = response.data.data;
+        const data = response.data as any;
+        if (data.data && Array.isArray(data.data)) {
+          todaySales = data.data;
+        } else if (data.sales && Array.isArray(data.sales)) {
+          todaySales = data.sales;
         } else {
           todaySales = extractArray<Sale>(response.data);
         }

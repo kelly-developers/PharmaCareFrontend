@@ -19,6 +19,12 @@ interface UpdateCategoryRequest {
   description?: string;
 }
 
+interface CategoryStats {
+  totalCategories: number;
+  totalMedicines: number;
+  categoryBreakdown: { categoryId: string; name: string; medicineCount: number }[];
+}
+
 export const categoryService = {
   // Get all categories
   async getAll(): Promise<ApiResponse<Category[]>> {
@@ -30,7 +36,12 @@ export const categoryService = {
     return api.get<Category>(`/categories/${id}`);
   },
 
-  // Create new category
+  // Get category by name
+  async getByName(name: string): Promise<ApiResponse<Category>> {
+    return api.get<Category>(`/categories/name/${encodeURIComponent(name)}`);
+  },
+
+  // Create category
   async create(category: CreateCategoryRequest): Promise<ApiResponse<Category>> {
     return api.post<Category>('/categories', category);
   },
@@ -45,7 +56,12 @@ export const categoryService = {
     return api.delete<void>(`/categories/${id}`);
   },
 
-  // Get category names (for dropdowns)
+  // Get category statistics
+  async getStats(): Promise<ApiResponse<CategoryStats>> {
+    return api.get<CategoryStats>('/categories/stats');
+  },
+
+  // Helper: Get category names (for dropdowns)
   async getNames(): Promise<ApiResponse<string[]>> {
     const response = await api.get<Category[]>('/categories');
     if (response.success && response.data) {
@@ -54,8 +70,9 @@ export const categoryService = {
     return { success: false, error: response.error };
   },
 
-  // Increment medicine count
+  // Legacy method - no longer needed with dedicated category endpoint
   async incrementMedicineCount(categoryName: string): Promise<ApiResponse<void>> {
-    return api.post<void>(`/categories/increment/${encodeURIComponent(categoryName)}`);
+    // This is now handled automatically by the backend
+    return { success: true };
   },
 };

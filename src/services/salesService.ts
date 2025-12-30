@@ -14,7 +14,7 @@ interface CreateSaleRequest {
   customerPhone?: string;
 }
 
-interface DailySalesReport {
+interface TodaySalesSummary {
   date: string;
   totalSales: number;
   totalCash: number;
@@ -27,6 +27,24 @@ interface DailySalesReport {
   sales: Sale[];
 }
 
+interface SalesReport {
+  startDate: string;
+  endDate: string;
+  totalRevenue: number;
+  totalCost: number;
+  grossProfit: number;
+  transactionCount: number;
+  salesByPaymentMethod: { method: string; total: number; count: number }[];
+  salesByCategory: { category: string; total: number }[];
+}
+
+interface PeriodTotal {
+  startDate: string;
+  endDate: string;
+  total: number;
+  count: number;
+}
+
 interface SalesFilters {
   startDate?: string;
   endDate?: string;
@@ -36,9 +54,8 @@ interface SalesFilters {
   limit?: number;
 }
 
-// IMPORTANT: Backend returns data in nested structure { data: [...], pagination: {...} }
 export const salesService = {
-  // Get all sales with optional filters - UPDATED FOR NESTED STRUCTURE
+  // Get all sales (paginated)
   async getAll(filters?: SalesFilters): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     if (filters?.startDate) queryParams.append('startDate', filters.startDate);
@@ -57,28 +74,42 @@ export const salesService = {
     return api.get<Sale>(`/sales/${id}`);
   },
 
-  // Create new sale
+  // Create sale
   async create(sale: CreateSaleRequest): Promise<ApiResponse<Sale>> {
     return api.post<Sale>('/sales', sale);
   },
 
-  // Get today's sales for a specific cashier
-  async getCashierTodaySales(cashierId: string): Promise<ApiResponse<any>> {
-    return api.get<any>(`/sales/cashier/${cashierId}/today`);
+  // Delete sale
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return api.delete<void>(`/sales/${id}`);
   },
 
-  // Get today's sales summary for all cashiers
-  async getTodaySalesSummary(cashierId?: string): Promise<ApiResponse<DailySalesReport>> {
-    const url = cashierId ? `/sales/today?cashierId=${cashierId}` : '/sales/today';
-    return api.get<DailySalesReport>(url);
+  // Get today's sales summary
+  async getTodaySummary(): Promise<ApiResponse<TodaySalesSummary>> {
+    return api.get<TodaySalesSummary>('/sales/today');
+  },
+
+  // Get cashier's today sales
+  async getCashierTodaySales(cashierId: string): Promise<ApiResponse<TodaySalesSummary>> {
+    return api.get<TodaySalesSummary>(`/sales/cashier/${cashierId}/today`);
+  },
+
+  // Get sales report (by date range)
+  async getReport(startDate: string, endDate: string): Promise<ApiResponse<SalesReport>> {
+    return api.get<SalesReport>(`/sales/report?startDate=${startDate}&endDate=${endDate}`);
   },
 
   // Get sales by cashier
-  async getByCashier(cashierId: string): Promise<ApiResponse<any>> {
-    return api.get<any>(`/sales/cashier/${cashierId}`);
+  async getByCashier(cashierId: string, page: number = 1, limit: number = 20): Promise<ApiResponse<any>> {
+    return api.get<any>(`/sales/cashier/${cashierId}?page=${page}&limit=${limit}`);
   },
 
-  // Get sales by date range
+  // Get sales total for period
+  async getPeriodTotal(startDate: string, endDate: string): Promise<ApiResponse<PeriodTotal>> {
+    return api.get<PeriodTotal>(`/sales/period-total?startDate=${startDate}&endDate=${endDate}`);
+  },
+
+  // Convenience methods
   async getByDateRange(startDate: string, endDate: string, cashierId?: string): Promise<ApiResponse<any>> {
     let url = `/sales?startDate=${startDate}&endDate=${endDate}`;
     if (cashierId) {
@@ -87,20 +118,11 @@ export const salesService = {
     return api.get<any>(url);
   },
 
-  // Get daily sales report
-  async getDailyReport(date: string): Promise<ApiResponse<DailySalesReport>> {
-    return api.get<DailySalesReport>(`/sales/report?startDate=${date}&endDate=${date}&groupBy=day`);
+  async getDailyReport(date: string): Promise<ApiResponse<SalesReport>> {
+    return api.get<SalesReport>(`/sales/report?startDate=${date}&endDate=${date}`);
   },
 
-  // Get sales summary for period
-  async getSummary(startDate: string, endDate: string): Promise<ApiResponse<{
-    totalRevenue: number;
-    totalCost: number;
-    grossProfit: number;
-    transactionCount: number;
-    salesByPaymentMethod: { method: string; total: number; count: number }[];
-    salesByCategory: { category: string; total: number }[];
-  }>> {
-    return api.get(`/sales/report?startDate=${startDate}&endDate=${endDate}`);
+  async getSummary(startDate: string, endDate: string): Promise<ApiResponse<SalesReport>> {
+    return api.get<SalesReport>(`/sales/report?startDate=${startDate}&endDate=${endDate}`);
   },
 };

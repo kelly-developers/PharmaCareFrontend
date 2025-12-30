@@ -1,6 +1,5 @@
-// services/medicineService.ts - UPDATED getCategories method
 import { api, ApiResponse } from './api';
-import { Medicine, MedicineUnit } from '@/types/pharmacy';
+import { Medicine } from '@/types/pharmacy';
 
 interface CreateMedicineRequest {
   name: string;
@@ -21,17 +20,18 @@ interface CreateMedicineRequest {
   description?: string;
 }
 
-interface StockUpdateRequest {
-  medicineId: string;
-  quantity: number;
-  type: 'add' | 'deduct' | 'adjustment' | 'loss';
-  reason?: string;
-  referenceId?: string;
-  unitType?: string;
+interface MedicineStats {
+  totalMedicines: number;
+  activeMedicines: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  expiringSoonCount: number;
+  expiredCount: number;
+  totalValue: number;
 }
 
 export const medicineService = {
-  // Get all medicines with optional filters
+  // Get all medicines (paginated)
   async getAll(params?: {
     category?: string;
     search?: string;
@@ -57,9 +57,8 @@ export const medicineService = {
     return api.get<Medicine>(`/medicines/${id}`);
   },
 
-  // Create new medicine
+  // Create medicine
   async create(medicine: CreateMedicineRequest): Promise<ApiResponse<Medicine>> {
-    // Ensure all required fields are properly formatted
     const requestData = {
       name: medicine.name,
       genericName: medicine.genericName || '',
@@ -93,10 +92,71 @@ export const medicineService = {
     return api.delete<void>(`/medicines/${id}`);
   },
 
+  // Deduct stock
+  async deductStock(
+    medicineId: string,
+    quantity: number,
+    unitType?: string,
+    referenceId?: string,
+    performedById?: string,
+    role?: string
+  ): Promise<ApiResponse<any>> {
+    return api.post<any>(`/medicines/${medicineId}/deduct-stock`, {
+      quantity,
+      unitType,
+      referenceId,
+      performedById,
+      role
+    });
+  },
+
+  // Add stock
+  async addStock(
+    medicineId: string,
+    quantity: number,
+    referenceId?: string,
+    performedById?: string,
+    role?: string
+  ): Promise<ApiResponse<any>> {
+    return api.post<any>(`/medicines/${medicineId}/add-stock`, {
+      quantity,
+      referenceId,
+      performedBy: performedById,
+      performedByRole: role
+    });
+  },
+
+  // Get all categories
+  async getCategories(): Promise<ApiResponse<any>> {
+    const response = await api.get<any>('/medicines/categories');
+    console.log('Categories API raw response:', response);
+    
+    if (response.success && response.data) {
+      const data = response.data;
+      
+      if (Array.isArray(data)) {
+        const categoryNames = data.map((item: any) => {
+          if (typeof item === 'string') {
+            return item;
+          } else if (item && typeof item === 'object') {
+            return item.name || '';
+          }
+          return '';
+        }).filter((name: string) => name.trim() !== '');
+        
+        return {
+          ...response,
+          data: categoryNames
+        };
+      }
+    }
+    
+    return { ...response, data: [] };
+  },
+
   // Get low stock medicines
   async getLowStock(): Promise<ApiResponse<Medicine[]>> {
     const response = await api.get<any>('/medicines/low-stock');
-    // Extract array from response
     if (response.success && response.data) {
       return {
         ...response,
@@ -118,78 +178,9 @@ export const medicineService = {
     return { ...response, data: [] };
   },
 
-  // Get all categories - FIXED VERSION
-  async getCategories(): Promise<ApiResponse<any>> {
-    const response = await api.get<any>('/medicines/categories');
-    console.log('Categories API raw response:', response);
-    
-    if (response.success && response.data) {
-      // Handle different response structures
-      const data = response.data;
-      
-      // If it's an array of objects with name property
-      if (Array.isArray(data)) {
-        const categoryNames = data.map((item: any) => {
-          if (typeof item === 'string') {
-            return item;
-          } else if (item && typeof item === 'object') {
-            return item.name || '';
-          }
-          return '';
-        }).filter((name: string) => name.trim() !== '');
-        
-        return {
-          ...response,
-          data: categoryNames
-        };
-      }
-      
-      // If it's already an array of strings
-      if (Array.isArray(data)) {
-        return response;
-      }
-    }
-    
-    return { ...response, data: [] };
-  },
-
   // Get medicine statistics
-  async getStats(): Promise<ApiResponse<any>> {
-    return api.get<any>('/medicines/stats');
-  },
-
-  // Add stock
-  async addStock(
-    medicineId: string,
-    quantity: number,
-    referenceId: string,
-    performedById: string,
-    role: string
-  ): Promise<ApiResponse<any>> {
-    return api.post<any>(`/medicines/${medicineId}/add-stock`, {
-      quantity,
-      referenceId,
-      performedBy: performedById,
-      performedByRole: role
-    });
-  },
-
-  // Deduct stock
-  async deductStock(
-    medicineId: string,
-    quantity: number,
-    unitType: string,
-    referenceId: string,
-    performedById: string,
-    role: string
-  ): Promise<ApiResponse<any>> {
-    return api.post<any>(`/medicines/${medicineId}/deduct-stock`, {
-      quantity,
-      unitType,
-      referenceId,
-      performedById,
-      role
-    });
+  async getStats(): Promise<ApiResponse<MedicineStats>> {
+    return api.get<MedicineStats>('/medicines/stats');
   },
 
   // Upload medicine image
