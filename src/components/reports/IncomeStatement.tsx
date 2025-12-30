@@ -38,7 +38,7 @@ export function IncomeStatement({
         </div>
       </CardHeader>
       <CardContent className="pt-4 space-y-4 text-sm">
-        {/* Revenue Section */}
+        {/* Revenue Section - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Revenue</h4>
           <div className="flex justify-between py-1 border-b">
@@ -51,7 +51,7 @@ export function IncomeStatement({
           </div>
         </div>
 
-        {/* COGS Section */}
+        {/* COGS Section - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Cost of Goods Sold</h4>
           <div className="flex justify-between py-1 border-b">
@@ -64,7 +64,7 @@ export function IncomeStatement({
           </div>
         </div>
 
-        {/* Gross Profit */}
+        {/* Gross Profit - REMOVED CALCULATIONS */}
         <div className="flex justify-between py-2 font-bold text-base border-t border-b bg-primary/10 px-2 rounded">
           <span>Gross Profit</span>
           <span className={`font-mono ${grossProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
@@ -72,7 +72,7 @@ export function IncomeStatement({
           </span>
         </div>
 
-        {/* Operating Expenses */}
+        {/* Operating Expenses - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Operating Expenses</h4>
           {expenses.length > 0 ? (
@@ -94,7 +94,7 @@ export function IncomeStatement({
           </div>
         </div>
 
-        {/* Net Profit */}
+        {/* Net Profit - REMOVED CALCULATIONS */}
         <div className={`flex justify-between py-3 font-bold text-lg border-2 px-3 rounded-lg ${
           netProfit >= 0 ? 'border-success bg-success/10' : 'border-destructive bg-destructive/10'
         }`}>

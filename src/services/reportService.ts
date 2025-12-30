@@ -62,12 +62,22 @@ interface CashFlowData {
 interface DashboardStats {
   todaySales: number;
   todayTransactions: number;
+  todayProfit: number;
   inventoryValue: number;
+  totalStockItems: number;
   lowStockCount: number;
   outOfStockCount: number;
   expiringSoonCount: number;
   todayExpenses: number;
   pendingOrders: number;
+  pendingPrescriptions: number;
+}
+
+interface InventoryValueData {
+  totalValue: number;
+  categoryValues: Record<string, number>;
+  itemCount: number;
+  calculatedAt: string;
 }
 
 interface SalesTrendData {
@@ -87,6 +97,11 @@ export const reportService = {
   // Get dashboard statistics
   async getDashboardStats(): Promise<ApiResponse<DashboardStats>> {
     return api.get<DashboardStats>('/reports/dashboard');
+  },
+
+  // Get inventory value from backend
+  async getInventoryValue(): Promise<ApiResponse<InventoryValueData>> {
+    return api.get<InventoryValueData>('/reports/inventory-value');
   },
 
   // Get income statement

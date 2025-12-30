@@ -40,7 +40,7 @@ export function CashFlowStatement({
         </div>
       </CardHeader>
       <CardContent className="pt-4 space-y-4 text-sm">
-        {/* Operating Activities */}
+        {/* Operating Activities - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">
             Cash Flows from Operating Activities
@@ -69,7 +69,7 @@ export function CashFlowStatement({
           </div>
         </div>
 
-        {/* Investing Activities */}
+        {/* Investing Activities - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">
             Cash Flows from Investing Activities
@@ -84,7 +84,7 @@ export function CashFlowStatement({
           </div>
         </div>
 
-        {/* Financing Activities */}
+        {/* Financing Activities - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">
             Cash Flows from Financing Activities
@@ -99,7 +99,7 @@ export function CashFlowStatement({
           </div>
         </div>
 
-        {/* Net Change */}
+        {/* Net Change - REMOVED CALCULATIONS */}
         <div className={`flex justify-between py-2 font-bold border-t border-b px-2 ${
           netCashFlow >= 0 ? 'bg-success/10' : 'bg-destructive/10'
         }`}>
@@ -109,7 +109,7 @@ export function CashFlowStatement({
           </span>
         </div>
 
-        {/* Cash Summary */}
+        {/* Cash Summary - REMOVED CALCULATIONS */}
         <div className="space-y-1">
           <div className="flex justify-between py-1">
             <span>Opening Cash Balance</span>

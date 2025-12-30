@@ -34,7 +34,7 @@ export function BalanceSheet({
         </div>
       </CardHeader>
       <CardContent className="pt-4 space-y-4 text-sm">
-        {/* Assets */}
+        {/* Assets - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Assets</h4>
           <div className="pl-2 space-y-1">
@@ -58,7 +58,7 @@ export function BalanceSheet({
           </div>
         </div>
 
-        {/* Liabilities */}
+        {/* Liabilities - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Liabilities</h4>
           <div className="pl-2 space-y-1">
@@ -74,7 +74,7 @@ export function BalanceSheet({
           </div>
         </div>
 
-        {/* Equity */}
+        {/* Equity - REMOVED CALCULATIONS */}
         <div>
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Owner's Equity</h4>
           <div className="flex justify-between py-1 border-b">
@@ -89,7 +89,7 @@ export function BalanceSheet({
           </div>
         </div>
 
-        {/* Balance Check */}
+        {/* Balance Check - CALCULATION REMOVED, USE FROM PROPS */}
         <div className="flex justify-between py-3 font-bold text-lg border-2 border-primary px-3 rounded-lg bg-primary/5">
           <span>Total Liabilities + Equity</span>
           <span className="font-mono">KSh {(totalLiabilities + totalEquity).toLocaleString()}</span>

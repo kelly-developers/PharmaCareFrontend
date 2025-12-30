@@ -28,9 +28,59 @@ export default function Dashboard() {
   const { medicines, refreshMedicines } = useStock();
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [inventoryValue, setInventoryValue] = useState(0);
+  const [dashboardData, setDashboardData] = useState({
+    inventoryValue: 0,
+    lowStockCount: 0,
+    expiringSoonCount: 0,
+    totalStockItems: 0,
+  });
   
   // Only admin and manager can see profits
   const canViewProfit = user?.role === 'admin' || user?.role === 'manager';
+
+  // Fetch dashboard data from backend
+  const fetchDashboardData = async () => {
+    try {
+      const response = await fetch('/api/reports/dashboard', {
+        headers: {
+          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setDashboardData({
+            inventoryValue: data.data.inventoryValue || 0,
+            lowStockCount: data.data.lowStockCount || 0,
+            expiringSoonCount: data.data.expiringSoonCount || 0,
+            totalStockItems: data.data.totalStockItems || 0,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error);
+    }
+  };
+
+  // Fetch inventory value from backend
+  const fetchInventoryValue = async () => {
+    try {
+      const response = await fetch('/api/reports/inventory-value', {
+        headers: {
+          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setInventoryValue(data.data.totalValue || 0);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch inventory value:', error);
+    }
+  };
 
   // Fetch today's sales
   useEffect(() => {
@@ -41,26 +91,29 @@ export default function Dashboard() {
     fetchTodaySales();
   }, [getTodaySales]);
 
+  // Fetch dashboard data on component mount
+  useEffect(() => {
+    fetchDashboardData();
+    fetchInventoryValue();
+  }, []);
+
   // Get real sales data
   const allSales = getAllSales();
   
-  // Calculate today's stats
+  // Calculate today's stats (only sales calculations remain in frontend)
   const todayTotal = todaySales.reduce((sum, sale) => sum + sale.total, 0);
   const todayTransactions = todaySales.length;
   
-  // Calculate profit (total - cost)
+  // Calculate profit (total - cost) - still in frontend as it's based on sales
   const todayProfit = todaySales.reduce((sum, sale) => {
     const saleCost = sale.items.reduce((itemSum, item) => itemSum + ((item.costPrice || 0) * item.quantity), 0);
     return sum + (sale.total - saleCost);
   }, 0);
   
-  // Get total stock items
-  const totalStockItems = medicines.reduce((sum, med) => sum + med.stockQuantity, 0);
-  
-  // Low stock items (stock <= reorderLevel)
+  // Get low stock items from local state for display only
   const lowStockItems = medicines.filter(med => med.stockQuantity <= med.reorderLevel).slice(0, 4);
   
-  // Expiring items (within 90 days)
+  // Expiring items from local state for display only
   const expiringItems = medicines.filter(med => {
     const daysToExpiry = Math.ceil(
       (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
@@ -78,7 +131,9 @@ export default function Dashboard() {
     try {
       await Promise.all([
         fetchAllSales(),
-        refreshMedicines()
+        refreshMedicines(),
+        fetchDashboardData(),
+        fetchInventoryValue()
       ]);
       toast.success('Dashboard data refreshed');
     } catch (error) {
@@ -137,6 +192,15 @@ export default function Dashboard() {
             trend={{ value: todayTransactions > 0 ? 8 : 0, isPositive: true }}
             iconClassName="bg-info/10 text-info"
           />
+          {/* Inventory Value Card - FROM BACKEND */}
+          <StatCard
+            title="Inventory Value"
+            value={`KSh ${inventoryValue.toLocaleString()}`}
+            icon={<Package className="h-6 w-6" />}
+            trend={{ value: 0, isPositive: true }}
+            iconClassName="bg-warning/10 text-warning"
+            subtitle={`${dashboardData.totalStockItems} items`}
+          />
           {canViewProfit && (
             <StatCard
               title="Gross Profit"
@@ -146,6 +210,43 @@ export default function Dashboard() {
               iconClassName="bg-primary/10 text-primary"
             />
           )}
+        </div>
+
+        {/* Alerts Summary */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card variant="elevated" className="bg-warning/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Low Stock Items</p>
+                  <p className="text-2xl font-bold">{dashboardData.lowStockCount}</p>
+                </div>
+                <AlertTriangle className="h-8 w-8 text-warning" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card variant="elevated" className="bg-destructive/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Expiring Soon</p>
+                  <p className="text-2xl font-bold">{dashboardData.expiringSoonCount}</p>
+                </div>
+                <Clock className="h-8 w-8 text-destructive" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card variant="elevated" className="bg-primary/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Stock Items</p>
+                  <p className="text-2xl font-bold">{dashboardData.totalStockItems}</p>
+                </div>
+                <Package className="h-8 w-8 text-primary" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Main Content Grid */}
