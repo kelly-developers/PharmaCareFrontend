@@ -36,15 +36,16 @@ import {
   Wallet,
   ArrowDownUp,
 } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSales } from '@/contexts/SalesContext';
 import { useExpenses } from '@/contexts/ExpensesContext';
 import { useStock } from '@/contexts/StockContext';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, endOfYear, eachDayOfInterval, isWithinInterval, subMonths, subDays } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from 'date-fns';
 import { IncomeStatement } from '@/components/reports/IncomeStatement';
 import { BalanceSheet } from '@/components/reports/BalanceSheet';
 import { CashFlowStatement } from '@/components/reports/CashFlowStatement';
 import { exportToPDF } from '@/utils/pdfExport';
+import { reportService } from '@/services/reportService';
 
 export default function Reports() {
   const [period, setPeriod] = useState('month');
@@ -52,6 +53,24 @@ export default function Reports() {
   const { sales } = useSales();
   const { expenses } = useExpenses();
   const { medicines } = useStock();
+  
+  // State for reports data
+  const [reportsData, setReportsData] = useState({
+    totalRevenue: 0,
+    totalCOGS: 0,
+    grossProfit: 0,
+    totalExpenses: 0,
+    netProfit: 0,
+    profitMargin: 0,
+    inventoryValue: 0,
+    expensesByCategory: [] as { category: string; amount: number }[],
+    salesTrend: [] as { date: string; sales: number; cost: number; profit: number }[],
+    categoryData: [] as { name: string; value: number; color: string }[],
+    dailySalesData: [] as { day: string; sales: number; cost: number }[],
+    monthlyTrendData: [] as { month: string; sales: number }[]
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
 
   // Get date range based on selected period
   const getDateRange = () => {
@@ -72,120 +91,63 @@ export default function Reports() {
 
   const dateRange = getDateRange();
 
-  // Filter sales by period
-  const filteredSales = useMemo(() => {
-    const { start, end } = dateRange;
-    return sales.filter(sale => {
-      const saleDate = new Date(sale.createdAt);
-      return isWithinInterval(saleDate, { start, end });
-    });
-  }, [sales, period]);
-
-  // Filter expenses by period
-  const filteredExpenses = useMemo(() => {
-    const { start, end } = dateRange;
-    return expenses.filter(exp => {
-      const expDate = new Date(exp.date);
-      return isWithinInterval(expDate, { start, end });
-    });
-  }, [expenses, period]);
-
-  // Calculate totals
-  const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
-  const totalCOGS = filteredSales.reduce((sum, sale) => {
-    return sum + sale.items.reduce((itemSum, item) => {
-      const medicine = medicines.find(m => m.id === item.medicineId);
-      return itemSum + ((medicine?.costPrice || item.costPrice || 0) * item.quantity);
-    }, 0);
-  }, 0);
-  const grossProfit = totalRevenue - totalCOGS;
-  const totalExpenses = filteredExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-  const netProfit = grossProfit - totalExpenses;
-  const profitMargin = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100) : 0;
-
-  // Expense breakdown by category
-  const expensesByCategory = useMemo(() => {
-    const categories: Record<string, number> = {};
-    filteredExpenses.forEach(exp => {
-      categories[exp.category] = (categories[exp.category] || 0) + exp.amount;
-    });
-    return Object.entries(categories).map(([category, amount]) => ({ category, amount }));
-  }, [filteredExpenses]);
-
-  // Calculate inventory value
-  const inventoryValue = medicines.reduce((sum, med) => sum + (med.costPrice * med.stockQuantity), 0);
-
-  // Calculate daily sales data for chart
-  const dailySalesData = useMemo(() => {
-    const now = new Date();
-    const days = eachDayOfInterval({ start: subDays(now, 6), end: now });
-    
-    return days.map(day => {
-      const dayStr = format(day, 'EEE');
-      const daySales = sales.filter(sale => {
-        const saleDate = new Date(sale.createdAt);
-        return format(saleDate, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd');
-      });
+  // Fetch reports data from backend
+  const fetchReportsData = async () => {
+    setIsLoading(true);
+    try {
+      const startDate = dateRange.start.toISOString();
+      const endDate = dateRange.end.toISOString();
       
-      const salesTotal = daySales.reduce((sum, sale) => sum + sale.total, 0);
-      const costTotal = daySales.reduce((sum, sale) => {
-        return sum + sale.items.reduce((itemSum, item) => {
-          const medicine = medicines.find(m => m.id === item.medicineId);
-          return itemSum + ((medicine?.costPrice || item.costPrice || 0) * item.quantity);
-        }, 0);
-      }, 0);
+      // Fetch all reports data in parallel
+      const [incomeResponse, salesTrendResponse, categoryResponse, inventoryResponse] = await Promise.all([
+        reportService.getIncomeStatement(startDate, endDate),
+        reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year'),
+        reportService.getSalesByCategory(startDate, endDate),
+        reportService.getInventoryValue()
+      ]);
 
-      return { day: dayStr, sales: salesTotal, cost: costTotal };
-    });
-  }, [sales, medicines]);
+      const newData = {
+        totalRevenue: incomeResponse.data?.revenue || 0,
+        totalCOGS: incomeResponse.data?.costOfGoodsSold || 0,
+        grossProfit: incomeResponse.data?.grossProfit || 0,
+        totalExpenses: incomeResponse.data?.totalExpenses || 0,
+        netProfit: incomeResponse.data?.netProfit || 0,
+        profitMargin: incomeResponse.data?.profitMargin || 0,
+        inventoryValue: inventoryResponse.data?.totalValue || 0,
+        expensesByCategory: incomeResponse.data?.expenses || [],
+        salesTrend: salesTrendResponse.data || [],
+        categoryData: categoryResponse.data?.map((item, index) => ({
+          name: item.category,
+          value: item.percentage,
+          color: index % 5 === 0 ? 'hsl(158, 64%, 32%)' :
+                 index % 5 === 1 ? 'hsl(199, 89%, 48%)' :
+                 index % 5 === 2 ? 'hsl(38, 92%, 50%)' :
+                 index % 5 === 3 ? 'hsl(142, 71%, 45%)' :
+                 'hsl(215, 16%, 47%)'
+        })) || [],
+        dailySalesData: salesTrendResponse.data?.map(item => ({
+          day: format(new Date(item.date), 'EEE'),
+          sales: item.sales,
+          cost: item.cost
+        })) || [],
+        monthlyTrendData: salesTrendResponse.data?.map(item => ({
+          month: format(new Date(item.date), 'MMM'),
+          sales: item.sales
+        })) || []
+      };
 
-  // Calculate monthly trend data
-  const monthlyTrendData = useMemo(() => {
-    const now = new Date();
-    const months = Array.from({ length: 6 }, (_, i) => subMonths(now, 5 - i));
-    
-    return months.map(month => {
-      const monthStart = startOfMonth(month);
-      const monthEnd = endOfMonth(month);
-      const monthSales = sales.filter(sale => {
-        const saleDate = new Date(sale.createdAt);
-        return isWithinInterval(saleDate, { start: monthStart, end: monthEnd });
-      });
-      
-      const total = monthSales.reduce((sum, sale) => sum + sale.total, 0);
-      return { month: format(month, 'MMM'), sales: total };
-    });
-  }, [sales]);
+      setReportsData(newData);
+    } catch (error) {
+      console.error('Failed to fetch reports data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  // Calculate category breakdown
-  const categoryData = useMemo(() => {
-    const categoryTotals: Record<string, number> = {};
-    
-    filteredSales.forEach(sale => {
-      sale.items.forEach(item => {
-        const medicine = medicines.find(m => m.id === item.medicineId);
-        const category = medicine?.category || 'Unknown';
-        categoryTotals[category] = (categoryTotals[category] || 0) + (item.unitPrice * item.quantity);
-      });
-    });
-
-    const total = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0);
-    const colors = [
-      'hsl(158, 64%, 32%)',
-      'hsl(199, 89%, 48%)',
-      'hsl(38, 92%, 50%)',
-      'hsl(142, 71%, 45%)',
-      'hsl(215, 16%, 47%)',
-    ];
-
-    return Object.entries(categoryTotals)
-      .map(([name, value], index) => ({
-        name,
-        value: total > 0 ? Math.round((value / total) * 100) : 0,
-        color: colors[index % colors.length],
-      }))
-      .slice(0, 5);
-  }, [filteredSales, medicines]);
+  // Fetch data when period or date range changes
+  useEffect(() => {
+    fetchReportsData();
+  }, [period]);
 
   const handleExportPDF = () => {
     const contentId = activeTab === 'income' ? 'income-statement' 
@@ -254,27 +216,27 @@ export default function Reports() {
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
                 <StatCard
                   title="Total Revenue"
-                  value={`KSh ${totalRevenue.toLocaleString()}`}
+                  value={`KSh ${reportsData.totalRevenue.toLocaleString()}`}
                   icon={<DollarSign className="h-5 w-5 md:h-6 md:w-6" />}
                   iconClassName="bg-success/10 text-success"
                 />
                 <StatCard
                   title="Cost of Goods"
-                  value={`KSh ${totalCOGS.toLocaleString()}`}
+                  value={`KSh ${reportsData.totalCOGS.toLocaleString()}`}
                   icon={<Package className="h-5 w-5 md:h-6 md:w-6" />}
                   iconClassName="bg-warning/10 text-warning"
                 />
                 <StatCard
                   title="Gross Profit"
-                  value={`KSh ${grossProfit.toLocaleString()}`}
+                  value={`KSh ${reportsData.grossProfit.toLocaleString()}`}
                   icon={<TrendingUp className="h-5 w-5 md:h-6 md:w-6" />}
                   iconClassName="bg-primary/10 text-primary"
                 />
                 <StatCard
                   title="Net Profit"
-                  value={`KSh ${netProfit.toLocaleString()}`}
+                  value={`KSh ${reportsData.netProfit.toLocaleString()}`}
                   icon={<TrendingUp className="h-5 w-5 md:h-6 md:w-6" />}
-                  iconClassName={netProfit >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
+                  iconClassName={reportsData.netProfit >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
                 />
               </div>
 
@@ -291,7 +253,7 @@ export default function Reports() {
                   <CardContent>
                     <div className="h-56 md:h-72">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={dailySalesData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <BarChart data={reportsData.dailySalesData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                           <XAxis dataKey="day" className="text-xs" tick={{ fontSize: 11 }} />
                           <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
@@ -324,7 +286,7 @@ export default function Reports() {
                   <CardContent>
                     <div className="h-56 md:h-72">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <LineChart data={reportsData.monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                           <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
                           <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} />
@@ -360,11 +322,11 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-48 md:h-64">
-                      {categoryData.length > 0 ? (
+                      {reportsData.categoryData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie
-                              data={categoryData}
+                              data={reportsData.categoryData}
                               cx="50%"
                               cy="50%"
                               innerRadius={35}
@@ -372,7 +334,7 @@ export default function Reports() {
                               dataKey="value"
                               labelLine={false}
                             >
-                              {categoryData.map((entry, index) => (
+                              {reportsData.categoryData.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={entry.color} />
                               ))}
                             </Pie>
@@ -404,27 +366,27 @@ export default function Reports() {
                     <div className="grid grid-cols-2 gap-3 md:gap-4">
                       <div className="p-3 md:p-4 rounded-lg bg-secondary/50">
                         <p className="text-xs md:text-sm text-muted-foreground">Inventory Value</p>
-                        <p className="text-lg md:text-2xl font-bold">KSh {inventoryValue.toLocaleString()}</p>
+                        <p className="text-lg md:text-2xl font-bold">KSh {reportsData.inventoryValue.toLocaleString()}</p>
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-secondary/50">
                         <p className="text-xs md:text-sm text-muted-foreground">Total Sales</p>
-                        <p className="text-lg md:text-2xl font-bold">KSh {totalRevenue.toLocaleString()}</p>
+                        <p className="text-lg md:text-2xl font-bold">KSh {reportsData.totalRevenue.toLocaleString()}</p>
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-secondary/50">
                         <p className="text-xs md:text-sm text-muted-foreground">Cost of Goods Sold</p>
-                        <p className="text-lg md:text-2xl font-bold">KSh {totalCOGS.toLocaleString()}</p>
+                        <p className="text-lg md:text-2xl font-bold">KSh {reportsData.totalCOGS.toLocaleString()}</p>
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-secondary/50">
                         <p className="text-xs md:text-sm text-muted-foreground">Total Expenses</p>
-                        <p className="text-lg md:text-2xl font-bold">KSh {totalExpenses.toLocaleString()}</p>
+                        <p className="text-lg md:text-2xl font-bold">KSh {reportsData.totalExpenses.toLocaleString()}</p>
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-success/10 border border-success/20">
                         <p className="text-xs md:text-sm text-success">Gross Profit</p>
-                        <p className="text-lg md:text-2xl font-bold text-success">KSh {grossProfit.toLocaleString()}</p>
+                        <p className="text-lg md:text-2xl font-bold text-success">KSh {reportsData.grossProfit.toLocaleString()}</p>
                       </div>
-                      <div className={`p-3 md:p-4 rounded-lg ${netProfit >= 0 ? 'bg-success/10 border border-success/20' : 'bg-destructive/10 border border-destructive/20'}`}>
-                        <p className={`text-xs md:text-sm ${netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>Net Profit</p>
-                        <p className={`text-lg md:text-2xl font-bold ${netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>KSh {netProfit.toLocaleString()}</p>
+                      <div className={`p-3 md:p-4 rounded-lg ${reportsData.netProfit >= 0 ? 'bg-success/10 border border-success/20' : 'bg-destructive/10 border border-destructive/20'}`}>
+                        <p className={`text-xs md:text-sm ${reportsData.netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>Net Profit</p>
+                        <p className={`text-lg md:text-2xl font-bold ${reportsData.netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>KSh {reportsData.netProfit.toLocaleString()}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -439,12 +401,12 @@ export default function Reports() {
               <IncomeStatement
                 period={period}
                 dateRange={dateRange}
-                revenue={totalRevenue}
-                cogs={totalCOGS}
-                grossProfit={grossProfit}
-                expenses={expensesByCategory}
-                totalExpenses={totalExpenses}
-                netProfit={netProfit}
+                revenue={reportsData.totalRevenue}
+                cogs={reportsData.totalCOGS}
+                grossProfit={reportsData.grossProfit}
+                expenses={reportsData.expensesByCategory}
+                totalExpenses={reportsData.totalExpenses}
+                netProfit={reportsData.netProfit}
               />
             </div>
           </TabsContent>
@@ -454,14 +416,14 @@ export default function Reports() {
             <div id="balance-sheet" className="max-w-2xl mx-auto">
               <BalanceSheet
                 asOfDate={new Date()}
-                cashBalance={totalRevenue - totalCOGS - totalExpenses}
+                cashBalance={reportsData.netProfit}
                 accountsReceivable={0}
-                inventoryValue={inventoryValue}
-                totalAssets={inventoryValue + (totalRevenue - totalCOGS - totalExpenses)}
+                inventoryValue={reportsData.inventoryValue}
+                totalAssets={reportsData.inventoryValue + reportsData.netProfit}
                 accountsPayable={0}
                 totalLiabilities={0}
-                retainedEarnings={netProfit}
-                totalEquity={inventoryValue + netProfit}
+                retainedEarnings={reportsData.netProfit}
+                totalEquity={reportsData.inventoryValue + reportsData.netProfit}
               />
             </div>
           </TabsContent>
@@ -472,13 +434,13 @@ export default function Reports() {
               <CashFlowStatement
                 period={period}
                 dateRange={dateRange}
-                salesCashInflow={totalRevenue}
-                inventoryPurchases={totalCOGS}
-                operatingExpenses={totalExpenses}
-                netOperatingCashFlow={totalRevenue - totalCOGS - totalExpenses}
-                netCashFlow={netProfit}
+                salesCashInflow={reportsData.totalRevenue}
+                inventoryPurchases={reportsData.totalCOGS}
+                operatingExpenses={reportsData.totalExpenses}
+                netOperatingCashFlow={reportsData.netProfit}
+                netCashFlow={reportsData.netProfit}
                 openingCashBalance={0}
-                closingCashBalance={netProfit}
+                closingCashBalance={reportsData.netProfit}
               />
             </div>
           </TabsContent>

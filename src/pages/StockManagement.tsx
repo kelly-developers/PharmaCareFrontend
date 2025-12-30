@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -57,30 +57,8 @@ import {
 } from 'lucide-react';
 import { format, subMonths } from 'date-fns';
 import { useStock } from '@/contexts/StockContext';
-import { useSales } from '@/contexts/SalesContext';
-
-interface StockEntry {
-  id: string;
-  medicineName: string;
-  medicineId: string;
-  openingQty: number;
-  openingTabs: number;
-  openingStrips: number;
-  openingBoxes: number;
-  closingQty: number;
-  closingTabs: number;
-  closingStrips: number;
-  closingBoxes: number;
-  soldQty: number;
-  purchasedQty: number;
-  expectedClosing: number;
-  variance: number;
-  costPrice: number;
-  totalOpeningValue: number;
-  totalClosingValue: number;
-  cogsValue: number;
-  missingValue: number;
-}
+import { stockService } from '@/services/stockService';
+import { reportService } from '@/services/reportService';
 
 // Generate month options for the last 12 months
 const getMonthOptions = () => {
@@ -103,77 +81,130 @@ export default function StockManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const { medicines, stockMovements, getStockAuditReport } = useStock();
-  const { sales } = useSales();
+  const { medicines } = useStock();
+  
+  // State for stock data from backend
+  const [stockData, setStockData] = useState<any[]>([]);
+  const [stockStats, setStockStats] = useState({
+    totalOpeningValue: 0,
+    totalCOGS: 0,
+    totalClosingValue: 0,
+    totalMissingValue: 0,
+    missingItems: [] as any[],
+    restockRecommendations: [] as any[],
+    bestSellingItems: [] as any[]
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
   
   const monthOptions = getMonthOptions();
 
-  // Calculate restock recommendations based on sales velocity and low stock
-  const restockRecommendations = useMemo(() => {
-    const auditData = getStockAuditReport();
-    
-    return medicines
-      .map(med => {
-        const audit = auditData.find(a => a.medicineId === med.id);
-        const totalSold = audit?.totalSold || 0;
-        const avgDailySales = totalSold / 30; // Average over month
-        const daysOfStock = avgDailySales > 0 ? Math.floor(med.stockQuantity / avgDailySales) : 999;
-        const suggestedReorder = Math.max(100, Math.ceil(avgDailySales * 30)); // 30 days buffer
+  // Fetch stock data from backend
+  const fetchStockData = async () => {
+    setIsLoading(true);
+    try {
+      // Fetch stock audit report
+      const auditResponse = await reportService.getStockAuditReport();
+      const stockResponse = await stockService.getAuditReport();
+      
+      if (auditResponse.success && auditResponse.data && stockResponse.success && stockResponse.data) {
+        // Transform data for display
+        const transformedData = auditResponse.data.map(item => {
+          const med = medicines.find(m => m.id === item.medicineId);
+          const stockItem = stockResponse.data?.find(s => s.medicineId === item.medicineId);
+          
+          return {
+            id: item.medicineId,
+            medicineName: item.medicineName,
+            medicineId: item.medicineId,
+            totalSold: item.totalSold,
+            totalLost: item.totalLost || 0,
+            totalAdjusted: item.totalAdjusted || 0,
+            currentStock: item.currentStock,
+            costPrice: med?.costPrice || 0,
+            totalClosingValue: item.currentStock * (med?.costPrice || 0),
+            cogsValue: item.totalSold * (med?.costPrice || 0)
+          };
+        });
         
-        return {
-          id: med.id,
-          name: med.name,
-          category: med.category,
-          currentStock: med.stockQuantity,
-          totalSold,
-          avgDailySales: Math.round(avgDailySales * 10) / 10,
-          daysOfStock,
-          suggestedReorder,
-          costPrice: med.costPrice,
-          reorderValue: suggestedReorder * med.costPrice,
-          priority: daysOfStock < 7 ? 'critical' : daysOfStock < 14 ? 'high' : daysOfStock < 30 ? 'medium' : 'low',
-          reason: daysOfStock < 7 ? 'Critical - Less than 1 week stock' : 
-                  daysOfStock < 14 ? 'High - Less than 2 weeks stock' : 
-                  totalSold > 50 ? 'Fast moving item' : 
-                  med.stockQuantity < 50 ? 'Low stock level' : 'Normal'
-        };
-      })
-      .filter(item => item.priority !== 'low' || item.totalSold > 20)
-      .sort((a, b) => {
-        const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-        return priorityOrder[a.priority] - priorityOrder[b.priority] || b.totalSold - a.totalSold;
+        setStockData(transformedData);
+        
+        // Calculate stats
+        const totalOpeningValue = transformedData.reduce((sum, d) => sum + (d.currentStock + d.totalSold - d.totalAdjusted) * d.costPrice, 0);
+        const totalCOGS = transformedData.reduce((sum, d) => sum + d.cogsValue, 0);
+        const totalClosingValue = transformedData.reduce((sum, d) => sum + d.totalClosingValue, 0);
+        const missingItems = transformedData.filter(d => d.totalLost > 0);
+        const totalMissingValue = missingItems.reduce((sum, d) => sum + (d.totalLost * d.costPrice), 0);
+        
+        // Generate restock recommendations
+        const restockRecommendations = transformedData
+          .filter(item => item.currentStock < 100 || item.totalSold > 50)
+          .map(item => ({
+            id: item.medicineId,
+            name: item.medicineName,
+            category: medicines.find(m => m.id === item.medicineId)?.category || 'Unknown',
+            currentStock: item.currentStock,
+            totalSold: item.totalSold,
+            avgDailySales: Math.round((item.totalSold / 30) * 10) / 10,
+            daysOfStock: item.totalSold > 0 ? Math.floor(item.currentStock / (item.totalSold / 30)) : 999,
+            suggestedReorder: Math.max(100, Math.ceil((item.totalSold / 30) * 30)),
+            costPrice: item.costPrice,
+            reorderValue: Math.max(100, Math.ceil((item.totalSold / 30) * 30)) * item.costPrice,
+            priority: item.currentStock < 20 ? 'critical' : 
+                     item.currentStock < 50 ? 'high' : 
+                     item.totalSold > 100 ? 'medium' : 'low'
+          }))
+          .sort((a, b) => {
+            const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+            return priorityOrder[a.priority] - priorityOrder[b.priority] || b.totalSold - a.totalSold;
+          });
+        
+        // Get best selling items
+        const bestSellingItems = [...transformedData]
+          .sort((a, b) => b.totalSold - a.totalSold)
+          .slice(0, 5);
+        
+        setStockStats({
+          totalOpeningValue,
+          totalCOGS,
+          totalClosingValue,
+          totalMissingValue,
+          missingItems,
+          restockRecommendations,
+          bestSellingItems
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch stock data:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load stock data',
+        variant: 'destructive'
       });
-  }, [medicines, getStockAuditReport]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  // Download current stock for physical counting with T/S/B breakdown
+  useEffect(() => {
+    fetchStockData();
+  }, [selectedMonth]);
+
+  // Download current stock for physical counting
   const downloadCurrentStock = async () => {
     const XLSX = await import('xlsx');
     
     const data = stockData.map(item => {
       const med = medicines.find(m => m.id === item.medicineId);
-      const tabsPerStrip = med?.units.find(u => u.type === 'strip')?.quantity || 10;
-      const stripsPerBox = (med?.units.find(u => u.type === 'box')?.quantity || 100) / tabsPerStrip;
-      
-      // Current closing stock breakdown
-      const closingBoxes = Math.floor(item.closingQty / (tabsPerStrip * stripsPerBox));
-      const closingStrips = Math.floor((item.closingQty % (tabsPerStrip * stripsPerBox)) / tabsPerStrip);
-      const closingTabs = item.closingQty % tabsPerStrip;
       
       return {
         'Medicine': item.medicineName,
         'Medicine ID': item.medicineId,
         'Category': med?.category || '',
         'Cost Price': item.costPrice,
-        'Current (Tabs)': closingTabs,
-        'Current (Strips)': closingStrips,
-        'Current (Boxes)': closingBoxes,
-        'Total Units': item.closingQty,
+        'Current Stock': item.currentStock,
         'Stock Value': item.totalClosingValue,
-        'Tabs/Strip': tabsPerStrip,
-        'Strips/Box': stripsPerBox,
-        'Counted (Tabs)': '',
-        'Counted (Strips)': '',
-        'Counted (Boxes)': '',
+        'Counted': '',
       };
     });
     
@@ -182,9 +213,7 @@ export default function StockManagement() {
     // Set column widths
     ws['!cols'] = [
       { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 10 },
-      { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
-      { wch: 12 }, { wch: 10 }, { wch: 10 },
-      { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }, { wch: 12 }, { wch: 12 }
     ];
     
     const wb = XLSX.utils.book_new();
@@ -195,11 +224,9 @@ export default function StockManagement() {
       { 'Instructions': 'STOCK COUNTING TEMPLATE' },
       { 'Instructions': '' },
       { 'Instructions': '1. Use this sheet to count your physical stock' },
-      { 'Instructions': '2. Fill in "Counted (Tabs)", "Counted (Strips)", "Counted (Boxes)" columns' },
-      { 'Instructions': '3. The system will calculate: Total Units = Tabs + (Strips × Tabs/Strip) + (Boxes × Tabs/Strip × Strips/Box)' },
-      { 'Instructions': '4. Upload back to calculate variance and missing stock' },
+      { 'Instructions': '2. Fill in "Counted" column' },
+      { 'Instructions': '3. Upload back to calculate variance and missing stock' },
       { 'Instructions': '' },
-      { 'Instructions': 'T/S/B = Tabs / Strips / Boxes breakdown' },
     ];
     const wsInstr = XLSX.utils.json_to_sheet(instructionsData);
     XLSX.utils.book_append_sheet(wb, wsInstr, 'Instructions');
@@ -208,18 +235,18 @@ export default function StockManagement() {
     
     toast({
       title: 'Stock Template Downloaded',
-      description: 'Fill Counted (T/S/B) columns and upload back',
+      description: 'Fill Counted column and upload back',
     });
   };
 
   // Export restock recommendations
   const exportRestockList = () => {
     const headers = 'Medicine,Category,Current Stock,Avg Daily Sales,Days Left,Suggested Qty,Cost Price,Reorder Value,Priority\n';
-    const rows = restockRecommendations.map(r => 
+    const rows = stockStats.restockRecommendations.map(r => 
       `"${r.name}","${r.category}",${r.currentStock},${r.avgDailySales},${r.daysOfStock},${r.suggestedReorder},${r.costPrice},${r.reorderValue},"${r.priority}"`
     ).join('\n');
     
-    const totalValue = restockRecommendations.reduce((sum, r) => sum + r.reorderValue, 0);
+    const totalValue = stockStats.restockRecommendations.reduce((sum, r) => sum + r.reorderValue, 0);
     const summary = `\n\nTOTAL REORDER VALUE,,,,,,,KSh ${totalValue.toLocaleString()},`;
     
     const csvContent = headers + rows + summary;
@@ -236,90 +263,12 @@ export default function StockManagement() {
     toast({ title: 'Restock List Exported', description: 'Share with supplier for ordering' });
   };
 
-  // Calculate stock data from medicines and sales
-  const stockData: StockEntry[] = useMemo(() => {
-    return medicines.map(med => {
-      // Get movements for this medicine
-      const salesMovements = stockMovements.filter(
-        m => m.medicineId === med.id && m.type === 'sale'
-      );
-      const purchaseMovements = stockMovements.filter(
-        m => m.medicineId === med.id && m.type === 'purchase'
-      );
-
-      const soldQty = salesMovements.reduce((sum, m) => sum + Math.abs(m.quantity), 0);
-      const purchasedQty = purchaseMovements.reduce((sum, m) => sum + m.quantity, 0);
-
-      // Calculate unit breakdown
-      const tabsPerStrip = med.units.find(u => u.type === 'strip')?.quantity || 10;
-      const stripsPerBox = (med.units.find(u => u.type === 'box')?.quantity || 100) / tabsPerStrip;
-
-      // Opening stock (current + sold - purchased)
-      const openingQty = med.stockQuantity + soldQty - purchasedQty;
-      const closingQty = med.stockQuantity;
-
-      // Calculate unit breakdowns
-      const openingBoxes = Math.floor(openingQty / (tabsPerStrip * stripsPerBox));
-      const openingStrips = Math.floor((openingQty % (tabsPerStrip * stripsPerBox)) / tabsPerStrip);
-      const openingTabs = openingQty % tabsPerStrip;
-
-      const closingBoxes = Math.floor(closingQty / (tabsPerStrip * stripsPerBox));
-      const closingStrips = Math.floor((closingQty % (tabsPerStrip * stripsPerBox)) / tabsPerStrip);
-      const closingTabs = closingQty % tabsPerStrip;
-
-      // Expected closing = opening + purchased - sold
-      const expectedClosing = openingQty + purchasedQty - soldQty;
-      const variance = closingQty - expectedClosing;
-
-      // Calculate values
-      const totalOpeningValue = openingQty * med.costPrice;
-      const totalClosingValue = closingQty * med.costPrice;
-      const cogsValue = soldQty * med.costPrice;
-      const missingValue = variance < 0 ? Math.abs(variance) * med.costPrice : 0;
-
-      return {
-        id: med.id,
-        medicineName: med.name,
-        medicineId: med.id,
-        openingQty,
-        openingTabs,
-        openingStrips,
-        openingBoxes,
-        closingQty,
-        closingTabs,
-        closingStrips,
-        closingBoxes,
-        soldQty,
-        purchasedQty,
-        expectedClosing,
-        variance,
-        costPrice: med.costPrice,
-        totalOpeningValue,
-        totalClosingValue,
-        cogsValue,
-        missingValue,
-      };
-    });
-  }, [medicines, stockMovements]);
-
   const filteredData = stockData.filter(item =>
     item.medicineName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Summary calculations
-  const missingItems = stockData.filter(d => d.variance < 0);
-  const totalMissingValue = missingItems.reduce((sum, d) => sum + d.missingValue, 0);
-  const totalOpeningValue = stockData.reduce((sum, d) => sum + d.totalOpeningValue, 0);
-  const totalClosingValue = stockData.reduce((sum, d) => sum + d.totalClosingValue, 0);
-  const totalCOGS = stockData.reduce((sum, d) => sum + d.cogsValue, 0);
-
   // Low stock items (less than 50 units)
   const lowStockItems = medicines.filter(m => m.stockQuantity < 50);
-  
-  // Best selling items
-  const bestSellingData = getStockAuditReport()
-    .sort((a, b) => b.totalSold - a.totalSold)
-    .slice(0, 5);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -350,21 +299,18 @@ export default function StockManagement() {
     const XLSX = await import('xlsx');
     
     const data = stockData.map(item => {
-      const med = medicines.find(m => m.id === item.medicineId);
       return {
         'Medicine': item.medicineName,
         'Medicine ID': item.medicineId,
         'Cost Price': item.costPrice,
-        'Close (Tabs)': '',
-        'Close (Strips)': '',
-        'Close (Boxes)': '',
+        'Current Stock': '',
       };
     });
     
     const ws = XLSX.utils.json_to_sheet(data);
     ws['!cols'] = [
       { wch: 25 }, { wch: 15 }, { wch: 10 },
-      { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }
     ];
     
     const wb = XLSX.utils.book_new();
@@ -374,7 +320,7 @@ export default function StockManagement() {
     
     toast({
       title: 'Template Downloaded',
-      description: 'Fill in T/S/B counts and upload back',
+      description: 'Fill in stock counts and upload back',
     });
   };
 
@@ -384,31 +330,29 @@ export default function StockManagement() {
     const data = stockData.map(d => ({
       'Medicine': d.medicineName,
       'Cost': d.costPrice,
-      'Open (T/S/B)': `${d.openingTabs}/${d.openingStrips}/${d.openingBoxes}`,
-      'Open Val': d.totalOpeningValue,
-      'Sold': d.soldQty,
+      'Opening Stock': d.currentStock + d.totalSold - d.totalAdjusted,
+      'Opening Value': (d.currentStock + d.totalSold - d.totalAdjusted) * d.costPrice,
+      'Sold': d.totalSold,
       'COGS': d.cogsValue,
-      'Close (T/S/B)': `${d.closingTabs}/${d.closingStrips}/${d.closingBoxes}`,
-      'Close Val': d.totalClosingValue,
-      'Variance': d.variance,
-      'Missing': Math.abs(d.variance < 0 ? d.variance : 0),
-      'Missing Val': d.missingValue,
-      'Status': d.variance === 0 ? 'OK' : d.variance > 0 ? 'Excess' : 'Missing',
+      'Closing Stock': d.currentStock,
+      'Closing Value': d.totalClosingValue,
+      'Loss': d.totalLost,
+      'Loss Value': d.totalLost * d.costPrice,
+      'Status': d.totalLost === 0 ? 'OK' : 'Loss',
     }));
     
     // Add summary row
     data.push({
       'Medicine': 'TOTAL',
       'Cost': 0,
-      'Open (T/S/B)': '',
-      'Open Val': totalOpeningValue,
-      'Sold': stockData.reduce((sum, d) => sum + d.soldQty, 0),
-      'COGS': totalCOGS,
-      'Close (T/S/B)': '',
-      'Close Val': totalClosingValue,
-      'Variance': 0,
-      'Missing': missingItems.reduce((sum, d) => sum + Math.abs(d.variance), 0),
-      'Missing Val': totalMissingValue,
+      'Opening Stock': '',
+      'Opening Value': stockStats.totalOpeningValue,
+      'Sold': stockData.reduce((sum, d) => sum + d.totalSold, 0),
+      'COGS': stockStats.totalCOGS,
+      'Closing Stock': '',
+      'Closing Value': stockStats.totalClosingValue,
+      'Loss': stockData.reduce((sum, d) => sum + d.totalLost, 0),
+      'Loss Value': stockStats.totalMissingValue,
       'Status': '',
     });
     
@@ -416,7 +360,7 @@ export default function StockManagement() {
     ws['!cols'] = [
       { wch: 25 }, { wch: 8 }, { wch: 12 }, { wch: 12 },
       { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
-      { wch: 9 }, { wch: 8 }, { wch: 10 }, { wch: 8 },
+      { wch: 8 }, { wch: 10 }, { wch: 8 },
     ];
     
     const wb = XLSX.utils.book_new();
@@ -424,7 +368,7 @@ export default function StockManagement() {
     
     XLSX.writeFile(wb, `stock_report_${selectedMonth}.xlsx`);
     
-    toast({ title: 'Report Exported', description: 'Stock report exported as Excel with T/S/B breakdown' });
+    toast({ title: 'Report Exported', description: 'Stock report exported as Excel' });
   };
 
   const exportToPDF = () => {
@@ -455,19 +399,19 @@ export default function StockManagement() {
           <div class="summary">
             <div class="summary-item">
               <div class="label">Opening Stock Value</div>
-              <div class="value">KSh ${totalOpeningValue.toLocaleString()}</div>
+              <div class="value">KSh ${stockStats.totalOpeningValue.toLocaleString()}</div>
             </div>
             <div class="summary-item">
               <div class="label">Cost of Goods Sold</div>
-              <div class="value">KSh ${totalCOGS.toLocaleString()}</div>
+              <div class="value">KSh ${stockStats.totalCOGS.toLocaleString()}</div>
             </div>
             <div class="summary-item">
               <div class="label">Closing Stock Value</div>
-              <div class="value">KSh ${totalClosingValue.toLocaleString()}</div>
+              <div class="value">KSh ${stockStats.totalClosingValue.toLocaleString()}</div>
             </div>
             <div class="summary-item">
               <div class="label">Missing Stock Value</div>
-              <div class="value missing">KSh ${totalMissingValue.toLocaleString()}</div>
+              <div class="value missing">KSh ${stockStats.totalMissingValue.toLocaleString()}</div>
             </div>
           </div>
           
@@ -476,46 +420,44 @@ export default function StockManagement() {
             <tr>
               <th>Medicine</th>
               <th>Cost</th>
-              <th>Opening (T/S/B)</th>
-              <th>Opening Val</th>
+              <th>Opening Stock</th>
+              <th>Opening Value</th>
               <th>Sold</th>
               <th>COGS</th>
-              <th>Closing (T/S/B)</th>
-              <th>Closing Val</th>
-              <th>Variance</th>
-              <th>Missing Val</th>
+              <th>Closing Stock</th>
+              <th>Closing Value</th>
+              <th>Loss</th>
+              <th>Loss Value</th>
             </tr>
             ${stockData.map(d => `
               <tr>
                 <td>${d.medicineName}</td>
                 <td>KSh ${d.costPrice}</td>
-                <td>${d.openingTabs}/${d.openingStrips}/${d.openingBoxes}</td>
-                <td>KSh ${d.totalOpeningValue.toLocaleString()}</td>
-                <td>${d.soldQty}</td>
+                <td>${d.currentStock + d.totalSold - d.totalAdjusted}</td>
+                <td>KSh ${((d.currentStock + d.totalSold - d.totalAdjusted) * d.costPrice).toLocaleString()}</td>
+                <td>${d.totalSold}</td>
                 <td>KSh ${d.cogsValue.toLocaleString()}</td>
-                <td>${d.closingTabs}/${d.closingStrips}/${d.closingBoxes}</td>
+                <td>${d.currentStock}</td>
                 <td>KSh ${d.totalClosingValue.toLocaleString()}</td>
-                <td class="${d.variance < 0 ? 'missing' : d.variance === 0 ? 'ok' : ''}">${d.variance}</td>
-                <td class="${d.missingValue > 0 ? 'missing' : ''}">KSh ${d.missingValue.toLocaleString()}</td>
+                <td class="${d.totalLost > 0 ? 'missing' : 'ok'}">${d.totalLost}</td>
+                <td class="${d.totalLost > 0 ? 'missing' : ''}">KSh ${(d.totalLost * d.costPrice).toLocaleString()}</td>
               </tr>
             `).join('')}
           </table>
           
-          ${missingItems.length > 0 ? `
-          <h3 class="missing">Missing Items (${missingItems.length})</h3>
+          ${stockStats.missingItems.length > 0 ? `
+          <h3 class="missing">Items with Loss (${stockStats.missingItems.length})</h3>
           <table>
-            <tr><th>Medicine</th><th>Expected</th><th>Actual</th><th>Missing Qty</th><th>Cost Price</th><th>Missing Value</th></tr>
-            ${missingItems.map(d => `
+            <tr><th>Medicine</th><th>Lost Qty</th><th>Cost Price</th><th>Loss Value</th></tr>
+            ${stockStats.missingItems.map(d => `
               <tr>
                 <td>${d.medicineName}</td>
-                <td>${d.expectedClosing}</td>
-                <td>${d.closingQty}</td>
-                <td class="missing">${Math.abs(d.variance)}</td>
+                <td class="missing">${d.totalLost}</td>
                 <td>KSh ${d.costPrice}</td>
-                <td class="missing">KSh ${d.missingValue.toLocaleString()}</td>
+                <td class="missing">KSh ${(d.totalLost * d.costPrice).toLocaleString()}</td>
               </tr>
             `).join('')}
-            <tr style="background: #fef2f2;"><td colspan="5"><strong>Total Missing Value</strong></td><td class="missing"><strong>KSh ${totalMissingValue.toLocaleString()}</strong></td></tr>
+            <tr style="background: #fef2f2;"><td colspan="3"><strong>Total Loss Value</strong></td><td class="missing"><strong>KSh ${stockStats.totalMissingValue.toLocaleString()}</strong></td></tr>
           </table>
           ` : ''}
         </body>
@@ -643,7 +585,7 @@ export default function StockManagement() {
                 <DollarSign className="h-4 w-4 text-info" />
                 <span className="text-[10px] md:text-xs text-muted-foreground">Opening Value</span>
               </div>
-              <p className="text-sm md:text-lg font-bold">KSh {totalOpeningValue.toLocaleString()}</p>
+              <p className="text-sm md:text-lg font-bold">KSh {stockStats.totalOpeningValue.toLocaleString()}</p>
             </CardContent>
           </Card>
           
@@ -653,7 +595,7 @@ export default function StockManagement() {
                 <ShoppingCart className="h-4 w-4 text-warning" />
                 <span className="text-[10px] md:text-xs text-muted-foreground">COGS</span>
               </div>
-              <p className="text-sm md:text-lg font-bold">KSh {totalCOGS.toLocaleString()}</p>
+              <p className="text-sm md:text-lg font-bold">KSh {stockStats.totalCOGS.toLocaleString()}</p>
             </CardContent>
           </Card>
           
@@ -663,7 +605,7 @@ export default function StockManagement() {
                 <Package className="h-4 w-4 text-success" />
                 <span className="text-[10px] md:text-xs text-muted-foreground">Closing Value</span>
               </div>
-              <p className="text-sm md:text-lg font-bold">KSh {totalClosingValue.toLocaleString()}</p>
+              <p className="text-sm md:text-lg font-bold">KSh {stockStats.totalClosingValue.toLocaleString()}</p>
             </CardContent>
           </Card>
           
@@ -673,7 +615,7 @@ export default function StockManagement() {
                 <AlertTriangle className="h-4 w-4 text-destructive" />
                 <span className="text-[10px] md:text-xs text-muted-foreground">Missing Items</span>
               </div>
-              <p className="text-sm md:text-lg font-bold">{missingItems.length}</p>
+              <p className="text-sm md:text-lg font-bold">{stockStats.missingItems.length}</p>
             </CardContent>
           </Card>
           
@@ -683,7 +625,7 @@ export default function StockManagement() {
                 <TrendingDown className="h-4 w-4 text-destructive" />
                 <span className="text-[10px] md:text-xs text-muted-foreground">Missing Value</span>
               </div>
-              <p className="text-sm md:text-lg font-bold text-destructive">KSh {totalMissingValue.toLocaleString()}</p>
+              <p className="text-sm md:text-lg font-bold text-destructive">KSh {stockStats.totalMissingValue.toLocaleString()}</p>
             </CardContent>
           </Card>
         </div>
@@ -733,28 +675,28 @@ export default function StockManagement() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-base md:text-lg flex items-center gap-2">
                   <Package className="h-4 w-4" />
-                  Stock Details (Tabs/Strips/Boxes)
+                  Stock Details
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Quantity breakdown with cost values and variance
+                  Stock movement and value analysis
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0 md:p-6 md:pt-0">
                 <ScrollArea className="w-full">
-                  <div className="min-w-[900px]">
+                  <div className="min-w-[800px]">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead className="text-xs">Medicine</TableHead>
                           <TableHead className="text-xs text-right">Cost</TableHead>
-                          <TableHead className="text-xs text-center">Open (T/S/B)</TableHead>
-                          <TableHead className="text-xs text-right">Open Val</TableHead>
+                          <TableHead className="text-xs text-right">Opening</TableHead>
+                          <TableHead className="text-xs text-right">Opening Val</TableHead>
                           <TableHead className="text-xs text-right">Sold</TableHead>
                           <TableHead className="text-xs text-right">COGS</TableHead>
-                          <TableHead className="text-xs text-center">Close (T/S/B)</TableHead>
-                          <TableHead className="text-xs text-right">Close Val</TableHead>
-                          <TableHead className="text-xs text-right">Variance</TableHead>
-                          <TableHead className="text-xs text-right">Missing</TableHead>
+                          <TableHead className="text-xs text-right">Closing</TableHead>
+                          <TableHead className="text-xs text-right">Closing Val</TableHead>
+                          <TableHead className="text-xs text-right">Loss</TableHead>
+                          <TableHead className="text-xs text-right">Loss Val</TableHead>
                           <TableHead className="text-xs">Status</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -763,38 +705,32 @@ export default function StockManagement() {
                           <TableRow key={item.id}>
                             <TableCell className="font-medium text-xs">{item.medicineName}</TableCell>
                             <TableCell className="text-right text-xs">KSh {item.costPrice}</TableCell>
-                            <TableCell className="text-center text-xs">
-                              {item.openingTabs}/{item.openingStrips}/{item.openingBoxes}
+                            <TableCell className="text-right text-xs">
+                              {item.currentStock + item.totalSold - item.totalAdjusted}
                             </TableCell>
-                            <TableCell className="text-right text-xs">KSh {item.totalOpeningValue.toLocaleString()}</TableCell>
-                            <TableCell className="text-right text-xs text-warning">-{item.soldQty}</TableCell>
+                            <TableCell className="text-right text-xs">KSh {((item.currentStock + item.totalSold - item.totalAdjusted) * item.costPrice).toLocaleString()}</TableCell>
+                            <TableCell className="text-right text-xs text-warning">-{item.totalSold}</TableCell>
                             <TableCell className="text-right text-xs">KSh {item.cogsValue.toLocaleString()}</TableCell>
-                            <TableCell className="text-center text-xs">
-                              {item.closingTabs}/{item.closingStrips}/{item.closingBoxes}
-                            </TableCell>
+                            <TableCell className="text-right text-xs">{item.currentStock}</TableCell>
                             <TableCell className="text-right text-xs">KSh {item.totalClosingValue.toLocaleString()}</TableCell>
                             <TableCell className="text-right text-xs">
-                              <span className={item.variance === 0 ? 'text-success' : item.variance > 0 ? 'text-info' : 'text-destructive font-bold'}>
-                                {item.variance > 0 ? '+' : ''}{item.variance}
+                              <span className={item.totalLost === 0 ? 'text-success' : 'text-destructive font-bold'}>
+                                {item.totalLost}
                               </span>
                             </TableCell>
                             <TableCell className="text-right text-xs">
-                              {item.missingValue > 0 ? (
-                                <span className="text-destructive font-bold">KSh {item.missingValue.toLocaleString()}</span>
+                              {item.totalLost > 0 ? (
+                                <span className="text-destructive font-bold">KSh {(item.totalLost * item.costPrice).toLocaleString()}</span>
                               ) : '-'}
                             </TableCell>
                             <TableCell>
-                              {item.variance === 0 ? (
+                              {item.totalLost === 0 ? (
                                 <Badge variant="outline" className="text-[10px] gap-0.5 text-success border-success">
                                   <CheckCircle className="h-3 w-3" />OK
                                 </Badge>
-                              ) : item.variance < 0 ? (
+                              ) : (
                                 <Badge variant="destructive" className="text-[10px] gap-0.5">
                                   <TrendingDown className="h-3 w-3" />Loss
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-[10px] gap-0.5 text-info border-info">
-                                  <TrendingUp className="h-3 w-3" />+
                                 </Badge>
                               )}
                             </TableCell>
@@ -829,7 +765,7 @@ export default function StockManagement() {
                 </div>
               </CardHeader>
               <CardContent className="p-0 md:p-6 md:pt-0">
-                {restockRecommendations.length === 0 ? (
+                {stockStats.restockRecommendations.length === 0 ? (
                   <div className="text-center py-8">
                     <CheckCircle className="h-12 w-12 mx-auto text-success mb-3" />
                     <p className="text-lg font-medium">All Stock Adequate</p>
@@ -842,25 +778,25 @@ export default function StockManagement() {
                       <div className="bg-destructive/10 rounded-lg p-2 text-center">
                         <p className="text-[10px] text-muted-foreground">Critical</p>
                         <p className="text-lg font-bold text-destructive">
-                          {restockRecommendations.filter(r => r.priority === 'critical').length}
+                          {stockStats.restockRecommendations.filter(r => r.priority === 'critical').length}
                         </p>
                       </div>
                       <div className="bg-warning/10 rounded-lg p-2 text-center">
                         <p className="text-[10px] text-muted-foreground">High</p>
                         <p className="text-lg font-bold text-warning">
-                          {restockRecommendations.filter(r => r.priority === 'high').length}
+                          {stockStats.restockRecommendations.filter(r => r.priority === 'high').length}
                         </p>
                       </div>
                       <div className="bg-info/10 rounded-lg p-2 text-center">
                         <p className="text-[10px] text-muted-foreground">Medium</p>
                         <p className="text-lg font-bold text-info">
-                          {restockRecommendations.filter(r => r.priority === 'medium').length}
+                          {stockStats.restockRecommendations.filter(r => r.priority === 'medium').length}
                         </p>
                       </div>
                       <div className="bg-primary/10 rounded-lg p-2 text-center">
                         <p className="text-[10px] text-muted-foreground">Total Value</p>
                         <p className="text-sm font-bold text-primary">
-                          KSh {restockRecommendations.reduce((sum, r) => sum + r.reorderValue, 0).toLocaleString()}
+                          KSh {stockStats.restockRecommendations.reduce((sum, r) => sum + r.reorderValue, 0).toLocaleString()}
                         </p>
                       </div>
                     </div>
@@ -881,7 +817,7 @@ export default function StockManagement() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {restockRecommendations.map((item) => (
+                            {stockStats.restockRecommendations.map((item) => (
                               <TableRow key={item.id}>
                                 <TableCell className="font-medium text-xs">{item.name}</TableCell>
                                 <TableCell className="text-xs text-muted-foreground">{item.category}</TableCell>
@@ -928,11 +864,11 @@ export default function StockManagement() {
                   Missing Items Report
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Items with negative variance - possible loss or theft
+                  Items with stock loss - possible loss or theft
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0 md:p-6 md:pt-0">
-                {missingItems.length === 0 ? (
+                {stockStats.missingItems.length === 0 ? (
                   <div className="text-center py-8">
                     <CheckCircle className="h-12 w-12 mx-auto text-success mb-3" />
                     <p className="text-lg font-medium">No Missing Items</p>
@@ -945,32 +881,28 @@ export default function StockManagement() {
                         <TableHeader>
                           <TableRow>
                             <TableHead className="text-xs">Medicine</TableHead>
-                            <TableHead className="text-xs text-right">Expected</TableHead>
-                            <TableHead className="text-xs text-right">Actual</TableHead>
-                            <TableHead className="text-xs text-right">Missing</TableHead>
+                            <TableHead className="text-xs text-right">Lost Qty</TableHead>
                             <TableHead className="text-xs text-right">Cost</TableHead>
-                            <TableHead className="text-xs text-right">Value</TableHead>
+                            <TableHead className="text-xs text-right">Loss Value</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {missingItems.map((item) => (
+                          {stockStats.missingItems.map((item) => (
                             <TableRow key={item.id}>
                               <TableCell className="font-medium text-xs">{item.medicineName}</TableCell>
-                              <TableCell className="text-right text-xs">{item.expectedClosing}</TableCell>
-                              <TableCell className="text-right text-xs">{item.closingQty}</TableCell>
                               <TableCell className="text-right text-xs text-destructive font-bold">
-                                {Math.abs(item.variance)}
+                                {item.totalLost}
                               </TableCell>
                               <TableCell className="text-right text-xs">KSh {item.costPrice}</TableCell>
                               <TableCell className="text-right text-xs text-destructive font-bold">
-                                KSh {item.missingValue.toLocaleString()}
+                                KSh {(item.totalLost * item.costPrice).toLocaleString()}
                               </TableCell>
                             </TableRow>
                           ))}
                           <TableRow className="bg-destructive/10">
-                            <TableCell colSpan={5} className="font-bold text-xs">Total Missing Value</TableCell>
+                            <TableCell colSpan={3} className="font-bold text-xs">Total Loss Value</TableCell>
                             <TableCell className="text-right font-bold text-destructive text-sm">
-                              KSh {totalMissingValue.toLocaleString()}
+                              KSh {stockStats.totalMissingValue.toLocaleString()}
                             </TableCell>
                           </TableRow>
                         </TableBody>
@@ -1067,15 +999,15 @@ export default function StockManagement() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {bestSellingData.length === 0 ? (
+                        {stockStats.bestSellingItems.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                               No sales data available
                             </TableCell>
                           </TableRow>
                         ) : (
-                          bestSellingData.map((item, index) => (
-                            <TableRow key={item.medicineId}>
+                          stockStats.bestSellingItems.map((item, index) => (
+                            <TableRow key={item.id}>
                               <TableCell>
                                 <Badge variant="outline" className="text-xs">#{index + 1}</Badge>
                               </TableCell>

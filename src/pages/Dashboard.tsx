@@ -21,6 +21,7 @@ import {
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import { reportService } from '@/services/reportService';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -28,57 +29,34 @@ export default function Dashboard() {
   const { medicines, refreshMedicines } = useStock();
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [inventoryValue, setInventoryValue] = useState(0);
+  
+  // State for all dashboard data from backend
   const [dashboardData, setDashboardData] = useState({
+    todaySales: 0,
+    todayTransactions: 0,
+    todayProfit: 0,
     inventoryValue: 0,
+    totalStockItems: 0,
     lowStockCount: 0,
     expiringSoonCount: 0,
-    totalStockItems: 0,
+    outOfStockCount: 0,
+    todayExpenses: 0,
+    pendingOrders: 0,
+    pendingPrescriptions: 0,
   });
-  
+
   // Only admin and manager can see profits
   const canViewProfit = user?.role === 'admin' || user?.role === 'manager';
 
-  // Fetch dashboard data from backend
+  // Fetch all dashboard data from backend
   const fetchDashboardData = async () => {
     try {
-      const response = await fetch('/api/reports/dashboard', {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.data) {
-          setDashboardData({
-            inventoryValue: data.data.inventoryValue || 0,
-            lowStockCount: data.data.lowStockCount || 0,
-            expiringSoonCount: data.data.expiringSoonCount || 0,
-            totalStockItems: data.data.totalStockItems || 0,
-          });
-        }
+      const response = await reportService.getDashboardStats();
+      if (response.success && response.data) {
+        setDashboardData(response.data);
       }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
-    }
-  };
-
-  // Fetch inventory value from backend
-  const fetchInventoryValue = async () => {
-    try {
-      const response = await fetch('/api/reports/inventory-value', {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.data) {
-          setInventoryValue(data.data.totalValue || 0);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch inventory value:', error);
     }
   };
 
@@ -94,21 +72,10 @@ export default function Dashboard() {
   // Fetch dashboard data on component mount
   useEffect(() => {
     fetchDashboardData();
-    fetchInventoryValue();
   }, []);
 
   // Get real sales data
   const allSales = getAllSales();
-  
-  // Calculate today's stats (only sales calculations remain in frontend)
-  const todayTotal = todaySales.reduce((sum, sale) => sum + sale.total, 0);
-  const todayTransactions = todaySales.length;
-  
-  // Calculate profit (total - cost) - still in frontend as it's based on sales
-  const todayProfit = todaySales.reduce((sum, sale) => {
-    const saleCost = sale.items.reduce((itemSum, item) => itemSum + ((item.costPrice || 0) * item.quantity), 0);
-    return sum + (sale.total - saleCost);
-  }, 0);
   
   // Get low stock items from local state for display only
   const lowStockItems = medicines.filter(med => med.stockQuantity <= med.reorderLevel).slice(0, 4);
@@ -132,8 +99,7 @@ export default function Dashboard() {
       await Promise.all([
         fetchAllSales(),
         refreshMedicines(),
-        fetchDashboardData(),
-        fetchInventoryValue()
+        fetchDashboardData()
       ]);
       toast.success('Dashboard data refreshed');
     } catch (error) {
@@ -180,22 +146,22 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             title="Today's Sales"
-            value={`KSh ${todayTotal.toLocaleString()}`}
+            value={`KSh ${dashboardData.todaySales.toLocaleString()}`}
             icon={<DollarSign className="h-6 w-6" />}
             trend={{ value: todaySales.length > 0 ? 12 : 0, isPositive: true }}
             iconClassName="bg-success/10 text-success"
           />
           <StatCard
             title="Transactions"
-            value={todayTransactions.toString()}
+            value={dashboardData.todayTransactions.toString()}
             icon={<ShoppingCart className="h-6 w-6" />}
-            trend={{ value: todayTransactions > 0 ? 8 : 0, isPositive: true }}
+            trend={{ value: dashboardData.todayTransactions > 0 ? 8 : 0, isPositive: true }}
             iconClassName="bg-info/10 text-info"
           />
           {/* Inventory Value Card - FROM BACKEND */}
           <StatCard
             title="Inventory Value"
-            value={`KSh ${inventoryValue.toLocaleString()}`}
+            value={`KSh ${dashboardData.inventoryValue.toLocaleString()}`}
             icon={<Package className="h-6 w-6" />}
             trend={{ value: 0, isPositive: true }}
             iconClassName="bg-warning/10 text-warning"
@@ -204,9 +170,9 @@ export default function Dashboard() {
           {canViewProfit && (
             <StatCard
               title="Gross Profit"
-              value={`KSh ${todayProfit.toLocaleString()}`}
+              value={`KSh ${dashboardData.todayProfit.toLocaleString()}`}
               icon={<TrendingUp className="h-6 w-6" />}
-              trend={{ value: todayProfit > 0 ? 5 : 0, isPositive: true }}
+              trend={{ value: dashboardData.todayProfit > 0 ? 5 : 0, isPositive: true }}
               iconClassName="bg-primary/10 text-primary"
             />
           )}
