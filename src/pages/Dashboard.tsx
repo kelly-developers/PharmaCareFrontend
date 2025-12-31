@@ -56,11 +56,13 @@ export default function Dashboard() {
     try {
       const response = await reportService.getDashboardStats();
       if (response.success && response.data) {
+        console.log('Dashboard data from backend:', response.data); // Debug log
+        
         // Update dashboard data with all fields from backend
         setDashboardData(prev => ({
           ...prev,
           ...response.data,
-          // Ensure these fields exist
+          // Ensure these fields exist and are properly mapped
           todaySales: response.data.todaySales || 0,
           todayTransactions: response.data.todayTransactions || 0,
           todayProfit: response.data.todayProfit || 0,
@@ -74,6 +76,10 @@ export default function Dashboard() {
           pendingExpenses: response.data.pendingExpenses || 0,
           pendingPrescriptions: response.data.pendingPrescriptions || 0,
         }));
+        
+        // Debug: Log the values
+        console.log('Low Stock Count from backend:', response.data.lowStockCount);
+        console.log('Total Items from backend:', response.data.totalStockItems);
       }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
@@ -98,12 +104,12 @@ export default function Dashboard() {
   // Get real sales data
   const allSales = getAllSales();
   
-  // FIXED: Get low stock items - items with stock = 0 OR stock <= reorder level
+  // Get low stock items - items with stock = 0 OR stock <= reorder level
   const lowStockItems = medicines.filter(med => 
-    med.stockQuantity === 0 || med.stockQuantity <= med.reorderLevel
+    med.stockQuantity <= med.reorderLevel
   ).slice(0, 4);
   
-  // FIXED: Get expiring items - only items with stock > 0
+  // Get expiring items - only items with stock > 0
   const expiringItems = medicines.filter(med => {
     const daysToExpiry = Math.ceil(
       (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
