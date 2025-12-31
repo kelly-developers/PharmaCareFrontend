@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { categories } from '@/data/medicines';
 import { useToast } from '@/hooks/use-toast';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
+import { reportService } from '@/services/reportService';
 import * as XLSX from 'xlsx';
 import {
   Table,
@@ -45,6 +46,8 @@ import {
   Calculator,
   Box,
   Pill,
+  Loader2,
+  DollarSign,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -71,8 +74,15 @@ export default function Inventory() {
   const [editUnits, setEditUnits] = useState<UnitPrice[]>([]);
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
+  const [isLoading, setIsLoading] = useState(false);
+  const [inventoryStats, setInventoryStats] = useState({
+    totalValue: 0,
+    lowStockCount: 0,
+    expiringCount: 0,
+    loading: true
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { medicines, addMedicine } = useStock();
+  const { medicines, refreshMedicines } = useStock();
   const { getCategoryNames } = useCategories();
   const { toast } = useToast();
 
@@ -86,8 +96,41 @@ export default function Inventory() {
     return matchesSearch && matchesCategory;
   });
 
+  // Calculate medicine stock value - matches backend calculation
+  const calculateMedicineStockValue = (medicine: Medicine): number => {
+    if (!medicine || !medicine.units || medicine.stockQuantity === 0) {
+      return 0;
+    }
+
+    // Find single unit (tablet) price
+    const singleUnit = medicine.units.find(u => 
+      u.type.toLowerCase() === 'single' || u.type === 'SINGLE'
+    );
+    
+    if (singleUnit && singleUnit.price > 0) {
+      // Use selling price per tablet × stock quantity
+      const pricePerTablet = singleUnit.price / singleUnit.quantity;
+      return medicine.stockQuantity * pricePerTablet;
+    }
+
+    // Fallback to cost price calculation
+    // Find box unit to get tablets per box
+    const boxUnit = medicine.units.find(u => 
+      u.type.toLowerCase() === 'box' || u.type === 'BOX'
+    );
+    const tabletsPerBox = boxUnit?.quantity || 100;
+    
+    if (tabletsPerBox > 0) {
+      const costPerTablet = medicine.costPrice / tabletsPerBox;
+      return medicine.stockQuantity * costPerTablet;
+    }
+
+    return 0;
+  };
+
+  // Calculate totals using backend-corrected formula
   const totalValue = filteredMedicines.reduce(
-    (sum, med) => sum + med.stockQuantity * med.costPrice,
+    (sum, med) => sum + calculateMedicineStockValue(med),
     0
   );
 
@@ -101,6 +144,50 @@ export default function Inventory() {
     );
     return daysToExpiry <= 90;
   }).length;
+
+  // Fetch inventory statistics from backend
+  const fetchInventoryStats = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Fetch dashboard stats which includes inventory value
+      const response = await reportService.getDashboardStats();
+      
+      if (response.success && response.data) {
+        setInventoryStats({
+          totalValue: response.data.inventoryValue || 0,
+          lowStockCount: response.data.lowStockCount || 0,
+          expiringCount: response.data.expiringCount || response.data.expiringSoonCount || 0,
+          loading: false
+        });
+      } else {
+        // Fallback to local calculation if API fails
+        setInventoryStats({
+          totalValue,
+          lowStockCount,
+          expiringCount,
+          loading: false
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch inventory stats:', error);
+      // Fallback to local calculation
+      setInventoryStats({
+        totalValue,
+        lowStockCount,
+        expiringCount,
+        loading: false
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch data on component mount
+  useEffect(() => {
+    refreshMedicines();
+    fetchInventoryStats();
+  }, []);
 
   // Start editing a medicine
   const startEdit = (med: Medicine) => {
@@ -233,6 +320,7 @@ export default function Inventory() {
     if (!editingMedicine) return;
 
     try {
+      setIsLoading(true);
       const response = await medicineService.update(editingMedicine.id, {
         name: editFormData.name,
         genericName: editFormData.genericName || undefined,
@@ -256,8 +344,9 @@ export default function Inventory() {
           description: `${editFormData.name} has been updated successfully`,
         });
         
-        // Refresh medicines from context
-        window.location.reload();
+        // Refresh medicines and inventory stats
+        await refreshMedicines();
+        await fetchInventoryStats();
       } else {
         toast({
           title: 'Update Failed',
@@ -271,6 +360,8 @@ export default function Inventory() {
         description: 'An error occurred while updating the medicine',
         variant: 'destructive',
       });
+    } finally {
+      setIsLoading(false);
     }
 
     setEditingMedicine(null);
@@ -278,23 +369,42 @@ export default function Inventory() {
 
   // Export medicines to Excel
   const handleExport = () => {
-    const exportData = medicines.map(med => ({
-      'Medicine Name': med.name,
-      'Generic Name': med.genericName || '',
-      'Category': med.category,
-      'Manufacturer': med.manufacturer || '',
-      'Batch Number': med.batchNumber,
-      'Expiry Date': format(new Date(med.expiryDate), 'yyyy-MM-dd'),
-      'Stock Quantity': med.stockQuantity,
-      'Reorder Level': med.reorderLevel,
-      'Cost Price': med.costPrice,
-      'Selling Price': med.units[0]?.price || 0,
-      'Status': med.stockQuantity === 0 ? 'Out of Stock' : med.stockQuantity <= med.reorderLevel ? 'Low Stock' : 'In Stock',
-    }));
+    const exportData = medicines.map(med => {
+      const stockValue = calculateMedicineStockValue(med);
+      
+      return {
+        'Medicine Name': med.name,
+        'Generic Name': med.genericName || '',
+        'Category': med.category,
+        'Manufacturer': med.manufacturer || '',
+        'Batch Number': med.batchNumber,
+        'Expiry Date': format(new Date(med.expiryDate), 'yyyy-MM-dd'),
+        'Stock Quantity': med.stockQuantity,
+        'Reorder Level': med.reorderLevel,
+        'Cost Price': med.costPrice,
+        'Selling Price per Tablet': (() => {
+          const singleUnit = med.units?.find(u => u.type.toLowerCase() === 'single');
+          if (singleUnit && singleUnit.price > 0) {
+            return singleUnit.price / singleUnit.quantity;
+          }
+          return med.costPrice / 100; // Default assumption
+        })(),
+        'Stock Value': stockValue,
+        'Status': med.stockQuantity === 0 ? 'Out of Stock' : med.stockQuantity <= med.reorderLevel ? 'Low Stock' : 'In Stock',
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 15 },
+      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }
+    ];
+    
     XLSX.writeFile(wb, `inventory_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
 
     toast({
@@ -309,8 +419,9 @@ export default function Inventory() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
+        setIsLoading(true);
         const binaryStr = evt.target?.result;
         const wb = XLSX.read(binaryStr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
@@ -318,37 +429,72 @@ export default function Inventory() {
         const data = XLSX.utils.sheet_to_json(ws);
 
         let importedCount = 0;
-        data.forEach((row: any) => {
-          const medicine: Medicine = {
-            id: `med${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            name: row['Medicine Name'] || row['name'] || '',
-            genericName: row['Generic Name'] || row['genericName'] || undefined,
-            category: row['Category'] || row['category'] || 'General',
-            manufacturer: row['Manufacturer'] || row['manufacturer'] || '',
-            batchNumber: row['Batch Number'] || row['batchNumber'] || `BATCH-${Date.now()}`,
-            expiryDate: row['Expiry Date'] ? new Date(row['Expiry Date']) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        let errors: string[] = [];
+        
+        for (const row of data) {
+          const rowData = row as any;
+          
+          // Skip rows without medicine name
+          if (!rowData['Medicine Name'] && !rowData['name']) {
+            errors.push('Row missing medicine name');
+            continue;
+          }
+          
+          const medicine: Omit<Medicine, 'id' | 'createdAt' | 'updatedAt'> = {
+            name: rowData['Medicine Name'] || rowData['name'] || '',
+            genericName: rowData['Generic Name'] || rowData['genericName'] || undefined,
+            category: rowData['Category'] || rowData['category'] || 'General',
+            manufacturer: rowData['Manufacturer'] || rowData['manufacturer'] || '',
+            batchNumber: rowData['Batch Number'] || rowData['batchNumber'] || `BATCH-${Date.now()}`,
+            expiryDate: rowData['Expiry Date'] ? new Date(rowData['Expiry Date']) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
             units: [{
               type: 'single' as const,
               quantity: 1,
-              price: parseFloat(row['Selling Price']) || parseFloat(row['sellingPrice']) || 0,
+              price: parseFloat(rowData['Selling Price per Tablet']) || 
+                     parseFloat(rowData['sellingPrice']) || 
+                     (parseFloat(rowData['Selling Price']) || 0) / 100, // Default assumption
             }],
-            stockQuantity: parseInt(row['Stock Quantity']) || parseInt(row['stockQuantity']) || 0,
-            reorderLevel: parseInt(row['Reorder Level']) || parseInt(row['reorderLevel']) || 50,
+            stockQuantity: parseInt(rowData['Stock Quantity']) || parseInt(rowData['stockQuantity']) || 0,
+            reorderLevel: parseInt(rowData['Reorder Level']) || parseInt(rowData['reorderLevel']) || 50,
             supplierId: 'sup1',
-            costPrice: parseFloat(row['Cost Price']) || parseFloat(row['costPrice']) || 0,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            costPrice: parseFloat(rowData['Cost Price']) || parseFloat(rowData['costPrice']) || 0,
+            imageUrl: '',
           };
 
           if (medicine.name) {
-            addMedicine(medicine);
-            importedCount++;
+            // Call API to add medicine
+            const response = await medicineService.create({
+              name: medicine.name,
+              genericName: medicine.genericName,
+              category: medicine.category,
+              manufacturer: medicine.manufacturer,
+              batchNumber: medicine.batchNumber,
+              expiryDate: medicine.expiryDate instanceof Date ? 
+                         medicine.expiryDate.toISOString().split('T')[0] : 
+                         medicine.expiryDate as string,
+              units: medicine.units,
+              stockQuantity: medicine.stockQuantity,
+              reorderLevel: medicine.reorderLevel,
+              costPrice: medicine.costPrice,
+              imageUrl: medicine.imageUrl,
+            });
+            
+            if (response.success) {
+              importedCount++;
+            } else {
+              errors.push(`Failed to import ${medicine.name}: ${response.error}`);
+            }
           }
-        });
+        }
 
+        // Refresh data
+        await refreshMedicines();
+        await fetchInventoryStats();
+        
         toast({
-          title: 'Import Successful',
-          description: `${importedCount} medicines imported from Excel`,
+          title: 'Import Complete',
+          description: `${importedCount} medicines imported successfully${errors.length > 0 ? `. ${errors.length} errors.` : ''}`,
+          variant: errors.length > 0 ? 'destructive' : 'default',
         });
 
         // Reset file input
@@ -356,11 +502,14 @@ export default function Inventory() {
           fileInputRef.current.value = '';
         }
       } catch (error) {
+        console.error('Import error:', error);
         toast({
           title: 'Import Failed',
           description: 'Failed to parse Excel file. Please check the format.',
           variant: 'destructive',
         });
+      } finally {
+        setIsLoading(false);
       }
     };
     reader.readAsBinaryString(file);
@@ -382,17 +531,30 @@ export default function Inventory() {
               accept=".xlsx,.xls"
               onChange={handleImport}
               className="hidden"
+              disabled={isLoading}
             />
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="h-4 w-4 mr-2" />
+            <Button 
+              variant="outline" 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4 mr-2" />
+              )}
               Import Excel
             </Button>
-            <Button variant="outline" onClick={handleExport}>
+            <Button 
+              variant="outline" 
+              onClick={handleExport}
+              disabled={isLoading}
+            >
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
             <Link to="/create-medicine">
-              <Button variant="hero">
+              <Button variant="hero" disabled={isLoading}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Medicine
               </Button>
@@ -423,7 +585,9 @@ export default function Inventory() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Low Stock Items</p>
-                  <p className="text-2xl font-bold text-destructive">{lowStockCount}</p>
+                  <p className="text-2xl font-bold text-destructive">
+                    {inventoryStats.loading ? '...' : inventoryStats.lowStockCount}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -432,11 +596,16 @@ export default function Inventory() {
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-success/10">
-                  <Package className="h-5 w-5 text-success" />
+                  <DollarSign className="h-5 w-5 text-success" />
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Stock Value</p>
-                  <p className="text-2xl font-bold">KSh {totalValue.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {inventoryStats.loading ? 'Loading...' : `KSh ${inventoryStats.totalValue.toLocaleString()}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Correctly calculated from backend
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -454,9 +623,10 @@ export default function Inventory() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
+                  disabled={isLoading}
                 />
               </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={isLoading}>
                 <SelectTrigger className="w-full sm:w-48">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue placeholder="Category" />
@@ -475,76 +645,96 @@ export default function Inventory() {
         {/* Table */}
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Medicine</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Batch No.</TableHead>
-                    <TableHead>Expiry</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead className="text-right">Cost Price</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredMedicines.map((med) => {
-                    const isLowStock = med.stockQuantity <= med.reorderLevel;
-                    const isOutOfStock = med.stockQuantity === 0;
-                    const daysToExpiry = Math.ceil(
-                      (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-                    );
-                    const isExpiring = daysToExpiry <= 90;
-                    const isExpired = daysToExpiry <= 0;
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <span className="ml-2">Loading inventory...</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Medicine</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Batch No.</TableHead>
+                      <TableHead>Expiry</TableHead>
+                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead className="text-right">Cost Price</TableHead>
+                      <TableHead className="text-right">Stock Value</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredMedicines.map((med) => {
+                      const isLowStock = med.stockQuantity <= med.reorderLevel;
+                      const isOutOfStock = med.stockQuantity === 0;
+                      const daysToExpiry = Math.ceil(
+                        (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+                      );
+                      const isExpiring = daysToExpiry <= 90;
+                      const isExpired = daysToExpiry <= 0;
+                      const stockValue = calculateMedicineStockValue(med);
 
-                    return (
-                      <TableRow key={med.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{med.name}</p>
-                            <p className="text-sm text-muted-foreground">{med.genericName}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{med.category}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">{med.batchNumber}</TableCell>
-                        <TableCell>
-                          <span className={isExpiring || isExpired ? 'text-destructive font-medium' : ''}>
-                            {format(new Date(med.expiryDate), 'MMM dd, yyyy')}
-                          </span>
-                        </TableCell>
-                        <TableCell className={`text-right font-medium ${isLowStock ? 'text-destructive' : ''}`}>
-                          {med.stockQuantity.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right">KSh {med.costPrice}</TableCell>
-                        <TableCell>
-                          {isExpired ? (
-                            <Badge variant="destructive">Expired</Badge>
-                          ) : isOutOfStock ? (
-                            <Badge variant="destructive">Out of Stock</Badge>
-                          ) : isLowStock ? (
-                            <Badge variant="warning">Low Stock</Badge>
-                          ) : isExpiring ? (
-                            <Badge variant="warning">Expiring Soon</Badge>
-                          ) : (
-                            <Badge variant="success">In Stock</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => startEdit(med)}>
-                            <Edit2 className="h-4 w-4 mr-1" />
-                            Edit
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                      return (
+                        <TableRow key={med.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{med.name}</p>
+                              <p className="text-sm text-muted-foreground">{med.genericName}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{med.category}</Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">{med.batchNumber}</TableCell>
+                          <TableCell>
+                            <span className={isExpiring || isExpired ? 'text-destructive font-medium' : ''}>
+                              {format(new Date(med.expiryDate), 'MMM dd, yyyy')}
+                              {isExpiring && !isExpired && (
+                                <span className="text-xs text-muted-foreground block">({daysToExpiry} days)</span>
+                              )}
+                            </span>
+                          </TableCell>
+                          <TableCell className={`text-right font-medium ${isLowStock ? 'text-destructive' : ''}`}>
+                            {med.stockQuantity.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">KSh {med.costPrice.toLocaleString()}</TableCell>
+                          <TableCell className="text-right font-bold text-green-700">
+                            KSh {stockValue.toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            {isExpired ? (
+                              <Badge variant="destructive">Expired</Badge>
+                            ) : isOutOfStock ? (
+                              <Badge variant="destructive">Out of Stock</Badge>
+                            ) : isLowStock ? (
+                              <Badge variant="warning">Low Stock</Badge>
+                            ) : isExpiring ? (
+                              <Badge variant="warning">Expiring Soon</Badge>
+                            ) : (
+                              <Badge variant="success">In Stock</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => startEdit(med)}
+                              disabled={isLoading}
+                            >
+                              <Edit2 className="h-4 w-4 mr-1" />
+                              Edit Stock
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -564,6 +754,7 @@ export default function Inventory() {
                   <Input
                     value={editFormData.name}
                     onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="space-y-2">
@@ -571,6 +762,7 @@ export default function Inventory() {
                   <Input
                     value={editFormData.genericName}
                     onChange={(e) => setEditFormData({ ...editFormData, genericName: e.target.value })}
+                    disabled={isLoading}
                   />
                 </div>
               </div>
@@ -581,6 +773,7 @@ export default function Inventory() {
                   <Select
                     value={editFormData.category}
                     onValueChange={(value) => setEditFormData({ ...editFormData, category: value })}
+                    disabled={isLoading}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
@@ -600,6 +793,7 @@ export default function Inventory() {
                   <Input
                     value={editFormData.manufacturer}
                     onChange={(e) => setEditFormData({ ...editFormData, manufacturer: e.target.value })}
+                    disabled={isLoading}
                   />
                 </div>
               </div>
@@ -610,6 +804,7 @@ export default function Inventory() {
                   <Input
                     value={editFormData.batchNumber}
                     onChange={(e) => setEditFormData({ ...editFormData, batchNumber: e.target.value })}
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="space-y-2">
@@ -619,6 +814,7 @@ export default function Inventory() {
                     value={editFormData.expiryDate}
                     onChange={(e) => setEditFormData({ ...editFormData, expiryDate: e.target.value })}
                     min={new Date().toISOString().split('T')[0]}
+                    disabled={isLoading}
                   />
                 </div>
               </div>
@@ -640,6 +836,7 @@ export default function Inventory() {
                       setTabletsPerBox(value);
                     }}
                     placeholder="e.g., 100"
+                    disabled={isLoading}
                   />
                   <p className="text-xs text-muted-foreground">Total tablets in one box</p>
                 </div>
@@ -657,6 +854,7 @@ export default function Inventory() {
                       setTabletsPerStrip(value);
                     }}
                     placeholder="e.g., 10"
+                    disabled={isLoading}
                   />
                   <p className="text-xs text-muted-foreground">Tablets in one strip</p>
                 </div>
@@ -669,6 +867,7 @@ export default function Inventory() {
                     type="number"
                     value={editFormData.stockQuantity}
                     onChange={(e) => setEditFormData({ ...editFormData, stockQuantity: e.target.value })}
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="space-y-2">
@@ -677,6 +876,7 @@ export default function Inventory() {
                     type="number"
                     value={editFormData.reorderLevel}
                     onChange={(e) => setEditFormData({ ...editFormData, reorderLevel: e.target.value })}
+                    disabled={isLoading}
                   />
                 </div>
                 <div className="space-y-2">
@@ -690,6 +890,7 @@ export default function Inventory() {
                       value={editFormData.costPrice}
                       onChange={(e) => setEditFormData({ ...editFormData, costPrice: e.target.value })}
                       className="pl-12"
+                      disabled={isLoading}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">Price you pay for one box</p>
@@ -717,6 +918,7 @@ export default function Inventory() {
                       onChange={(e) => setEditFormData({ ...editFormData, boxPrice: e.target.value })}
                       placeholder="Enter selling price for entire box"
                       className="pl-12"
+                      disabled={isLoading}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -817,11 +1019,28 @@ export default function Inventory() {
               </div>
 
               <div className="flex gap-4 pt-4">
-                <Button variant="outline" className="flex-1" onClick={() => setEditingMedicine(null)}>
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={() => setEditingMedicine(null)}
+                  disabled={isLoading}
+                >
                   Cancel
                 </Button>
-                <Button variant="hero" className="flex-1" onClick={saveEdit}>
-                  Save Changes
+                <Button 
+                  variant="hero" 
+                  className="flex-1" 
+                  onClick={saveEdit}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
                 </Button>
               </div>
             </div>
