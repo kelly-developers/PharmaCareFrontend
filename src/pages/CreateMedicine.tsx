@@ -744,20 +744,20 @@ export default function CreateMedicine() {
                           <SelectTrigger className="h-9">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent className="bg-background border">
-                            <SelectItem value="TABLET">Tablet</SelectItem>
-                            <SelectItem value="PAIR">Pair</SelectItem>
-                            <SelectItem value="STRIP">Strip</SelectItem>
-                            <SelectItem value="BOX">Box</SelectItem>
-                            <SelectItem value="PACK">Pack</SelectItem>
-                            <SelectItem value="BOTTLE">Bottle</SelectItem>
-                            <SelectItem value="ML">ml</SelectItem>
-                            <SelectItem value="GRAM">Gram</SelectItem>
-                            <SelectItem value="PIECE">Piece</SelectItem>
-                            <SelectItem value="SERVICE">Service</SelectItem>
-                            <SelectItem value="INJECTION">Injection</SelectItem>
-                            <SelectItem value="UNIT">Unit</SelectItem>
-                          </SelectContent>
+<SelectContent className="bg-background border">
+  <SelectItem value="tablets">Tablet</SelectItem>
+  <SelectItem value="pair">Pair</SelectItem>
+  <SelectItem value="strip">Strip</SelectItem>
+  <SelectItem value="box">Box</SelectItem>
+  <SelectItem value="pack">Pack</SelectItem>
+  <SelectItem value="bottle">Bottle</SelectItem>
+  <SelectItem value="ml">ml</SelectItem>
+  <SelectItem value="gram">Gram</SelectItem>
+  <SelectItem value="piece">Piece</SelectItem>
+  <SelectItem value="service">Service</SelectItem>
+  <SelectItem value="injection">Injection</SelectItem>
+  <SelectItem value="unit">Unit</SelectItem>
+</SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-1">
