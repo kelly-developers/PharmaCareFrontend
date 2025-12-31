@@ -98,13 +98,12 @@ export default function Dashboard() {
   // Get real sales data
   const allSales = getAllSales();
   
-  // Get low stock items - only items with stock > 0
+  // FIXED: Get low stock items - items with stock = 0 OR stock <= reorder level
   const lowStockItems = medicines.filter(med => 
-    med.stockQuantity > 0 && 
-    med.stockQuantity <= med.reorderLevel
+    med.stockQuantity === 0 || med.stockQuantity <= med.reorderLevel
   ).slice(0, 4);
   
-  // Get expiring items - only items with stock > 0
+  // FIXED: Get expiring items - only items with stock > 0
   const expiringItems = medicines.filter(med => {
     const daysToExpiry = Math.ceil(
       (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
@@ -359,8 +358,8 @@ export default function Dashboard() {
                     lowStockItems.map((item, idx) => (
                       <div key={idx} className="flex items-center justify-between">
                         <span className="text-sm truncate flex-1">{item.name}</span>
-                        <Badge variant="warning" className="ml-2">
-                          {item.stockQuantity} left
+                        <Badge variant={item.stockQuantity === 0 ? "destructive" : "warning"} className="ml-2">
+                          {item.stockQuantity === 0 ? "Out of stock" : `${item.stockQuantity} left`}
                         </Badge>
                       </div>
                     ))
