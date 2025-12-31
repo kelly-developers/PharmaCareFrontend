@@ -98,15 +98,18 @@ export default function Dashboard() {
   // Get real sales data
   const allSales = getAllSales();
   
-  // Get low stock items from local state for display only
-  const lowStockItems = medicines.filter(med => med.stockQuantity <= med.reorderLevel).slice(0, 4);
+  // Get low stock items - only items with stock > 0
+  const lowStockItems = medicines.filter(med => 
+    med.stockQuantity > 0 && 
+    med.stockQuantity <= med.reorderLevel
+  ).slice(0, 4);
   
-  // Expiring items from local state for display only
+  // Get expiring items - only items with stock > 0
   const expiringItems = medicines.filter(med => {
     const daysToExpiry = Math.ceil(
       (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     );
-    return daysToExpiry <= 90 && daysToExpiry > 0;
+    return med.stockQuantity > 0 && daysToExpiry <= 90 && daysToExpiry > 0;
   }).slice(0, 3);
   
   // Recent sales (last 4)
@@ -252,7 +255,7 @@ export default function Dashboard() {
         </div>
 
         {/* Quick Profit Overview for Admins/Managers */}
-        {canViewProfit && dashboardData.thisMonthProfit > 0 && (
+        {canViewProfit && (
           <Card variant="elevated" className="bg-primary/5 border-primary/20">
             <CardContent className="pt-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
