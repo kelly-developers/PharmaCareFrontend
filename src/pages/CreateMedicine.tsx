@@ -1,4 +1,4 @@
-// CreateMedicine.tsx - Supports all product types
+// CreateMedicine.tsx - Supports all product types with optional fields
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -37,6 +37,7 @@ import {
   ShoppingBag,
   Scale,
   CircleDot,
+  AlertCircle,
 } from 'lucide-react';
 import { medicineService } from '@/services/medicineService';
 
@@ -127,18 +128,22 @@ export default function CreateMedicine() {
   const [productType, setProductType] = useState<ProductType>('tablets');
   const [units, setUnits] = useState<UnitConfig[]>(getDefaultUnits('tablets'));
   
+  // Updated form data with optional fields
   const [formData, setFormData] = useState({
     name: '',
     genericName: '',
     category: '',
-    manufacturer: '',
-    batchNumber: '',
-    expiryDate: '',
+    manufacturer: '', // Optional
+    batchNumber: '', // Optional
+    expiryDate: '', // Optional
     stockQuantity: '0',
     reorderLevel: '50',
     costPrice: '0',
     description: '',
   });
+
+  // Track which fields are required based on product type
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // Update units when product type changes
   useEffect(() => {
@@ -147,11 +152,14 @@ export default function CreateMedicine() {
 
   const handleRefreshCategories = async () => {
     await refreshCategories();
-    toast({ title: 'Categories refreshed', description: `Found ${categories.length} categories` });
+    toast({ 
+      title: 'Categories refreshed', 
+      description: `Found ${categories.length} categories` 
+    });
   };
 
   const isValidDate = (dateStr: string) => {
-    if (!dateStr) return false;
+    if (!dateStr || dateStr.trim() === '') return true; // Optional field, empty is valid
     const date = new Date(dateStr);
     return date instanceof Date && !isNaN(date.getTime());
   };
@@ -160,7 +168,11 @@ export default function CreateMedicine() {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        toast({ title: 'Error', description: 'Image size must be less than 5MB', variant: 'destructive' });
+        toast({ 
+          title: 'Error', 
+          description: 'Image size must be less than 5MB', 
+          variant: 'destructive' 
+        });
         return;
       }
       const reader = new FileReader();
@@ -206,50 +218,90 @@ export default function CreateMedicine() {
       price: unit.id === largestUnit.id ? unit.price : parseFloat((pricePerSmallestUnit * unit.quantity).toFixed(2))
     })));
     
-    toast({ title: 'Prices calculated', description: 'All unit prices have been updated based on the largest unit price' });
+    toast({ 
+      title: 'Prices calculated', 
+      description: 'All unit prices have been updated based on the largest unit price' 
+    });
+  };
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    // Required fields
+    if (!formData.name.trim()) {
+      errors.name = 'Product name is required';
+    }
+    
+    if (!formData.category) {
+      errors.category = 'Category is required';
+    }
+    
+    // Validate expiry date if provided
+    if (formData.expiryDate && formData.expiryDate.trim() !== '') {
+      const expiryDate = new Date(formData.expiryDate);
+      if (expiryDate <= new Date()) {
+        errors.expiryDate = 'Expiry date must be in the future';
+      }
+      
+      if (!isValidDate(formData.expiryDate)) {
+        errors.expiryDate = 'Please enter a valid expiry date';
+      }
+    }
+    
+    // Validate at least one unit has a price
+    const hasValidPrice = units.some(u => u.price > 0);
+    if (!hasValidPrice) {
+      errors.units = 'At least one unit must have a price';
+    }
+    
+    // Validate cost price
+    const costPrice = parseFloat(formData.costPrice);
+    if (isNaN(costPrice) || costPrice < 0) {
+      errors.costPrice = 'Cost price must be a valid number';
+    }
+    
+    // Validate stock quantity
+    const stockQuantity = parseInt(formData.stockQuantity);
+    if (isNaN(stockQuantity) || stockQuantity < 0) {
+      errors.stockQuantity = 'Stock quantity must be a valid number';
+    }
+    
+    // Validate reorder level
+    const reorderLevel = parseInt(formData.reorderLevel);
+    if (isNaN(reorderLevel) || reorderLevel < 0) {
+      errors.reorderLevel = 'Reorder level must be a valid number';
+    }
+    
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.name || !formData.category || !formData.batchNumber || !formData.expiryDate) {
-      toast({ title: 'Error', description: 'Please fill all required fields', variant: 'destructive' });
-      return;
-    }
-
-    if (!isValidDate(formData.expiryDate)) {
-      toast({ title: 'Error', description: 'Please enter a valid expiry date', variant: 'destructive' });
-      return;
-    }
-
-    const expiryDate = new Date(formData.expiryDate);
-    if (expiryDate <= new Date()) {
-      toast({ title: 'Error', description: 'Expiry date must be in the future', variant: 'destructive' });
-      return;
-    }
-
-    // Validate at least one unit has a price
-    const hasValidPrice = units.some(u => u.price > 0);
-    if (!hasValidPrice) {
-      toast({ title: 'Error', description: 'At least one unit must have a price', variant: 'destructive' });
+    if (!validateForm()) {
+      toast({ 
+        title: 'Validation Error', 
+        description: 'Please fix the errors in the form', 
+        variant: 'destructive' 
+      });
       return;
     }
 
     setLoading(true);
 
     try {
-      const medicineData = {
+      // Prepare medicine data with optional fields
+      const medicineData: any = {
         name: formData.name.trim(),
         genericName: formData.genericName.trim() || '',
         category: formData.category,
-        manufacturer: formData.manufacturer.trim() || '',
-        batchNumber: formData.batchNumber.trim(),
-        expiryDate: formData.expiryDate,
+        manufacturer: formData.manufacturer.trim() || '', // Optional
+        batchNumber: formData.batchNumber.trim() || '', // Optional
         units: units.map(u => ({
           type: u.type,
           quantity: u.quantity,
           price: parseFloat(u.price.toString()),
-          label: u.label,
         })),
         stockQuantity: parseInt(formData.stockQuantity) || 0,
         reorderLevel: parseInt(formData.reorderLevel) || 50,
@@ -259,18 +311,34 @@ export default function CreateMedicine() {
         productType,
       };
 
+      // Only include expiryDate if provided
+      if (formData.expiryDate && formData.expiryDate.trim() !== '') {
+        medicineData.expiryDate = formData.expiryDate;
+      }
+
       console.log('Sending medicine data:', medicineData);
       const response = await medicineService.create(medicineData);
       
       if (response.success && response.data) {
-        toast({ title: 'Success!', description: `${formData.name} has been added to inventory` });
+        toast({ 
+          title: 'Success!', 
+          description: `${formData.name} has been added to inventory` 
+        });
         navigate('/inventory');
       } else {
-        toast({ title: 'Error', description: response.error || 'Failed to create medicine', variant: 'destructive' });
+        toast({ 
+          title: 'Error', 
+          description: response.error || 'Failed to create medicine', 
+          variant: 'destructive' 
+        });
       }
     } catch (error: any) {
       console.error('Error:', error);
-      toast({ title: 'Error', description: error.message || 'An unexpected error occurred', variant: 'destructive' });
+      toast({ 
+        title: 'Error', 
+        description: error.message || 'An unexpected error occurred', 
+        variant: 'destructive' 
+      });
     } finally {
       setLoading(false);
     }
@@ -285,10 +353,21 @@ export default function CreateMedicine() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl lg:text-3xl font-bold font-display">Add Product</h1>
-            <p className="text-muted-foreground mt-1">Add any product or service to inventory</p>
+            <p className="text-muted-foreground mt-1">
+              Add any product or service to inventory. Fields marked with * are required.
+            </p>
           </div>
-          <Button onClick={handleRefreshCategories} variant="outline" size="sm" disabled={categoriesLoading}>
-            {categoriesLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          <Button 
+            onClick={handleRefreshCategories} 
+            variant="outline" 
+            size="sm" 
+            disabled={categoriesLoading}
+          >
+            {categoriesLoading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
             Refresh Categories
           </Button>
         </div>
@@ -334,18 +413,30 @@ export default function CreateMedicine() {
                 <Pill className="h-5 w-5" />
                 Basic Information
               </CardTitle>
+              <CardDescription>Required fields are marked with *</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Product Name <span className="text-destructive">*</span></Label>
+                  <Label htmlFor="name">
+                    Product Name <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="name"
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, name: e.target.value });
+                      if (fieldErrors.name) setFieldErrors({...fieldErrors, name: ''});
+                    }}
                     placeholder="e.g., Paracetamol 500mg, Spirit 500ml, Cotton Wool 100g"
-                    required
+                    className={fieldErrors.name ? 'border-destructive' : ''}
                   />
+                  {fieldErrors.name && (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.name}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="genericName">Generic Name / Description</Label>
@@ -355,33 +446,59 @@ export default function CreateMedicine() {
                     onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
                     placeholder="e.g., Acetaminophen, Hydrogen Peroxide"
                   />
+                  <p className="text-xs text-muted-foreground">Optional</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="category">Category <span className="text-destructive">*</span></Label>
+                  <Label htmlFor="category">
+                    Category <span className="text-destructive">*</span>
+                  </Label>
                   <Select
                     value={formData.category}
-                    onValueChange={(value) => setFormData({ ...formData, category: value })}
+                    onValueChange={(value) => {
+                      setFormData({ ...formData, category: value });
+                      if (fieldErrors.category) setFieldErrors({...fieldErrors, category: ''});
+                    }}
                     disabled={categoriesLoading}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className={fieldErrors.category ? 'border-destructive' : ''}>
                       {categoriesLoading ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Loading...</span>
+                          <span>Loading categories...</span>
                         </div>
                       ) : (
                         <SelectValue placeholder="Select category" />
                       )}
                     </SelectTrigger>
                     <SelectContent className="bg-background border">
-                      {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
+                      {categories.length === 0 ? (
+                        <div className="p-4 text-center">
+                          <p className="text-sm text-muted-foreground">No categories found</p>
+                          <Button 
+                            variant="link" 
+                            size="sm" 
+                            onClick={handleRefreshCategories}
+                            className="mt-1"
+                          >
+                            Refresh
+                          </Button>
+                        </div>
+                      ) : (
+                        categories.map((cat) => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.category && (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.category}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="manufacturer">Manufacturer / Brand</Label>
@@ -395,6 +512,7 @@ export default function CreateMedicine() {
                       className="pl-10"
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground">Optional</p>
                 </div>
               </div>
 
@@ -407,6 +525,7 @@ export default function CreateMedicine() {
                   placeholder="Any additional information about this product"
                   rows={2}
                 />
+                <p className="text-xs text-muted-foreground">Optional</p>
               </div>
             </CardContent>
           </Card>
@@ -418,12 +537,18 @@ export default function CreateMedicine() {
                 <ImageIcon className="h-5 w-5" />
                 Product Image
               </CardTitle>
+              <CardDescription>Optional - Upload an image of the product</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-6">
                 <div className="w-24 h-24 rounded-lg border-2 border-dashed border-muted-foreground/25 flex items-center justify-center overflow-hidden bg-secondary/50">
                   {imagePreview ? (
-                    <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                    <img 
+                      src={imagePreview} 
+                      alt="Preview" 
+                      className="w-full h-full object-cover"
+                      onError={() => setImagePreview(null)}
+                    />
                   ) : (
                     <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
                   )}
@@ -435,29 +560,43 @@ export default function CreateMedicine() {
                       <span>Upload Image</span>
                     </div>
                   </Label>
-                  <Input id="image-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+                  <Input 
+                    id="image-upload" 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={handleImageChange} 
+                  />
                   {imagePreview && (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setImagePreview(null)} className="text-destructive">
-                      Remove
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setImagePreview(null)} 
+                      className="text-destructive hover:text-destructive"
+                    >
+                      Remove Image
                     </Button>
                   )}
+                  <p className="text-xs text-muted-foreground">PNG, JPG up to 5MB</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Batch & Stock */}
+          {/* Batch & Stock - Optional Fields */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Package className="h-5 w-5" />
-                Batch & Stock
+                Batch & Stock Information
               </CardTitle>
+              <CardDescription>Optional - Leave blank if not applicable</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="batchNumber">Batch Number <span className="text-destructive">*</span></Label>
+                  <Label htmlFor="batchNumber">Batch Number</Label>
                   <div className="relative">
                     <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -466,24 +605,34 @@ export default function CreateMedicine() {
                       onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
                       placeholder="e.g., BATCH-2024-001"
                       className="pl-10"
-                      required
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground">Optional - Leave blank if not applicable</p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="expiryDate">Expiry Date <span className="text-destructive">*</span></Label>
+                  <Label htmlFor="expiryDate">Expiry Date</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="expiryDate"
                       type="date"
                       value={formData.expiryDate}
-                      onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
-                      className="pl-10"
+                      onChange={(e) => {
+                        setFormData({ ...formData, expiryDate: e.target.value });
+                        if (fieldErrors.expiryDate) setFieldErrors({...fieldErrors, expiryDate: ''});
+                      }}
+                      className={`pl-10 ${fieldErrors.expiryDate ? 'border-destructive' : ''}`}
                       min={today}
-                      required
                     />
                   </div>
+                  {fieldErrors.expiryDate ? (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.expiryDate}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Optional - Leave blank if no expiry date</p>
+                  )}
                 </div>
               </div>
 
@@ -495,10 +644,21 @@ export default function CreateMedicine() {
                     type="number"
                     min="0"
                     value={formData.stockQuantity}
-                    onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, stockQuantity: e.target.value });
+                      if (fieldErrors.stockQuantity) setFieldErrors({...fieldErrors, stockQuantity: ''});
+                    }}
                     placeholder="0"
+                    className={fieldErrors.stockQuantity ? 'border-destructive' : ''}
                   />
-                  <p className="text-xs text-muted-foreground">In smallest unit</p>
+                  {fieldErrors.stockQuantity ? (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.stockQuantity}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">In smallest unit (e.g., tablets, ml, grams)</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="reorderLevel">Reorder Level</Label>
@@ -507,10 +667,21 @@ export default function CreateMedicine() {
                     type="number"
                     min="0"
                     value={formData.reorderLevel}
-                    onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, reorderLevel: e.target.value });
+                      if (fieldErrors.reorderLevel) setFieldErrors({...fieldErrors, reorderLevel: ''});
+                    }}
                     placeholder="50"
+                    className={fieldErrors.reorderLevel ? 'border-destructive' : ''}
                   />
-                  <p className="text-xs text-muted-foreground">Low stock alert</p>
+                  {fieldErrors.reorderLevel ? (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.reorderLevel}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Low stock alert threshold</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="costPrice">Cost Price</Label>
@@ -520,13 +691,24 @@ export default function CreateMedicine() {
                       id="costPrice"
                       type="number"
                       min="0"
+                      step="0.01"
                       value={formData.costPrice}
-                      onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
-                      placeholder="0"
-                      className="pl-12"
+                      onChange={(e) => {
+                        setFormData({ ...formData, costPrice: e.target.value });
+                        if (fieldErrors.costPrice) setFieldErrors({...fieldErrors, costPrice: ''});
+                      }}
+                      placeholder="0.00"
+                      className={`pl-12 ${fieldErrors.costPrice ? 'border-destructive' : ''}`}
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">Your buying price</p>
+                  {fieldErrors.costPrice ? (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.costPrice}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Your buying price per smallest unit</p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -537,11 +719,20 @@ export default function CreateMedicine() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calculator className="h-5 w-5" />
-                Units & Pricing
+                Units & Pricing <span className="text-destructive">*</span>
               </CardTitle>
               <CardDescription>Configure how this product is sold</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {fieldErrors.units && (
+                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                  <p className="text-sm text-destructive flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    {fieldErrors.units}
+                  </p>
+                </div>
+              )}
+
               {/* Units List */}
               <div className="space-y-3">
                 {units.map((unit, index) => (
@@ -596,8 +787,11 @@ export default function CreateMedicine() {
                           min="0"
                           step="0.01"
                           value={unit.price}
-                          onChange={(e) => updateUnit(unit.id, 'price', parseFloat(e.target.value) || 0)}
-                          placeholder="0"
+                          onChange={(e) => {
+                            updateUnit(unit.id, 'price', parseFloat(e.target.value) || 0);
+                            if (fieldErrors.units) setFieldErrors({...fieldErrors, units: ''});
+                          }}
+                          placeholder="0.00"
                           className="h-9"
                         />
                       </div>
@@ -647,12 +841,22 @@ export default function CreateMedicine() {
             </CardContent>
           </Card>
 
-          {/* Submit */}
+          {/* Submit Buttons */}
           <div className="flex gap-4 pt-4">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => navigate(-1)} disabled={loading}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              className="flex-1" 
+              onClick={() => navigate(-1)} 
+              disabled={loading}
+            >
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" disabled={loading || categoriesLoading || categories.length === 0}>
+            <Button 
+              type="submit" 
+              className="flex-1" 
+              disabled={loading || categoriesLoading || categories.length === 0}
+            >
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -667,20 +871,36 @@ export default function CreateMedicine() {
             </Button>
           </div>
 
-          {/* Status */}
+          {/* Status Information */}
           {!categoriesLoading && (
             <div className="p-4 border rounded-lg bg-muted/30">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium">Categories</p>
+                <p className="text-sm font-medium">Categories Status</p>
                 <Badge variant={categories.length > 0 ? "default" : "destructive"}>
                   {categories.length} found
                 </Badge>
               </div>
-              {categories.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {categories.map((cat) => (
-                    <Badge key={cat} variant="outline" className="text-xs">{cat}</Badge>
-                  ))}
+              {categories.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Available categories:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {categories.map((cat) => (
+                      <Badge key={cat} variant="outline" className="text-xs">
+                        {cat}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-destructive font-medium">
+                    No categories available. Please:
+                  </p>
+                  <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
+                    <li>Refresh categories using the button above</li>
+                    <li>Ensure backend is running</li>
+                    <li>Check if categories exist in the database</li>
+                  </ul>
                 </div>
               )}
             </div>
