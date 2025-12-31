@@ -34,14 +34,18 @@ import { format, startOfDay, startOfWeek, startOfMonth, isAfter } from 'date-fns
 export default function Sales() {
   const [period, setPeriod] = useState('today');
   const [cashierFilter, setCashierFilter] = useState('all');
-  const { getAllSales, fetchAllSales, isLoading } = useSales();
+  const { getAllSales, fetchAllSales, isLoading, sales } = useSales();
+
+  // Fetch sales on mount
+  useEffect(() => {
+    const loadSales = async () => {
+      console.log('📊 Sales page: Fetching all sales...');
+      await fetchAllSales();
+    };
+    loadSales();
+  }, [fetchAllSales]);
 
   const allSales = getAllSales();
-
-  // Fetch sales once on mount
-  useEffect(() => {
-    fetchAllSales();
-  }, []);
 
   // Get unique cashiers
   const cashiers = useMemo(() => {

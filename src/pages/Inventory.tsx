@@ -69,20 +69,22 @@ interface UnitPrice {
 }
 
 // Helper function to safely parse and format dates
-const formatDateSafe = (dateString: string): string => {
-  if (!dateString) return 'N/A';
+const formatDateSafe = (dateInput: string | Date): string => {
+  if (!dateInput) return 'N/A';
   
   try {
-    // Try parsing as ISO string first
-    const date = new Date(dateString);
+    // If it's already a Date object
+    const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
     
     // If invalid, try parsing with Date.parse
     if (!isValid(date)) {
-      const timestamp = Date.parse(dateString);
-      if (!isNaN(timestamp)) {
-        const parsedDate = new Date(timestamp);
-        if (isValid(parsedDate)) {
-          return format(parsedDate, 'MMM dd, yyyy');
+      if (typeof dateInput === 'string') {
+        const timestamp = Date.parse(dateInput);
+        if (!isNaN(timestamp)) {
+          const parsedDate = new Date(timestamp);
+          if (isValid(parsedDate)) {
+            return format(parsedDate, 'MMM dd, yyyy');
+          }
         }
       }
       return 'Invalid Date';
@@ -90,40 +92,42 @@ const formatDateSafe = (dateString: string): string => {
     
     return format(date, 'MMM dd, yyyy');
   } catch (error) {
-    console.error('Error formatting date:', error, dateString);
+    console.error('Error formatting date:', error, dateInput);
     return 'Invalid Date';
   }
 };
 
 // Helper function to safely parse date for input fields
-const parseDateForInput = (dateString: string): string => {
-  if (!dateString) return '';
+const parseDateForInput = (dateInput: string | Date): string => {
+  if (!dateInput) return '';
   
   try {
-    const date = new Date(dateString);
+    const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
     if (isValid(date)) {
       return date.toISOString().split('T')[0];
     }
     
-    // Try alternative parsing
-    const parsed = parseISO(dateString);
-    if (isValid(parsed)) {
-      return parsed.toISOString().split('T')[0];
+    // Try alternative parsing for strings
+    if (typeof dateInput === 'string') {
+      const parsed = parseISO(dateInput);
+      if (isValid(parsed)) {
+        return parsed.toISOString().split('T')[0];
+      }
     }
     
     return '';
   } catch (error) {
-    console.error('Error parsing date for input:', error, dateString);
+    console.error('Error parsing date for input:', error, dateInput);
     return '';
   }
 };
 
 // Helper function to calculate days to expiry safely
-const calculateDaysToExpiry = (expiryDateString: string): number => {
-  if (!expiryDateString) return Infinity;
+const calculateDaysToExpiry = (expiryDateInput: string | Date): number => {
+  if (!expiryDateInput) return Infinity;
   
   try {
-    const expiryDate = new Date(expiryDateString);
+    const expiryDate = expiryDateInput instanceof Date ? expiryDateInput : new Date(expiryDateInput);
     if (!isValid(expiryDate)) return Infinity;
     
     const today = new Date();

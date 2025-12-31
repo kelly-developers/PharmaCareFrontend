@@ -178,7 +178,7 @@ export default function POS() {
     });
   };
 
-  // Parse dosage to extract quantity (e.g., "2 tablets" -> 2, "1 tablet" -> 1)
+  // Parse dosage to extract quantity (e.g., "2 abletss" -> 2, "1 tablet" -> 1)
   const parseDosageQuantity = (dosage: string): number => {
     const match = dosage.match(/(\d+)/);
     return match ? parseInt(match[1], 10) : 1;

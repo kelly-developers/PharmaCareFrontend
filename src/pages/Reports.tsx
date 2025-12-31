@@ -50,6 +50,7 @@ import { reportService } from '@/services/reportService';
 export default function Reports() {
   const [period, setPeriod] = useState('month');
   const [activeTab, setActiveTab] = useState('overview');
+  const [annualView, setAnnualView] = useState<'daily' | 'monthly' | 'annual'>('monthly');
   const { sales } = useSales();
   const { expenses } = useExpenses();
   const { medicines } = useStock();
@@ -68,6 +69,15 @@ export default function Reports() {
     categoryData: [] as { name: string; value: number; color: string }[],
     dailySalesData: [] as { day: string; sales: number; cost: number }[],
     monthlyTrendData: [] as { month: string; sales: number }[]
+  });
+
+  // Annual tracking data
+  const [annualData, setAnnualData] = useState({
+    totalRevenue: 0,
+    totalProfit: 0,
+    totalOrders: 0,
+    sellerPayments: 0,
+    monthlyData: [] as { month: string; revenue: number; profit: number; orders: number }[],
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -144,9 +154,28 @@ export default function Reports() {
     }
   };
 
+  // Fetch annual income data from backend
+  const fetchAnnualData = async () => {
+    try {
+      const response = await reportService.getAnnualSummary();
+      if (response.success && response.data) {
+        setAnnualData({
+          totalRevenue: response.data.totalRevenue || 0,
+          totalProfit: response.data.totalProfit || 0,
+          totalOrders: response.data.totalOrders || 0,
+          sellerPayments: response.data.sellerPayments || 0,
+          monthlyData: response.data.monthlyData || [],
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch annual data:', error);
+    }
+  };
+
   // Fetch data when period or date range changes
   useEffect(() => {
     fetchReportsData();
+    fetchAnnualData();
   }, [period]);
 
   const handleExportPDF = () => {
@@ -190,10 +219,14 @@ export default function Reports() {
 
         {/* Tabs for different reports */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-4 w-full max-w-lg">
+          <TabsList className="grid grid-cols-5 w-full max-w-2xl">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">
               <BarChart3 className="h-4 w-4 mr-1 hidden sm:inline" />
               Overview
+            </TabsTrigger>
+            <TabsTrigger value="annual" className="text-xs sm:text-sm">
+              <TrendingUp className="h-4 w-4 mr-1 hidden sm:inline" />
+              Annual
             </TabsTrigger>
             <TabsTrigger value="income" className="text-xs sm:text-sm">
               <FileText className="h-4 w-4 mr-1 hidden sm:inline" />
@@ -208,6 +241,125 @@ export default function Reports() {
               Cash Flow
             </TabsTrigger>
           </TabsList>
+
+          {/* Annual Income Tracking Tab */}
+          <TabsContent value="annual" className="space-y-4 md:space-y-6">
+            <Card variant="elevated">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-primary" />
+                    Annual Income Tracking - {new Date().getFullYear()}
+                  </CardTitle>
+                  <Tabs value={annualView} onValueChange={(v) => setAnnualView(v as any)}>
+                    <TabsList className="h-8">
+                      <TabsTrigger value="daily" className="text-xs px-3">Daily</TabsTrigger>
+                      <TabsTrigger value="monthly" className="text-xs px-3">Monthly</TabsTrigger>
+                      <TabsTrigger value="annual" className="text-xs px-3">Annual</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Annual Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="p-4 rounded-lg bg-success/10 border border-success/20">
+                    <div className="flex items-center gap-2 mb-1">
+                      <DollarSign className="h-4 w-4 text-success" />
+                      <span className="text-xs text-muted-foreground">Total Revenue</span>
+                    </div>
+                    <p className="text-xl font-bold text-success">KSh {annualData.totalRevenue.toLocaleString()}</p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingUp className="h-4 w-4 text-primary" />
+                      <span className="text-xs text-muted-foreground">Total Profit</span>
+                    </div>
+                    <p className="text-xl font-bold text-primary">KSh {annualData.totalProfit.toLocaleString()}</p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-info/10 border border-info/20">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Package className="h-4 w-4 text-info" />
+                      <span className="text-xs text-muted-foreground">Total Orders</span>
+                    </div>
+                    <p className="text-xl font-bold text-info">{annualData.totalOrders.toLocaleString()}</p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-warning/10 border border-warning/20">
+                    <div className="flex items-center gap-2 mb-1">
+                      <DollarSign className="h-4 w-4 text-warning" />
+                      <span className="text-xs text-muted-foreground">Seller Payments</span>
+                    </div>
+                    <p className="text-xl font-bold text-warning">KSh {annualData.sellerPayments.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                {/* Monthly Revenue & Profit Chart */}
+                {annualData.monthlyData.length > 0 ? (
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={annualData.monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
+                        <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                        <Tooltip
+                          formatter={(value: number, name: string) => [
+                            `KSh ${value.toLocaleString()}`,
+                            name === 'revenue' ? 'Revenue' : name === 'profit' ? 'Profit' : 'Orders'
+                          ]}
+                          contentStyle={{
+                            backgroundColor: 'hsl(var(--card))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: '12px' }} />
+                        <Bar dataKey="revenue" fill="hsl(158, 64%, 32%)" radius={[4, 4, 0, 0]} name="Revenue" />
+                        <Bar dataKey="profit" fill="hsl(199, 89%, 48%)" radius={[4, 4, 0, 0]} name="Profit" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="h-64 flex items-center justify-center text-muted-foreground">
+                    <p>No annual data available</p>
+                  </div>
+                )}
+
+                {/* Monthly Profit Trend Line Chart */}
+                {annualData.monthlyData.length > 0 && (
+                  <div className="mt-6">
+                    <h4 className="text-sm font-medium mb-4">Profit Trend Over Time</h4>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={annualData.monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
+                          <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} />
+                          <Tooltip
+                            formatter={(value: number) => [`KSh ${value.toLocaleString()}`, 'Profit']}
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--card))',
+                              border: '1px solid hsl(var(--border))',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="profit"
+                            stroke="hsl(158, 64%, 32%)"
+                            strokeWidth={3}
+                            dot={{ fill: 'hsl(158, 64%, 32%)', strokeWidth: 2, r: 4 }}
+                            activeDot={{ r: 6 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-4 md:space-y-6">

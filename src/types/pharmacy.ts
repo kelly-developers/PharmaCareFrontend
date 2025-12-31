@@ -46,8 +46,9 @@ export type ProductCategory =
 // Helper to get unit labels
 export const getUnitLabel = (type: UnitType): string => {
   const labels: Record<string, string> = {
-    // Tablets
-    tablet: 'Tab', TABLET: 'Tab', single: 'Tab', SINGLE: 'Tab', tab: 'Tab', TAB: 'Tab',
+    // Tablets - proper capitalization
+    tablet: 'Tablet', TABLET: 'Tablet', single: 'Tablet', SINGLE: 'Tablet', tab: 'Tablet', TAB: 'Tablet',
+    tablets: 'Tablet', TABLETS: 'Tablet',
     // Packaging
     strip: 'Strip', STRIP: 'Strip',
     box: 'Box', BOX: 'Box',
@@ -60,8 +61,8 @@ export const getUnitLabel = (type: UnitType): string => {
     // Weight
     gram: 'g', GRAM: 'g', g: 'g', G: 'g',
     kg: 'kg', KG: 'kg',
-    // Items
-    piece: 'Pc', PIECE: 'Pc', pcs: 'Pcs', PCS: 'Pcs',
+    // Items - proper capitalization
+    piece: 'Piece', PIECE: 'Piece', pcs: 'Piece', PCS: 'Piece', Pc: 'Piece', pc: 'Piece',
     unit: 'Unit', UNIT: 'Unit',
     each: 'Each', EACH: 'Each',
     // Services
