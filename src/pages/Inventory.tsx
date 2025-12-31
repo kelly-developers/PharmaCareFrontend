@@ -51,7 +51,7 @@ import {
   DollarSign,
   RefreshCw,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import { Link } from 'react-router-dom';
 
 const unitTypes = [
@@ -67,6 +67,73 @@ interface UnitPrice {
   quantity: number;
   price: number;
 }
+
+// Helper function to safely parse and format dates
+const formatDateSafe = (dateString: string): string => {
+  if (!dateString) return 'N/A';
+  
+  try {
+    // Try parsing as ISO string first
+    const date = new Date(dateString);
+    
+    // If invalid, try parsing with Date.parse
+    if (!isValid(date)) {
+      const timestamp = Date.parse(dateString);
+      if (!isNaN(timestamp)) {
+        const parsedDate = new Date(timestamp);
+        if (isValid(parsedDate)) {
+          return format(parsedDate, 'MMM dd, yyyy');
+        }
+      }
+      return 'Invalid Date';
+    }
+    
+    return format(date, 'MMM dd, yyyy');
+  } catch (error) {
+    console.error('Error formatting date:', error, dateString);
+    return 'Invalid Date';
+  }
+};
+
+// Helper function to safely parse date for input fields
+const parseDateForInput = (dateString: string): string => {
+  if (!dateString) return '';
+  
+  try {
+    const date = new Date(dateString);
+    if (isValid(date)) {
+      return date.toISOString().split('T')[0];
+    }
+    
+    // Try alternative parsing
+    const parsed = parseISO(dateString);
+    if (isValid(parsed)) {
+      return parsed.toISOString().split('T')[0];
+    }
+    
+    return '';
+  } catch (error) {
+    console.error('Error parsing date for input:', error, dateString);
+    return '';
+  }
+};
+
+// Helper function to calculate days to expiry safely
+const calculateDaysToExpiry = (expiryDateString: string): number => {
+  if (!expiryDateString) return Infinity;
+  
+  try {
+    const expiryDate = new Date(expiryDateString);
+    if (!isValid(expiryDate)) return Infinity;
+    
+    const today = new Date();
+    const timeDiff = expiryDate.getTime() - today.getTime();
+    return Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+  } catch (error) {
+    console.error('Error calculating days to expiry:', error);
+    return Infinity;
+  }
+};
 
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -153,9 +220,7 @@ export default function Inventory() {
   ).length;
 
   const expiringCount = filteredMedicines.filter((med) => {
-    const daysToExpiry = Math.ceil(
-      (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-    );
+    const daysToExpiry = calculateDaysToExpiry(med.expiryDate);
     return daysToExpiry <= 90;
   }).length;
 
@@ -239,13 +304,16 @@ export default function Inventory() {
       setTabletsPerStrip(stripUnit.quantity);
     }
     
+    // Parse expiry date safely
+    const parsedExpiryDate = parseDateForInput(med.expiryDate);
+    
     setEditFormData({
       name: med.name,
       genericName: med.genericName || '',
       category: med.category,
       manufacturer: med.manufacturer || '',
       batchNumber: med.batchNumber,
-      expiryDate: format(new Date(med.expiryDate), 'yyyy-MM-dd'),
+      expiryDate: parsedExpiryDate,
       stockQuantity: med.stockQuantity.toString(),
       reorderLevel: med.reorderLevel.toString(),
       costPrice: med.costPrice.toString(),
@@ -363,6 +431,19 @@ export default function Inventory() {
     try {
       setIsLoading(true);
       
+      // Validate date before sending
+      const expiryDate = editFormData.expiryDate;
+      const dateObj = new Date(expiryDate);
+      if (!isValid(dateObj)) {
+        toast({
+          title: 'Invalid Date',
+          description: 'Please enter a valid expiry date',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+      
       // Prepare units for backend - ensure they're in uppercase
       const unitsForBackend = editUnits.map(u => ({
         type: u.type.toUpperCase(),
@@ -376,7 +457,7 @@ export default function Inventory() {
         category: editFormData.category,
         manufacturer: editFormData.manufacturer,
         batchNumber: editFormData.batchNumber,
-        expiryDate: editFormData.expiryDate,
+        expiryDate: dateObj.toISOString().split('T')[0],
         stockQuantity: parseInt(editFormData.stockQuantity) || 0,
         reorderLevel: parseInt(editFormData.reorderLevel) || 50,
         costPrice: parseFloat(editFormData.costPrice) || 0,
@@ -424,7 +505,7 @@ export default function Inventory() {
         'Category': med.category,
         'Manufacturer': med.manufacturer || '',
         'Batch Number': med.batchNumber,
-        'Expiry Date': format(new Date(med.expiryDate), 'yyyy-MM-dd'),
+        'Expiry Date': formatDateSafe(med.expiryDate),
         'Stock Quantity': med.stockQuantity,
         'Reorder Level': med.reorderLevel,
         'Cost Price': med.costPrice,
@@ -710,12 +791,11 @@ export default function Inventory() {
                     {filteredMedicines.map((med) => {
                       const isLowStock = med.stockQuantity <= med.reorderLevel;
                       const isOutOfStock = med.stockQuantity === 0;
-                      const daysToExpiry = Math.ceil(
-                        (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-                      );
+                      const daysToExpiry = calculateDaysToExpiry(med.expiryDate);
                       const isExpiring = daysToExpiry <= 90;
                       const isExpired = daysToExpiry <= 0;
                       const stockValue = calculateMedicineStockValue(med);
+                      const formattedExpiry = formatDateSafe(med.expiryDate);
 
                       return (
                         <TableRow key={med.id}>
@@ -731,8 +811,8 @@ export default function Inventory() {
                           <TableCell className="font-mono text-sm">{med.batchNumber}</TableCell>
                           <TableCell>
                             <span className={isExpiring || isExpired ? 'text-destructive font-medium' : ''}>
-                              {format(new Date(med.expiryDate), 'MMM dd, yyyy')}
-                              {isExpiring && !isExpired && (
+                              {formattedExpiry}
+                              {isExpiring && !isExpired && daysToExpiry !== Infinity && (
                                 <span className="text-xs text-muted-foreground block">({daysToExpiry} days)</span>
                               )}
                             </span>
