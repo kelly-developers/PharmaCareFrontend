@@ -1,17 +1,21 @@
 import { api, ApiResponse } from './api';
 
-// Dashboard Summary
+// Dashboard Summary - UPDATED with monthly profit fields
 interface DashboardStats {
   todaySales: number;
   todayTransactions: number;
   todayProfit: number;
+  thisMonthProfit: number;
+  lastMonthProfit: number;
   inventoryValue: number;
   totalStockItems: number;
   lowStockCount: number;
   outOfStockCount: number;
   expiringSoonCount: number;
+  expiringCount?: number; // For backward compatibility
   todayExpenses: number;
   pendingOrders: number;
+  pendingExpenses: number;
   pendingPrescriptions: number;
 }
 

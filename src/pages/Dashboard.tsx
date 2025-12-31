@@ -17,6 +17,7 @@ import {
   Clock,
   ArrowRight,
   RefreshCw,
+  Calendar,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
@@ -35,6 +36,8 @@ export default function Dashboard() {
     todaySales: 0,
     todayTransactions: 0,
     todayProfit: 0,
+    thisMonthProfit: 0,
+    lastMonthProfit: 0,
     inventoryValue: 0,
     totalStockItems: 0,
     lowStockCount: 0,
@@ -53,10 +56,28 @@ export default function Dashboard() {
     try {
       const response = await reportService.getDashboardStats();
       if (response.success && response.data) {
-        setDashboardData(response.data);
+        // Update dashboard data with all fields from backend
+        setDashboardData(prev => ({
+          ...prev,
+          ...response.data,
+          // Ensure these fields exist
+          todaySales: response.data.todaySales || 0,
+          todayTransactions: response.data.todayTransactions || 0,
+          todayProfit: response.data.todayProfit || 0,
+          thisMonthProfit: response.data.thisMonthProfit || 0,
+          lastMonthProfit: response.data.lastMonthProfit || 0,
+          inventoryValue: response.data.inventoryValue || 0,
+          totalStockItems: response.data.totalStockItems || 0,
+          lowStockCount: response.data.lowStockCount || 0,
+          expiringSoonCount: response.data.expiringCount || response.data.expiringSoonCount || 0,
+          pendingOrders: response.data.pendingOrders || 0,
+          pendingExpenses: response.data.pendingExpenses || 0,
+          pendingPrescriptions: response.data.pendingPrescriptions || 0,
+        }));
       }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
+      toast.error('Failed to load dashboard data');
     }
   };
 
@@ -108,6 +129,17 @@ export default function Dashboard() {
       setIsRefreshing(false);
     }
   };
+
+  // Calculate trend percentage for monthly profit
+  const calculateMonthlyProfitTrend = () => {
+    if (dashboardData.lastMonthProfit === 0) {
+      return dashboardData.thisMonthProfit > 0 ? 100 : 0;
+    }
+    return ((dashboardData.thisMonthProfit - dashboardData.lastMonthProfit) / Math.abs(dashboardData.lastMonthProfit)) * 100;
+  };
+
+  const monthlyProfitTrend = calculateMonthlyProfitTrend();
+  const isMonthlyProfitPositive = monthlyProfitTrend >= 0;
 
   return (
     <MainLayout>
@@ -169,11 +201,15 @@ export default function Dashboard() {
           />
           {canViewProfit && (
             <StatCard
-              title="Gross Profit"
-              value={`KSh ${dashboardData.todayProfit.toLocaleString()}`}
+              title="Monthly Gross Profit"
+              value={`KSh ${dashboardData.thisMonthProfit.toLocaleString()}`}
               icon={<TrendingUp className="h-6 w-6" />}
-              trend={{ value: dashboardData.todayProfit > 0 ? 5 : 0, isPositive: true }}
+              trend={{ 
+                value: Math.abs(monthlyProfitTrend), 
+                isPositive: isMonthlyProfitPositive 
+              }}
               iconClassName="bg-primary/10 text-primary"
+              subtitle="This month"
             />
           )}
         </div>
@@ -214,6 +250,39 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Quick Profit Overview for Admins/Managers */}
+        {canViewProfit && dashboardData.thisMonthProfit > 0 && (
+          <Card variant="elevated" className="bg-primary/5 border-primary/20">
+            <CardContent className="pt-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Calendar className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Monthly Profit Performance</p>
+                    <div className="flex items-center gap-4 mt-1">
+                      <div>
+                        <span className="text-2xl font-bold">KSh {dashboardData.thisMonthProfit.toLocaleString()}</span>
+                        <span className={`ml-2 text-sm font-medium ${isMonthlyProfitPositive ? 'text-success' : 'text-destructive'}`}>
+                          {isMonthlyProfitPositive ? '+' : ''}{monthlyProfitTrend.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        vs last month: KSh {dashboardData.lastMonthProfit.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Today's Profit</p>
+                  <p className="text-lg font-semibold">KSh {dashboardData.todayProfit.toLocaleString()}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
