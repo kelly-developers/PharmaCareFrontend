@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { useStock } from '@/contexts/StockContext';
 import { useCategories } from '@/contexts/CategoriesContext';
-import { categories } from '@/data/medicines';
 import { useToast } from '@/hooks/use-toast';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
@@ -48,16 +47,17 @@ import {
   Pill,
   Loader2,
   DollarSign,
+  RefreshCw,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
 const unitTypes = [
-  { value: 'single', label: 'Single/Tablet' },
-  { value: 'strip', label: 'Strip' },
-  { value: 'box', label: 'Box' },
-  { value: 'pair', label: 'Pair' },
-  { value: 'bottle', label: 'Bottle' },
+  { value: 'SINGLE', label: 'Single/Tablet' },
+  { value: 'STRIP', label: 'Strip' },
+  { value: 'BOX', label: 'Box' },
+  { value: 'PAIR', label: 'Pair' },
+  { value: 'BOTTLE', label: 'Bottle' },
 ];
 
 interface UnitPrice {
@@ -81,12 +81,19 @@ export default function Inventory() {
     expiringCount: 0,
     loading: true
   });
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { medicines, refreshMedicines } = useStock();
-  const { getCategoryNames } = useCategories();
+  const { categories: categoryList, getCategoryNames, refreshCategories } = useCategories();
   const { toast } = useToast();
 
+  // Get category names from backend
   const categoryNames = getCategoryNames();
+
+  // Refresh categories on component mount
+  useEffect(() => {
+    refreshCategories();
+  }, []);
 
   const filteredMedicines = medicines.filter((med) => {
     const matchesSearch = med.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -96,7 +103,7 @@ export default function Inventory() {
     return matchesSearch && matchesCategory;
   });
 
-  // Calculate medicine stock value - matches backend calculation
+  // Calculate medicine stock value
   const calculateMedicineStockValue = (medicine: Medicine): number => {
     if (!medicine || !medicine.units || medicine.stockQuantity === 0) {
       return 0;
@@ -104,7 +111,7 @@ export default function Inventory() {
 
     // Find single unit (tablet) price
     const singleUnit = medicine.units.find(u => 
-      u.type.toLowerCase() === 'single' || u.type === 'SINGLE'
+      u.type.toUpperCase() === 'SINGLE'
     );
     
     if (singleUnit && singleUnit.price > 0) {
@@ -116,7 +123,7 @@ export default function Inventory() {
     // Fallback to cost price calculation
     // Find box unit to get tablets per box
     const boxUnit = medicine.units.find(u => 
-      u.type.toLowerCase() === 'box' || u.type === 'BOX'
+      u.type.toUpperCase() === 'BOX'
     );
     const tabletsPerBox = boxUnit?.quantity || 100;
     
@@ -189,14 +196,34 @@ export default function Inventory() {
     fetchInventoryStats();
   }, []);
 
+  // Handle refresh categories
+  const handleRefreshCategories = async () => {
+    setCategoriesLoading(true);
+    try {
+      await refreshCategories();
+      toast({
+        title: 'Categories refreshed',
+        description: `Found ${categoryNames.length} categories`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to refresh categories',
+        variant: 'destructive',
+      });
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
   // Start editing a medicine
   const startEdit = (med: Medicine) => {
     setEditingMedicine(med);
     
     // Extract tablets per box and strip from units
-    const boxUnit = med.units.find(u => u.type === 'box' || u.type === 'BOX');
-    const stripUnit = med.units.find(u => u.type === 'strip' || u.type === 'STRIP');
-    const singleUnit = med.units.find(u => u.type === 'single' || u.type === 'SINGLE');
+    const boxUnit = med.units.find(u => u.type === 'BOX');
+    const stripUnit = med.units.find(u => u.type === 'STRIP');
+    const singleUnit = med.units.find(u => u.type === 'SINGLE');
     
     if (boxUnit) {
       setTabletsPerBox(boxUnit.quantity);
@@ -217,6 +244,7 @@ export default function Inventory() {
       costPrice: med.costPrice.toString(),
       boxPrice: boxUnit?.price?.toString() || '0',
       tabletPrice: singleUnit?.price?.toString() || '0',
+      description: med.description || ''
     });
     
     // Initialize units based on medicine data
@@ -225,7 +253,7 @@ export default function Inventory() {
     // Add single unit
     if (singleUnit) {
       defaultUnits.push({
-        type: 'single',
+        type: 'SINGLE',
         quantity: 1,
         price: singleUnit.price,
       });
@@ -234,7 +262,7 @@ export default function Inventory() {
     // Add strip unit if exists
     if (stripUnit) {
       defaultUnits.push({
-        type: 'strip',
+        type: 'STRIP',
         quantity: stripUnit.quantity,
         price: stripUnit.price,
       });
@@ -243,16 +271,16 @@ export default function Inventory() {
     // Add box unit
     if (boxUnit) {
       defaultUnits.push({
-        type: 'box',
+        type: 'BOX',
         quantity: boxUnit.quantity,
         price: boxUnit.price,
       });
     }
     
     setEditUnits(defaultUnits.length > 0 ? defaultUnits : [
-      { type: 'single', quantity: 1, price: 0 },
-      { type: 'strip', quantity: 10, price: 0 },
-      { type: 'box', quantity: 100, price: 0 },
+      { type: 'SINGLE', quantity: 1, price: 0 },
+      { type: 'STRIP', quantity: 10, price: 0 },
+      { type: 'BOX', quantity: 100, price: 0 },
     ]);
   };
 
@@ -269,16 +297,22 @@ export default function Inventory() {
       
       // Update single unit price
       const updatedUnits = [...editUnits];
-      const singleIndex = updatedUnits.findIndex(unit => unit.type === 'single');
+      const singleIndex = updatedUnits.findIndex(unit => unit.type === 'SINGLE');
       if (singleIndex > -1) {
         updatedUnits[singleIndex].price = parseFloat(tabletPrice.toFixed(2));
       }
       
       // Update strip unit price
-      const stripIndex = updatedUnits.findIndex(unit => unit.type === 'strip');
+      const stripIndex = updatedUnits.findIndex(unit => unit.type === 'STRIP');
       if (stripIndex > -1 && tabletsPerStrip > 0) {
         const stripPrice = tabletPrice * tabletsPerStrip;
         updatedUnits[stripIndex].price = parseFloat(stripPrice.toFixed(2));
+      }
+      
+      // Update box unit price
+      const boxIndex = updatedUnits.findIndex(unit => unit.type === 'BOX');
+      if (boxIndex > -1) {
+        updatedUnits[boxIndex].price = boxPrice;
       }
       
       setEditUnits(updatedUnits);
@@ -289,9 +323,9 @@ export default function Inventory() {
   useEffect(() => {
     if (editingMedicine) {
       const updatedUnits = editUnits.map(unit => {
-        if (unit.type === 'box') {
+        if (unit.type === 'BOX') {
           return { ...unit, quantity: tabletsPerBox };
-        } else if (unit.type === 'strip') {
+        } else if (unit.type === 'STRIP') {
           return { ...unit, quantity: tabletsPerStrip };
         }
         return unit;
@@ -321,6 +355,14 @@ export default function Inventory() {
 
     try {
       setIsLoading(true);
+      
+      // Prepare units for backend - ensure they're in uppercase
+      const unitsForBackend = editUnits.map(u => ({
+        type: u.type.toUpperCase(),
+        quantity: u.quantity,
+        price: u.price,
+      }));
+
       const response = await medicineService.update(editingMedicine.id, {
         name: editFormData.name,
         genericName: editFormData.genericName || undefined,
@@ -331,11 +373,8 @@ export default function Inventory() {
         stockQuantity: parseInt(editFormData.stockQuantity) || 0,
         reorderLevel: parseInt(editFormData.reorderLevel) || 50,
         costPrice: parseFloat(editFormData.costPrice) || 0,
-        units: editUnits.map(u => ({
-          type: u.type.toUpperCase() as MedicineUnit['type'],
-          quantity: u.quantity,
-          price: u.price,
-        })),
+        units: unitsForBackend,
+        description: editFormData.description || ''
       });
 
       if (response.success) {
@@ -347,6 +386,7 @@ export default function Inventory() {
         // Refresh medicines and inventory stats
         await refreshMedicines();
         await fetchInventoryStats();
+        setEditingMedicine(null);
       } else {
         toast({
           title: 'Update Failed',
@@ -354,17 +394,16 @@ export default function Inventory() {
           variant: 'destructive',
         });
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error updating medicine:', error);
       toast({
         title: 'Update Failed',
-        description: 'An error occurred while updating the medicine',
+        description: error.message || 'An error occurred while updating the medicine',
         variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
     }
-
-    setEditingMedicine(null);
   };
 
   // Export medicines to Excel
@@ -383,11 +422,11 @@ export default function Inventory() {
         'Reorder Level': med.reorderLevel,
         'Cost Price': med.costPrice,
         'Selling Price per Tablet': (() => {
-          const singleUnit = med.units?.find(u => u.type.toLowerCase() === 'single');
+          const singleUnit = med.units?.find(u => u.type.toUpperCase() === 'SINGLE');
           if (singleUnit && singleUnit.price > 0) {
             return singleUnit.price / singleUnit.quantity;
           }
-          return med.costPrice / 100; // Default assumption
+          return med.costPrice / 100;
         })(),
         'Stock Value': stockValue,
         'Status': med.stockQuantity === 0 ? 'Out of Stock' : med.stockQuantity <= med.reorderLevel ? 'Low Stock' : 'In Stock',
@@ -398,7 +437,6 @@ export default function Inventory() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
     
-    // Set column widths
     ws['!cols'] = [
       { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 15 },
       { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
@@ -434,50 +472,35 @@ export default function Inventory() {
         for (const row of data) {
           const rowData = row as any;
           
-          // Skip rows without medicine name
           if (!rowData['Medicine Name'] && !rowData['name']) {
             errors.push('Row missing medicine name');
             continue;
           }
           
-          const medicine: Omit<Medicine, 'id' | 'createdAt' | 'updatedAt'> = {
+          const medicine: any = {
             name: rowData['Medicine Name'] || rowData['name'] || '',
-            genericName: rowData['Generic Name'] || rowData['genericName'] || undefined,
+            genericName: rowData['Generic Name'] || rowData['genericName'] || '',
             category: rowData['Category'] || rowData['category'] || 'General',
             manufacturer: rowData['Manufacturer'] || rowData['manufacturer'] || '',
             batchNumber: rowData['Batch Number'] || rowData['batchNumber'] || `BATCH-${Date.now()}`,
-            expiryDate: rowData['Expiry Date'] ? new Date(rowData['Expiry Date']) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            expiryDate: rowData['Expiry Date'] ? new Date(rowData['Expiry Date']).toISOString().split('T')[0] : 
+                     new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             units: [{
-              type: 'single' as const,
+              type: 'SINGLE',
               quantity: 1,
               price: parseFloat(rowData['Selling Price per Tablet']) || 
                      parseFloat(rowData['sellingPrice']) || 
-                     (parseFloat(rowData['Selling Price']) || 0) / 100, // Default assumption
+                     (parseFloat(rowData['Selling Price']) || 0) / 100,
             }],
             stockQuantity: parseInt(rowData['Stock Quantity']) || parseInt(rowData['stockQuantity']) || 0,
             reorderLevel: parseInt(rowData['Reorder Level']) || parseInt(rowData['reorderLevel']) || 50,
-            supplierId: 'sup1',
             costPrice: parseFloat(rowData['Cost Price']) || parseFloat(rowData['costPrice']) || 0,
             imageUrl: '',
+            description: rowData['Description'] || ''
           };
 
           if (medicine.name) {
-            // Call API to add medicine
-            const response = await medicineService.create({
-              name: medicine.name,
-              genericName: medicine.genericName,
-              category: medicine.category,
-              manufacturer: medicine.manufacturer,
-              batchNumber: medicine.batchNumber,
-              expiryDate: medicine.expiryDate instanceof Date ? 
-                         medicine.expiryDate.toISOString().split('T')[0] : 
-                         medicine.expiryDate as string,
-              units: medicine.units,
-              stockQuantity: medicine.stockQuantity,
-              reorderLevel: medicine.reorderLevel,
-              costPrice: medicine.costPrice,
-              imageUrl: medicine.imageUrl,
-            });
+            const response = await medicineService.create(medicine);
             
             if (response.success) {
               importedCount++;
@@ -487,7 +510,6 @@ export default function Inventory() {
           }
         }
 
-        // Refresh data
         await refreshMedicines();
         await fetchInventoryStats();
         
@@ -497,7 +519,6 @@ export default function Inventory() {
           variant: errors.length > 0 ? 'destructive' : 'default',
         });
 
-        // Reset file input
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -603,9 +624,6 @@ export default function Inventory() {
                   <p className="text-2xl font-bold text-green-600">
                     {inventoryStats.loading ? 'Loading...' : `KSh ${inventoryStats.totalValue.toLocaleString()}`}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Correctly calculated from backend
-                  </p>
                 </div>
               </div>
             </CardContent>
@@ -615,7 +633,7 @@ export default function Inventory() {
         {/* Filters */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -626,18 +644,33 @@ export default function Inventory() {
                   disabled={isLoading}
                 />
               </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={isLoading}>
-                <SelectTrigger className="w-full sm:w-48">
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2 items-center">
+                <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={isLoading}>
+                  <SelectTrigger className="w-full sm:w-48">
+                    <Filter className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {categoryNames.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  onClick={handleRefreshCategories}
+                  variant="outline"
+                  size="icon"
+                  disabled={categoriesLoading || isLoading}
+                  title="Refresh Categories"
+                >
+                  {categoriesLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -773,18 +806,27 @@ export default function Inventory() {
                   <Select
                     value={editFormData.category}
                     onValueChange={(value) => setEditFormData({ ...editFormData, category: value })}
-                    disabled={isLoading}
+                    disabled={isLoading || categoriesLoading}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {categoryNames.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
-                      {categories.map((cat) => (
-                        !categoryNames.includes(cat) && <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
+                      {categoriesLoading ? (
+                        <div className="flex items-center justify-center p-4">
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          <span>Loading categories...</span>
+                        </div>
+                      ) : categoryNames.length === 0 ? (
+                        <div className="p-4 text-center text-muted-foreground">
+                          <p>No categories found</p>
+                          <p className="text-sm mt-1">Please refresh categories</p>
+                        </div>
+                      ) : (
+                        categoryNames.map((cat) => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -796,6 +838,17 @@ export default function Inventory() {
                     disabled={isLoading}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <textarea
+                  value={editFormData.description || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                  className="w-full min-h-[80px] px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Description of the medicine"
+                  disabled={isLoading}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1031,7 +1084,7 @@ export default function Inventory() {
                   variant="hero" 
                   className="flex-1" 
                   onClick={saveEdit}
-                  disabled={isLoading}
+                  disabled={isLoading || categoriesLoading}
                 >
                   {isLoading ? (
                     <>
