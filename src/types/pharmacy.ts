@@ -13,26 +13,125 @@ export interface User {
   updatedAt?: string | Date;
 }
 
-// Medicine unit types - supports both uppercase and lowercase
-export type UnitType = 'SINGLE' | 'STRIP' | 'BOX' | 'PAIR' | 'BOTTLE' | 'single' | 'strip' | 'box' | 'pair' | 'bottle';
+// Medicine unit types - supports various product types
+export type UnitType = 
+  // Tablets and pills
+  | 'TABLET' | 'tablet' | 'SINGLE' | 'single' | 'TAB' | 'tab'
+  // Packaging
+  | 'STRIP' | 'strip' | 'BOX' | 'box' | 'PACK' | 'pack' | 'PAIR' | 'pair'
+  // Liquids
+  | 'BOTTLE' | 'bottle' | 'ML' | 'ml' | 'SYRUP' | 'syrup'
+  // Weight-based
+  | 'GRAM' | 'gram' | 'G' | 'g' | 'KG' | 'kg'
+  // Individual items
+  | 'PIECE' | 'piece' | 'PCS' | 'pcs' | 'UNIT' | 'unit' | 'EACH' | 'each'
+  // Services
+  | 'SERVICE' | 'service' | 'INJECTION' | 'injection' | 'SESSION' | 'session'
+  // Custom
+  | string;
 
-// Helper to get unit labels for both cases
+// Product type categories for better organization
+export type ProductCategory = 
+  | 'tablets' 
+  | 'syrup' 
+  | 'injection' 
+  | 'cream' 
+  | 'drops' 
+  | 'powder' 
+  | 'device' 
+  | 'consumable' 
+  | 'service'
+  | 'other';
+
+// Helper to get unit labels
 export const getUnitLabel = (type: UnitType): string => {
   const labels: Record<string, string> = {
-    single: 'Tab', SINGLE: 'Tab',
+    // Tablets
+    tablet: 'Tab', TABLET: 'Tab', single: 'Tab', SINGLE: 'Tab', tab: 'Tab', TAB: 'Tab',
+    // Packaging
     strip: 'Strip', STRIP: 'Strip',
     box: 'Box', BOX: 'Box',
+    pack: 'Pack', PACK: 'Pack',
     pair: 'Pair', PAIR: 'Pair',
+    // Liquids
     bottle: 'Bottle', BOTTLE: 'Bottle',
+    ml: 'ml', ML: 'ml',
+    syrup: 'Syrup', SYRUP: 'Syrup',
+    // Weight
+    gram: 'g', GRAM: 'g', g: 'g', G: 'g',
+    kg: 'kg', KG: 'kg',
+    // Items
+    piece: 'Pc', PIECE: 'Pc', pcs: 'Pcs', PCS: 'Pcs',
+    unit: 'Unit', UNIT: 'Unit',
+    each: 'Each', EACH: 'Each',
+    // Services
+    service: 'Service', SERVICE: 'Service',
+    injection: 'Injection', INJECTION: 'Injection',
+    session: 'Session', SESSION: 'Session',
   };
   return labels[type] || type;
+};
+
+// Common unit presets for quick selection
+export const UNIT_PRESETS = {
+  tablets: [
+    { type: 'TABLET', label: 'Tablet/Single', defaultQty: 1 },
+    { type: 'STRIP', label: 'Strip', defaultQty: 10 },
+    { type: 'BOX', label: 'Box', defaultQty: 100 },
+  ],
+  tabletsPair: [
+    { type: 'PAIR', label: 'Pair (2 tablets)', defaultQty: 2 },
+    { type: 'STRIP', label: 'Strip', defaultQty: 10 },
+    { type: 'BOX', label: 'Box', defaultQty: 100 },
+  ],
+  syrup: [
+    { type: 'BOTTLE', label: 'Bottle', defaultQty: 1 },
+    { type: 'BOX', label: 'Box (1 bottle)', defaultQty: 1 },
+  ],
+  liquid: [
+    { type: 'ML', label: 'Per ml', defaultQty: 1 },
+    { type: 'BOTTLE', label: 'Bottle', defaultQty: 100 },
+  ],
+  liquidBottles: [
+    { type: 'BOTTLE', label: '100ml Bottle', defaultQty: 100 },
+    { type: 'BOTTLE', label: '200ml Bottle', defaultQty: 200 },
+    { type: 'BOTTLE', label: '500ml Bottle', defaultQty: 500 },
+  ],
+  weight: [
+    { type: 'GRAM', label: 'Per gram', defaultQty: 1 },
+    { type: 'PACK', label: '50g Pack', defaultQty: 50 },
+    { type: 'PACK', label: '100g Pack', defaultQty: 100 },
+  ],
+  individual: [
+    { type: 'PIECE', label: 'Per piece', defaultQty: 1 },
+    { type: 'PACK', label: 'Pack', defaultQty: 1 },
+    { type: 'BOX', label: 'Box', defaultQty: 1 },
+  ],
+  service: [
+    { type: 'SERVICE', label: 'Per service', defaultQty: 1 },
+    { type: 'SESSION', label: 'Per session', defaultQty: 1 },
+    { type: 'INJECTION', label: 'Per injection', defaultQty: 1 },
+  ],
 };
 
 export interface MedicineUnit {
   type: UnitType;
   quantity: number; // e.g., strip = 10 tabs, box = 100 tabs
   price: number;
+  label?: string; // Custom label like "500ml Bottle" or "50g Pack"
 }
+
+// Product type for flexible categorization
+export type ProductType = 
+  | 'tablets'           // Regular tablets (single, strip, box)
+  | 'tablets_pair'      // Tablets sold as pairs (Maramoja)
+  | 'syrup'             // Syrups (bottle per box)
+  | 'liquid_bottle'     // Liquids sold by bottle size (spirit, peroxide)
+  | 'weight_based'      // Items sold by weight (cotton wool)
+  | 'individual'        // Individual items (condoms, Eno)
+  | 'service'           // Services (injections, family planning)
+  | 'box_only'          // Items sold only per box (Azithromycin)
+  | 'custom';           // Custom configuration
 
 export interface Medicine {
   id: string;
@@ -43,14 +142,16 @@ export interface Medicine {
   batchNumber: string;
   expiryDate: Date;
   units: MedicineUnit[];
-  stockQuantity: number; // in smallest unit (single tab)
+  stockQuantity: number; // in smallest unit
   reorderLevel: number;
   supplierId: string;
   costPrice: number; // per smallest unit
-  imageUrl?: string; // Medicine image
+  imageUrl?: string;
+  description?: string; // Product description
+  productType?: ProductType; // Type of product for unit configuration
   createdAt: Date;
   updatedAt: Date;
-  isActive?: boolean; // Add this for backend compatibility
+  isActive?: boolean;
 }
 export interface Supplier {
   id: string;

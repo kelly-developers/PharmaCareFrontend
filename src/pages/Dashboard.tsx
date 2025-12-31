@@ -4,6 +4,7 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSales } from '@/contexts/SalesContext';
 import { useStock } from '@/contexts/StockContext';
@@ -18,11 +19,27 @@ import {
   ArrowRight,
   RefreshCw,
   Calendar,
+  Users,
+  CreditCard,
+  BarChart3,
+  Wallet,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 import { reportService } from '@/services/reportService';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  Legend,
+} from 'recharts';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -30,6 +47,7 @@ export default function Dashboard() {
   const { medicines, refreshMedicines } = useStock();
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeView, setActiveView] = useState<'daily' | 'monthly' | 'annual'>('daily');
   
   // State for all dashboard data from backend
   const [dashboardData, setDashboardData] = useState({
@@ -48,6 +66,15 @@ export default function Dashboard() {
     pendingPrescriptions: 0,
   });
 
+  // Annual tracking data
+  const [annualData, setAnnualData] = useState({
+    totalRevenue: 0,
+    totalProfit: 0,
+    totalOrders: 0,
+    sellerPayments: 0,
+    monthlyData: [] as { month: string; revenue: number; profit: number; orders: number }[],
+  });
+
   // Only admin and manager can see profits
   const canViewProfit = user?.role === 'admin' || user?.role === 'manager';
 
@@ -56,13 +83,9 @@ export default function Dashboard() {
     try {
       const response = await reportService.getDashboardStats();
       if (response.success && response.data) {
-        console.log('Dashboard data from backend:', response.data); // Debug log
-        
-        // Update dashboard data with all fields from backend
         setDashboardData(prev => ({
           ...prev,
           ...response.data,
-          // Ensure these fields exist and are properly mapped
           todaySales: response.data.todaySales || 0,
           todayTransactions: response.data.todayTransactions || 0,
           todayProfit: response.data.todayProfit || 0,
@@ -76,14 +99,28 @@ export default function Dashboard() {
           pendingExpenses: response.data.pendingExpenses || 0,
           pendingPrescriptions: response.data.pendingPrescriptions || 0,
         }));
-        
-        // Debug: Log the values
-        console.log('Low Stock Count from backend:', response.data.lowStockCount);
-        console.log('Total Items from backend:', response.data.totalStockItems);
       }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
       toast.error('Failed to load dashboard data');
+    }
+  };
+
+  // Fetch annual income data from backend
+  const fetchAnnualData = async () => {
+    try {
+      const response = await reportService.getAnnualSummary();
+      if (response.success && response.data) {
+        setAnnualData({
+          totalRevenue: response.data.totalRevenue || 0,
+          totalProfit: response.data.totalProfit || 0,
+          totalOrders: response.data.totalOrders || 0,
+          sellerPayments: response.data.sellerPayments || 0,
+          monthlyData: response.data.monthlyData || [],
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch annual data:', error);
     }
   };
 
@@ -99,17 +136,20 @@ export default function Dashboard() {
   // Fetch dashboard data on component mount
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+    if (canViewProfit) {
+      fetchAnnualData();
+    }
+  }, [canViewProfit]);
 
   // Get real sales data
   const allSales = getAllSales();
   
-  // Get low stock items - items with stock = 0 OR stock <= reorder level
+  // Get low stock items
   const lowStockItems = medicines.filter(med => 
     med.stockQuantity <= med.reorderLevel
   ).slice(0, 4);
   
-  // Get expiring items - only items with stock > 0
+  // Get expiring items
   const expiringItems = medicines.filter(med => {
     const daysToExpiry = Math.ceil(
       (new Date(med.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
@@ -128,7 +168,8 @@ export default function Dashboard() {
       await Promise.all([
         fetchAllSales(),
         refreshMedicines(),
-        fetchDashboardData()
+        fetchDashboardData(),
+        canViewProfit ? fetchAnnualData() : Promise.resolve()
       ]);
       toast.success('Dashboard data refreshed');
     } catch (error) {
@@ -198,7 +239,6 @@ export default function Dashboard() {
             trend={{ value: dashboardData.todayTransactions > 0 ? 8 : 0, isPositive: true }}
             iconClassName="bg-info/10 text-info"
           />
-          {/* Inventory Value Card - FROM BACKEND */}
           <StatCard
             title="Inventory Value"
             value={`KSh ${dashboardData.inventoryValue.toLocaleString()}`}
@@ -258,6 +298,88 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Annual Income Tracking - Admin/Manager Only */}
+        {canViewProfit && (
+          <Card variant="elevated">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                  Annual Income Tracking - {new Date().getFullYear()}
+                </CardTitle>
+                <Tabs value={activeView} onValueChange={(v) => setActiveView(v as any)}>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="daily" className="text-xs px-3">Daily</TabsTrigger>
+                    <TabsTrigger value="monthly" className="text-xs px-3">Monthly</TabsTrigger>
+                    <TabsTrigger value="annual" className="text-xs px-3">Annual</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Annual Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="p-4 rounded-lg bg-success/10 border border-success/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <DollarSign className="h-4 w-4 text-success" />
+                    <span className="text-xs text-muted-foreground">Total Revenue</span>
+                  </div>
+                  <p className="text-xl font-bold text-success">KSh {annualData.totalRevenue.toLocaleString()}</p>
+                </div>
+                <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingUp className="h-4 w-4 text-primary" />
+                    <span className="text-xs text-muted-foreground">Total Profit</span>
+                  </div>
+                  <p className="text-xl font-bold text-primary">KSh {annualData.totalProfit.toLocaleString()}</p>
+                </div>
+                <div className="p-4 rounded-lg bg-info/10 border border-info/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShoppingCart className="h-4 w-4 text-info" />
+                    <span className="text-xs text-muted-foreground">Total Orders</span>
+                  </div>
+                  <p className="text-xl font-bold text-info">{annualData.totalOrders.toLocaleString()}</p>
+                </div>
+                <div className="p-4 rounded-lg bg-warning/10 border border-warning/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Users className="h-4 w-4 text-warning" />
+                    <span className="text-xs text-muted-foreground">Seller Payments</span>
+                  </div>
+                  <p className="text-xl font-bold text-warning">KSh {annualData.sellerPayments.toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Monthly Revenue & Profit Chart */}
+              {annualData.monthlyData.length > 0 && (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={annualData.monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
+                      <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                      <Tooltip
+                        formatter={(value: number, name: string) => [
+                          `KSh ${value.toLocaleString()}`,
+                          name === 'revenue' ? 'Revenue' : name === 'profit' ? 'Profit' : 'Orders'
+                        ]}
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Bar dataKey="revenue" fill="hsl(158, 64%, 32%)" radius={[4, 4, 0, 0]} name="Revenue" />
+                      <Bar dataKey="profit" fill="hsl(199, 89%, 48%)" radius={[4, 4, 0, 0]} name="Profit" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Quick Profit Overview for Admins/Managers */}
         {canViewProfit && (

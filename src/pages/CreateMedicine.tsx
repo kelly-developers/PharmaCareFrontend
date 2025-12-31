@@ -1,4 +1,4 @@
-// CreateMedicine.tsx - FULLY UPDATED
+// CreateMedicine.tsx - Supports all product types
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { useCategories } from '@/contexts/CategoriesContext';
+import { ProductType } from '@/types/pharmacy';
 import {
   Select,
   SelectContent,
@@ -28,44 +29,104 @@ import {
   Hash,
   Loader2,
   Calculator,
-  Box,
+  Trash2,
   RefreshCw,
+  Droplets,
+  Syringe,
+  Box,
+  ShoppingBag,
+  Scale,
+  CircleDot,
 } from 'lucide-react';
 import { medicineService } from '@/services/medicineService';
 
-const unitTypes = [
-  { value: 'SINGLE', label: 'Single/Tablet' },
-  { value: 'STRIP', label: 'Strip' },
-  { value: 'BOX', label: 'Box' },
-  { value: 'PAIR', label: 'Pair' },
-  { value: 'BOTTLE', label: 'Bottle' },
+// Product type configurations
+const PRODUCT_TYPES: { value: ProductType; label: string; icon: React.ReactNode; description: string }[] = [
+  { value: 'tablets', label: 'Tablets', icon: <Pill className="h-4 w-4" />, description: 'Regular tablets (single, strip, box)' },
+  { value: 'tablets_pair', label: 'Tablet Pairs', icon: <CircleDot className="h-4 w-4" />, description: 'Tablets sold as pairs (e.g., Maramoja)' },
+  { value: 'syrup', label: 'Syrup/Bottle', icon: <Droplets className="h-4 w-4" />, description: 'Syrups - one bottle per box' },
+  { value: 'liquid_bottle', label: 'Liquid by Size', icon: <Droplets className="h-4 w-4" />, description: 'Liquids sold by bottle size (ml)' },
+  { value: 'weight_based', label: 'Weight Based', icon: <Scale className="h-4 w-4" />, description: 'Items sold by weight (grams)' },
+  { value: 'individual', label: 'Individual Items', icon: <ShoppingBag className="h-4 w-4" />, description: 'Single items (condoms, Eno, etc.)' },
+  { value: 'service', label: 'Service', icon: <Syringe className="h-4 w-4" />, description: 'Services (injections, consultations)' },
+  { value: 'box_only', label: 'Box Only', icon: <Box className="h-4 w-4" />, description: 'Sold only per box (e.g., Azithromycin)' },
+  { value: 'custom', label: 'Custom', icon: <Package className="h-4 w-4" />, description: 'Define your own units' },
 ];
 
-interface UnitPrice {
+interface UnitConfig {
+  id: string;
   type: string;
+  label: string;
   quantity: number;
   price: number;
 }
+
+// Default unit configurations for each product type
+const getDefaultUnits = (productType: ProductType): UnitConfig[] => {
+  const id = () => Math.random().toString(36).substr(2, 9);
+  
+  switch (productType) {
+    case 'tablets':
+      return [
+        { id: id(), type: 'TABLET', label: 'Tablet', quantity: 1, price: 0 },
+        { id: id(), type: 'STRIP', label: 'Strip', quantity: 10, price: 0 },
+        { id: id(), type: 'BOX', label: 'Box', quantity: 100, price: 0 },
+      ];
+    case 'tablets_pair':
+      return [
+        { id: id(), type: 'PAIR', label: 'Pair (2 tablets)', quantity: 2, price: 0 },
+        { id: id(), type: 'STRIP', label: 'Strip', quantity: 10, price: 0 },
+        { id: id(), type: 'BOX', label: 'Box', quantity: 100, price: 0 },
+      ];
+    case 'syrup':
+      return [
+        { id: id(), type: 'BOTTLE', label: 'Bottle', quantity: 1, price: 0 },
+        { id: id(), type: 'BOX', label: 'Box (1 bottle)', quantity: 1, price: 0 },
+      ];
+    case 'liquid_bottle':
+      return [
+        { id: id(), type: 'BOTTLE', label: '100ml Bottle', quantity: 100, price: 0 },
+        { id: id(), type: 'BOTTLE', label: '200ml Bottle', quantity: 200, price: 0 },
+        { id: id(), type: 'BOTTLE', label: '500ml Bottle', quantity: 500, price: 0 },
+      ];
+    case 'weight_based':
+      return [
+        { id: id(), type: 'PACK', label: '50g Pack', quantity: 50, price: 0 },
+        { id: id(), type: 'PACK', label: '100g Pack', quantity: 100, price: 0 },
+      ];
+    case 'individual':
+      return [
+        { id: id(), type: 'PIECE', label: 'Per piece', quantity: 1, price: 0 },
+        { id: id(), type: 'PACK', label: 'Pack', quantity: 1, price: 0 },
+      ];
+    case 'service':
+      return [
+        { id: id(), type: 'SERVICE', label: 'Per service', quantity: 1, price: 0 },
+      ];
+    case 'box_only':
+      return [
+        { id: id(), type: 'BOX', label: 'Box', quantity: 1, price: 0 },
+      ];
+    case 'custom':
+    default:
+      return [
+        { id: id(), type: 'UNIT', label: 'Unit', quantity: 1, price: 0 },
+      ];
+  }
+};
 
 export default function CreateMedicine() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { categories: categoryList, isLoading: categoriesLoading, refreshCategories } = useCategories();
   
-  // Get category names from the context
   const categories = categoryList.map(cat => cat.name);
   
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [units, setUnits] = useState<UnitPrice[]>([
-    { type: 'BOX', quantity: 100, price: 0 },
-    { type: 'STRIP', quantity: 10, price: 0 },
-    { type: 'SINGLE', quantity: 1, price: 0 },
-  ]);
   const [loading, setLoading] = useState(false);
-  const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
-  const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
-  const [boxPrice, setBoxPrice] = useState<string>('0');
+  const [productType, setProductType] = useState<ProductType>('tablets');
+  const [units, setUnits] = useState<UnitConfig[]>(getDefaultUnits('tablets'));
+  
   const [formData, setFormData] = useState({
     name: '',
     genericName: '',
@@ -74,183 +135,109 @@ export default function CreateMedicine() {
     batchNumber: '',
     expiryDate: '',
     stockQuantity: '0',
-    stockBoxes: '0',
-    stockStrips: '0',
-    stockTablets: '0',
     reorderLevel: '50',
     costPrice: '0',
     description: '',
   });
 
+  // Update units when product type changes
+  useEffect(() => {
+    setUnits(getDefaultUnits(productType));
+  }, [productType]);
+
   const handleRefreshCategories = async () => {
     await refreshCategories();
-    toast({
-      title: 'Categories refreshed',
-      description: `Found ${categories.length} categories`,
-    });
+    toast({ title: 'Categories refreshed', description: `Found ${categories.length} categories` });
   };
 
-  // Helper function to check if date is valid
   const isValidDate = (dateStr: string) => {
     if (!dateStr) return false;
     const date = new Date(dateStr);
     return date instanceof Date && !isNaN(date.getTime());
   };
 
-  // Calculate tablet price from box price
-  const calculateTabletPrice = (price: number) => {
-    if (tabletsPerBox > 0) {
-      const tabletPrice = price / tabletsPerBox;
-      
-      // Update units with calculated prices
-      const updatedUnits = units.map(unit => {
-        if (unit.type === 'SINGLE') {
-          return { ...unit, quantity: 1, price: parseFloat(tabletPrice.toFixed(2)) };
-        } else if (unit.type === 'STRIP' && tabletsPerStrip > 0) {
-          const stripPrice = tabletPrice * tabletsPerStrip;
-          return { ...unit, quantity: tabletsPerStrip, price: parseFloat(stripPrice.toFixed(2)) };
-        } else if (unit.type === 'BOX') {
-          return { ...unit, quantity: tabletsPerBox, price: parseFloat(price.toFixed(2)) };
-        }
-        return unit;
-      });
-      
-      setUnits(updatedUnits);
-    }
-  };
-
-  // Update units based on tablets per box and strip
-  const updateUnitQuantities = () => {
-    const updatedUnits = units.map(unit => {
-      if (unit.type === 'BOX') {
-        return { ...unit, quantity: tabletsPerBox };
-      } else if (unit.type === 'STRIP') {
-        return { ...unit, quantity: tabletsPerStrip };
-      } else if (unit.type === 'SINGLE') {
-        return { ...unit, quantity: 1 };
-      }
-      return unit;
-    });
-    setUnits(updatedUnits);
-    
-    // Recalculate prices if box price is set
-    const price = parseFloat(boxPrice) || 0;
-    if (price > 0) {
-      calculateTabletPrice(price);
-    }
-  };
-
-  // Initialize units when component mounts
-  useEffect(() => {
-    updateUnitQuantities();
-  }, [tabletsPerBox, tabletsPerStrip]);
-
-  // Handle box price change
-  useEffect(() => {
-    const price = parseFloat(boxPrice) || 0;
-    calculateTabletPrice(price);
-  }, [boxPrice]);
-
-  // Initialize default units
-  useEffect(() => {
-    const defaultUnits: UnitPrice[] = [
-      { type: 'SINGLE', quantity: 1, price: 0 },
-      { type: 'STRIP', quantity: tabletsPerStrip, price: 0 },
-      { type: 'BOX', quantity: tabletsPerBox, price: 0 }
-    ];
-    setUnits(defaultUnits);
-  }, []);
-
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Check file size (5MB limit)
       if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: 'Error',
-          description: 'Image size must be less than 5MB',
-          variant: 'destructive',
-        });
+        toast({ title: 'Error', description: 'Image size must be less than 5MB', variant: 'destructive' });
         return;
       }
-      
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
+      reader.onloadend = () => setImagePreview(reader.result as string);
       reader.readAsDataURL(file);
-      setImageFile(file);
     }
+  };
+
+  const addUnit = () => {
+    setUnits([...units, { 
+      id: Math.random().toString(36).substr(2, 9), 
+      type: 'UNIT', 
+      label: 'New Unit', 
+      quantity: 1, 
+      price: 0 
+    }]);
+  };
+
+  const removeUnit = (id: string) => {
+    if (units.length > 1) {
+      setUnits(units.filter(u => u.id !== id));
+    }
+  };
+
+  const updateUnit = (id: string, field: keyof UnitConfig, value: string | number) => {
+    setUnits(units.map(u => u.id === id ? { ...u, [field]: value } : u));
+  };
+
+  // Calculate prices from the largest unit
+  const calculatePrices = () => {
+    if (units.length === 0) return;
+    
+    // Find the largest unit (highest quantity)
+    const sortedUnits = [...units].sort((a, b) => b.quantity - a.quantity);
+    const largestUnit = sortedUnits[0];
+    
+    if (largestUnit.price <= 0 || largestUnit.quantity <= 0) return;
+    
+    const pricePerSmallestUnit = largestUnit.price / largestUnit.quantity;
+    
+    setUnits(units.map(unit => ({
+      ...unit,
+      price: unit.id === largestUnit.id ? unit.price : parseFloat((pricePerSmallestUnit * unit.quantity).toFixed(2))
+    })));
+    
+    toast({ title: 'Prices calculated', description: 'All unit prices have been updated based on the largest unit price' });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate required fields
     if (!formData.name || !formData.category || !formData.batchNumber || !formData.expiryDate) {
-      toast({
-        title: 'Error',
-        description: 'Please fill all required fields (Name, Category, Batch Number, Expiry Date)',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Please fill all required fields', variant: 'destructive' });
       return;
     }
 
-    // Validate expiry date
     if (!isValidDate(formData.expiryDate)) {
-      toast({
-        title: 'Error',
-        description: 'Please enter a valid expiry date',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Please enter a valid expiry date', variant: 'destructive' });
       return;
     }
 
-    // Check if expiry date is in the future
     const expiryDate = new Date(formData.expiryDate);
     if (expiryDate <= new Date()) {
-      toast({
-        title: 'Error',
-        description: 'Expiry date must be in the future',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Expiry date must be in the future', variant: 'destructive' });
       return;
     }
 
-    // Validate tablets per box and strip
-    if (tabletsPerBox <= 0) {
-      toast({
-        title: 'Error',
-        description: 'Tablets per box must be greater than 0',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (tabletsPerStrip <= 0) {
-      toast({
-        title: 'Error',
-        description: 'Tablets per strip must be greater than 0',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Validate box price
-    const price = parseFloat(boxPrice) || 0;
-    if (price <= 0) {
-      toast({
-        title: 'Error',
-        description: 'Selling price must be greater than 0',
-        variant: 'destructive',
-      });
+    // Validate at least one unit has a price
+    const hasValidPrice = units.some(u => u.price > 0);
+    if (!hasValidPrice) {
+      toast({ title: 'Error', description: 'At least one unit must have a price', variant: 'destructive' });
       return;
     }
 
     setLoading(true);
 
     try {
-      // Prepare medicine data for backend
       const medicineData = {
         name: formData.name.trim(),
         genericName: formData.genericName.trim() || '',
@@ -262,54 +249,34 @@ export default function CreateMedicine() {
           type: u.type,
           quantity: u.quantity,
           price: parseFloat(u.price.toString()),
+          label: u.label,
         })),
         stockQuantity: parseInt(formData.stockQuantity) || 0,
         reorderLevel: parseInt(formData.reorderLevel) || 50,
         costPrice: parseFloat(formData.costPrice) || 0,
         imageUrl: imagePreview || '',
-        description: formData.description.trim() || ''
+        description: formData.description.trim() || '',
+        productType,
       };
 
-      console.log('Sending medicine data to backend:', medicineData);
-
-      // Call backend API
+      console.log('Sending medicine data:', medicineData);
       const response = await medicineService.create(medicineData);
       
-      console.log('Backend response:', response);
-      
       if (response.success && response.data) {
-        toast({
-          title: 'Success!',
-          description: `${formData.name} has been successfully added to the inventory`,
-        });
-
-        // Navigate back to inventory
+        toast({ title: 'Success!', description: `${formData.name} has been added to inventory` });
         navigate('/inventory');
       } else {
-        toast({
-          title: 'Error',
-          description: response.error || 'Failed to create medicine. Please try again.',
-          variant: 'destructive',
-        });
+        toast({ title: 'Error', description: response.error || 'Failed to create medicine', variant: 'destructive' });
       }
     } catch (error: any) {
-      console.error('Error creating medicine:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'An unexpected error occurred. Please try again.',
-        variant: 'destructive',
-      });
+      console.error('Error:', error);
+      toast({ title: 'Error', description: error.message || 'An unexpected error occurred', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
-  // Set minimum date to today for expiry date
   const today = new Date().toISOString().split('T')[0];
-
-  // Calculate tablet price for display
-  const tabletPrice = tabletsPerBox > 0 ? (parseFloat(boxPrice) || 0) / tabletsPerBox : 0;
-  const stripPrice = tabletsPerStrip > 0 ? tabletPrice * tabletsPerStrip : 0;
 
   return (
     <MainLayout>
@@ -317,31 +284,49 @@ export default function CreateMedicine() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl lg:text-3xl font-bold font-display">Create Medicine</h1>
-            <p className="text-muted-foreground mt-1">Add a new medicine to the inventory system</p>
+            <h1 className="text-2xl lg:text-3xl font-bold font-display">Add Product</h1>
+            <p className="text-muted-foreground mt-1">Add any product or service to inventory</p>
           </div>
-          <Button
-            onClick={handleRefreshCategories}
-            variant="outline"
-            size="sm"
-            disabled={categoriesLoading}
-            className="w-full sm:w-auto"
-          >
-            {categoriesLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Loading...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh Categories
-              </>
-            )}
+          <Button onClick={handleRefreshCategories} variant="outline" size="sm" disabled={categoriesLoading}>
+            {categoriesLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            Refresh Categories
           </Button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Product Type Selection */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Product Type
+              </CardTitle>
+              <CardDescription>Select the type of product to configure units automatically</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {PRODUCT_TYPES.map((type) => (
+                  <button
+                    key={type.value}
+                    type="button"
+                    onClick={() => setProductType(type.value)}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      productType === type.value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      {type.icon}
+                      <span className="font-medium text-sm">{type.label}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{type.description}</p>
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Basic Information */}
           <Card>
             <CardHeader>
@@ -349,84 +334,64 @@ export default function CreateMedicine() {
                 <Pill className="h-5 w-5" />
                 Basic Information
               </CardTitle>
-              <CardDescription>Enter the medicine details</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">
-                    Medicine Name <span className="text-destructive">*</span>
-                  </Label>
+                  <Label htmlFor="name">Product Name <span className="text-destructive">*</span></Label>
                   <Input
                     id="name"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., Paracetamol 500mg"
+                    placeholder="e.g., Paracetamol 500mg, Spirit 500ml, Cotton Wool 100g"
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="genericName">Generic Name</Label>
+                  <Label htmlFor="genericName">Generic Name / Description</Label>
                   <Input
                     id="genericName"
                     value={formData.genericName}
                     onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
-                    placeholder="e.g., Acetaminophen"
+                    placeholder="e.g., Acetaminophen, Hydrogen Peroxide"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="category">
-                    Category <span className="text-destructive">*</span>
-                  </Label>
-                  <div className="space-y-2">
-                    <Select
-                      value={formData.category}
-                      onValueChange={(value) => setFormData({ ...formData, category: value })}
-                      required
-                      disabled={categoriesLoading}
-                    >
-                      <SelectTrigger id="category" className="w-full">
-                        {categoriesLoading ? (
-                          <div className="flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span>Loading categories...</span>
-                          </div>
-                        ) : (
-                          <SelectValue placeholder="Select category" />
-                        )}
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.length === 0 ? (
-                          <div className="p-4 text-center text-muted-foreground">
-                            <p>No categories found</p>
-                            <p className="text-sm mt-1">Please create categories first</p>
-                          </div>
-                        ) : (
-                          categories.map((cat) => (
-                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {!categoriesLoading && categories.length === 0 && (
-                      <p className="text-xs text-destructive mt-1">
-                        No categories available. Please create categories in the backend first.
-                      </p>
-                    )}
-                  </div>
+                  <Label htmlFor="category">Category <span className="text-destructive">*</span></Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(value) => setFormData({ ...formData, category: value })}
+                    disabled={categoriesLoading}
+                  >
+                    <SelectTrigger>
+                      {categoriesLoading ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Loading...</span>
+                        </div>
+                      ) : (
+                        <SelectValue placeholder="Select category" />
+                      )}
+                    </SelectTrigger>
+                    <SelectContent className="bg-background border">
+                      {categories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="manufacturer">Manufacturer</Label>
+                  <Label htmlFor="manufacturer">Manufacturer / Brand</Label>
                   <div className="relative">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="manufacturer"
                       value={formData.manufacturer}
                       onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
-                      placeholder="e.g., GSK Kenya"
+                      placeholder="e.g., GSK, Johnson & Johnson"
                       className="pl-10"
                     />
                   </div>
@@ -434,13 +399,13 @@ export default function CreateMedicine() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">Additional Notes</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Brief description of the medicine, usage, and dosage instructions"
-                  rows={3}
+                  placeholder="Any additional information about this product"
+                  rows={2}
                 />
               </div>
             </CardContent>
@@ -451,20 +416,14 @@ export default function CreateMedicine() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ImageIcon className="h-5 w-5" />
-                Medicine Image
+                Product Image
               </CardTitle>
-              <CardDescription>Upload an image of the medicine package (Optional)</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-6">
-                <div className="w-32 h-32 rounded-lg border-2 border-dashed border-muted-foreground/25 flex items-center justify-center overflow-hidden bg-secondary/50">
+                <div className="w-24 h-24 rounded-lg border-2 border-dashed border-muted-foreground/25 flex items-center justify-center overflow-hidden bg-secondary/50">
                   {imagePreview ? (
-                    <img 
-                      src={imagePreview} 
-                      alt="Preview" 
-                      className="w-full h-full object-cover"
-                      onError={() => setImagePreview(null)}
-                    />
+                    <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
                   ) : (
                     <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
                   )}
@@ -476,26 +435,10 @@ export default function CreateMedicine() {
                       <span>Upload Image</span>
                     </div>
                   </Label>
-                  <Input
-                    id="image-upload"
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleImageChange}
-                  />
-                  <p className="text-xs text-muted-foreground">PNG, JPG up to 5MB</p>
+                  <Input id="image-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                   {imagePreview && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setImagePreview(null);
-                        setImageFile(null);
-                      }}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      Remove Image
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setImagePreview(null)} className="text-destructive">
+                      Remove
                     </Button>
                   )}
                 </div>
@@ -503,36 +446,32 @@ export default function CreateMedicine() {
             </CardContent>
           </Card>
 
-          {/* Batch & Stock Information */}
+          {/* Batch & Stock */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Package className="h-5 w-5" />
-                Batch & Stock Information
+                Batch & Stock
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="batchNumber">
-                    Batch Number <span className="text-destructive">*</span>
-                  </Label>
+                  <Label htmlFor="batchNumber">Batch Number <span className="text-destructive">*</span></Label>
                   <div className="relative">
                     <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="batchNumber"
                       value={formData.batchNumber}
                       onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
-                      placeholder="e.g., PCM-2024-001"
+                      placeholder="e.g., BATCH-2024-001"
                       className="pl-10"
                       required
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="expiryDate">
-                    Expiry Date <span className="text-destructive">*</span>
-                  </Label>
+                  <Label htmlFor="expiryDate">Expiry Date <span className="text-destructive">*</span></Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -548,335 +487,200 @@ export default function CreateMedicine() {
                 </div>
               </div>
 
-              {/* Tablets Configuration */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-secondary/30 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="tabletsPerBox" className="flex items-center gap-2">
-                    <Box className="h-4 w-4" />
-                    Tablets per Box *
-                  </Label>
+                  <Label htmlFor="stockQuantity">Initial Stock</Label>
                   <Input
-                    id="tabletsPerBox"
+                    id="stockQuantity"
                     type="number"
-                    min="1"
-                    value={tabletsPerBox}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || 100;
-                      setTabletsPerBox(value);
-                    }}
-                    placeholder="e.g., 100"
+                    min="0"
+                    value={formData.stockQuantity}
+                    onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
+                    placeholder="0"
                   />
-                  <p className="text-xs text-muted-foreground">Total tablets in one box</p>
+                  <p className="text-xs text-muted-foreground">In smallest unit</p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="tabletsPerStrip">
-                    Tablets per Strip *
-                  </Label>
-                  <Input
-                    id="tabletsPerStrip"
-                    type="number"
-                    min="1"
-                    value={tabletsPerStrip}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || 10;
-                      setTabletsPerStrip(value);
-                    }}
-                    placeholder="e.g., 10"
-                  />
-                  <p className="text-xs text-muted-foreground">Tablets in one strip</p>
-                </div>
-              </div>
-
-              {/* Initial Stock Input - Boxes, Strips, Tablets */}
-              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                <div className="flex items-center gap-2 mb-3">
-                  <Package className="h-4 w-4 text-primary" />
-                  <Label className="text-sm font-medium">Initial Stock</Label>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="stockBoxes">Boxes</Label>
-                    <Input
-                      id="stockBoxes"
-                      type="number"
-                      min="0"
-                      value={formData.stockBoxes || '0'}
-                      onChange={(e) => {
-                        const boxes = parseInt(e.target.value) || 0;
-                        const strips = parseInt(formData.stockStrips) || 0;
-                        const tablets = parseInt(formData.stockTablets) || 0;
-                        const totalTablets = (boxes * tabletsPerBox) + (strips * tabletsPerStrip) + tablets;
-                        setFormData({ 
-                          ...formData, 
-                          stockBoxes: e.target.value,
-                          stockQuantity: totalTablets.toString()
-                        });
-                      }}
-                      placeholder="0"
-                    />
-                    <p className="text-xs text-muted-foreground">{tabletsPerBox} tablets each</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="stockStrips">Strips</Label>
-                    <Input
-                      id="stockStrips"
-                      type="number"
-                      min="0"
-                      value={formData.stockStrips || '0'}
-                      onChange={(e) => {
-                        const boxes = parseInt(formData.stockBoxes) || 0;
-                        const strips = parseInt(e.target.value) || 0;
-                        const tablets = parseInt(formData.stockTablets) || 0;
-                        const totalTablets = (boxes * tabletsPerBox) + (strips * tabletsPerStrip) + tablets;
-                        setFormData({ 
-                          ...formData, 
-                          stockStrips: e.target.value,
-                          stockQuantity: totalTablets.toString()
-                        });
-                      }}
-                      placeholder="0"
-                    />
-                    <p className="text-xs text-muted-foreground">{tabletsPerStrip} tablets each</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="stockTablets">Tablets</Label>
-                    <Input
-                      id="stockTablets"
-                      type="number"
-                      min="0"
-                      value={formData.stockTablets || '0'}
-                      onChange={(e) => {
-                        const boxes = parseInt(formData.stockBoxes) || 0;
-                        const strips = parseInt(formData.stockStrips) || 0;
-                        const tablets = parseInt(e.target.value) || 0;
-                        const totalTablets = (boxes * tabletsPerBox) + (strips * tabletsPerStrip) + tablets;
-                        setFormData({ 
-                          ...formData, 
-                          stockTablets: e.target.value,
-                          stockQuantity: totalTablets.toString()
-                        });
-                      }}
-                      placeholder="0"
-                    />
-                    <p className="text-xs text-muted-foreground">Individual tablets</p>
-                  </div>
-                </div>
-                <div className="mt-3 p-2 bg-secondary/50 rounded text-center">
-                  <p className="text-sm text-muted-foreground">Total Stock:</p>
-                  <p className="text-lg font-bold text-primary">{formData.stockQuantity || 0} tablets</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="reorderLevel">Reorder Level (Tablets)</Label>
+                  <Label htmlFor="reorderLevel">Reorder Level</Label>
                   <Input
                     id="reorderLevel"
                     type="number"
                     min="0"
                     value={formData.reorderLevel}
                     onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value })}
-                    placeholder="e.g., 100"
+                    placeholder="50"
                   />
-                  <p className="text-xs text-muted-foreground">Low stock alert threshold</p>
+                  <p className="text-xs text-muted-foreground">Low stock alert</p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="costPrice">Buying Price (per Box)</Label>
+                  <Label htmlFor="costPrice">Cost Price</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                     <Input
                       id="costPrice"
                       type="number"
                       min="0"
-                      step="1"
                       value={formData.costPrice}
                       onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
                       placeholder="0"
                       className="pl-12"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">Price you pay for one box</p>
+                  <p className="text-xs text-muted-foreground">Your buying price</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Pricing Configuration */}
+          {/* Unit & Pricing Configuration */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calculator className="h-5 w-5" />
-                Pricing
+                Units & Pricing
               </CardTitle>
-              <CardDescription>Enter the selling price for the entire box</CardDescription>
+              <CardDescription>Configure how this product is sold</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Box Price Input */}
-              <div className="space-y-2">
-                <Label htmlFor="boxPrice">Selling Price (per Box)</Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
-                  <Input
-                    id="boxPrice"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={boxPrice}
-                    onChange={(e) => setBoxPrice(e.target.value)}
-                    placeholder="Enter selling price for entire box"
-                    className="pl-12"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Enter the price you want to sell the entire box for
-                </p>
+            <CardContent className="space-y-4">
+              {/* Units List */}
+              <div className="space-y-3">
+                {units.map((unit, index) => (
+                  <div key={unit.id} className="flex items-end gap-3 p-3 bg-secondary/30 rounded-lg">
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Unit Type</Label>
+                        <Select value={unit.type} onValueChange={(v) => updateUnit(unit.id, 'type', v)}>
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-background border">
+                            <SelectItem value="TABLET">Tablet</SelectItem>
+                            <SelectItem value="PAIR">Pair</SelectItem>
+                            <SelectItem value="STRIP">Strip</SelectItem>
+                            <SelectItem value="BOX">Box</SelectItem>
+                            <SelectItem value="PACK">Pack</SelectItem>
+                            <SelectItem value="BOTTLE">Bottle</SelectItem>
+                            <SelectItem value="ML">ml</SelectItem>
+                            <SelectItem value="GRAM">Gram</SelectItem>
+                            <SelectItem value="PIECE">Piece</SelectItem>
+                            <SelectItem value="SERVICE">Service</SelectItem>
+                            <SelectItem value="INJECTION">Injection</SelectItem>
+                            <SelectItem value="UNIT">Unit</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Label</Label>
+                        <Input
+                          value={unit.label}
+                          onChange={(e) => updateUnit(unit.id, 'label', e.target.value)}
+                          placeholder="e.g., 500ml Bottle"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Quantity</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={unit.quantity}
+                          onChange={(e) => updateUnit(unit.id, 'quantity', parseInt(e.target.value) || 1)}
+                          placeholder="1"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Price (KSh)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={unit.price}
+                          onChange={(e) => updateUnit(unit.id, 'price', parseFloat(e.target.value) || 0)}
+                          placeholder="0"
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 text-destructive hover:text-destructive"
+                      onClick={() => removeUnit(unit.id)}
+                      disabled={units.length <= 1}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
 
-              {/* Price Calculation Display */}
-              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <Calculator className="h-4 w-4 text-primary" />
-                  <Label className="text-sm font-medium">Price Calculation</Label>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Price per tablet</p>
-                      <p className="text-xs text-muted-foreground">
-                        Box price ÷ {tabletsPerBox} tablets
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-primary">
-                        KSh {tabletPrice.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Price per strip</p>
-                      <p className="text-xs text-muted-foreground">
-                        Tablet price × {tabletsPerStrip} tablets
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-primary">
-                        KSh {stripPrice.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              <div className="flex gap-3">
+                <Button type="button" variant="outline" size="sm" onClick={addUnit}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Unit
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={calculatePrices}>
+                  <Calculator className="h-4 w-4 mr-2" />
+                  Auto-Calculate Prices
+                </Button>
               </div>
 
-              {/* Pricing Summary */}
-              <div className="border rounded-lg p-4 space-y-3">
-                <h4 className="font-medium">Pricing Summary</h4>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Single Tablet</p>
-                    <p className="text-lg font-bold">KSh {tabletPrice.toFixed(2)}</p>
-                  </div>
-                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                    <p className="text-xs text-muted-foreground">
-                      Strip ({tabletsPerStrip} tablets)
-                    </p>
-                    <p className="text-lg font-bold">KSh {stripPrice.toFixed(2)}</p>
-                  </div>
-                  <div className="text-center p-3 bg-secondary/30 rounded-lg">
-                    <p className="text-xs text-muted-foreground">
-                      Box ({tabletsPerBox} tablets)
-                    </p>
-                    <p className="text-lg font-bold">KSh {parseFloat(boxPrice).toFixed(2)}</p>
+              {/* Pricing Preview */}
+              {units.some(u => u.price > 0) && (
+                <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                  <h4 className="font-medium mb-3">Pricing Summary</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {units.filter(u => u.price > 0).map((unit) => (
+                      <div key={unit.id} className="p-3 bg-background rounded-lg text-center">
+                        <p className="text-xs text-muted-foreground">{unit.label}</p>
+                        <p className="text-lg font-bold">KSh {unit.price.toFixed(2)}</p>
+                        {unit.quantity > 1 && (
+                          <p className="text-xs text-muted-foreground">({unit.quantity} units)</p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
-                
-                {/* Markup */}
-                <div className="mt-3 p-3 bg-secondary/30 rounded-lg">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-sm font-medium">Markup</p>
-                      <p className="text-xs text-muted-foreground">Profit margin percentage</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-primary">
-                        {(() => {
-                          const cost = parseFloat(formData.costPrice) || 0;
-                          const sellingPrice = parseFloat(boxPrice) || 0;
-                          if (cost === 0) return 'N/A';
-                          const markup = ((sellingPrice - cost) / cost * 100).toFixed(1);
-                          return `${markup}%`;
-                        })()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Submit */}
           <div className="flex gap-4 pt-4">
-            <Button 
-              type="button" 
-              variant="outline" 
-              className="flex-1" 
-              onClick={() => navigate(-1)}
-              disabled={loading}
-            >
+            <Button type="button" variant="outline" className="flex-1" onClick={() => navigate(-1)} disabled={loading}>
               Cancel
             </Button>
-            <Button 
-              type="submit" 
-              variant="hero" 
-              className="flex-1"
-              disabled={loading || categoriesLoading || categories.length === 0}
-            >
+            <Button type="submit" className="flex-1" disabled={loading || categoriesLoading || categories.length === 0}>
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Creating Medicine...
+                  Creating...
                 </>
               ) : (
                 <>
                   <Plus className="h-4 w-4 mr-2" />
-                  Create Medicine
+                  Add Product
                 </>
               )}
             </Button>
           </div>
-          
-          {/* Categories debug info */}
+
+          {/* Status */}
           {!categoriesLoading && (
             <div className="p-4 border rounded-lg bg-muted/30">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium">Categories Status</p>
-                <Badge variant={categories.length > 0 ? "success" : "destructive"}>
+                <p className="text-sm font-medium">Categories</p>
+                <Badge variant={categories.length > 0 ? "default" : "destructive"}>
                   {categories.length} found
                 </Badge>
               </div>
-              {categories.length > 0 ? (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Available categories:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {categories.map((cat, index) => (
-                      <Badge key={index} variant="outline" className="text-xs">
-                        {cat}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <p className="text-xs text-destructive">
-                    ⚠️ No categories available. Please check:
-                  </p>
-                  <ul className="text-xs text-muted-foreground list-disc pl-4">
-                    <li>Backend API endpoint: <code>/medicines/categories</code></li>
-                    <li>Network connection to backend</li>
-                    <li>Backend database has categories</li>
-                  </ul>
+              {categories.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {categories.map((cat) => (
+                    <Badge key={cat} variant="outline" className="text-xs">{cat}</Badge>
+                  ))}
                 </div>
               )}
             </div>

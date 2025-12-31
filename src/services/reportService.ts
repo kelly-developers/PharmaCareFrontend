@@ -238,4 +238,45 @@ export const reportService = {
     const queryParams = new URLSearchParams(params);
     return api.get(`/reports/export/${reportType}?${queryParams.toString()}`);
   },
+
+  // Annual Summary for dashboard
+  async getAnnualSummary(year?: number): Promise<ApiResponse<{
+    totalRevenue: number;
+    totalProfit: number;
+    totalOrders: number;
+    sellerPayments: number;
+    monthlyData: { month: string; revenue: number; profit: number; orders: number }[];
+  }>> {
+    const query = year ? `?year=${year}` : '';
+    return api.get(`/reports/annual-summary${query}`);
+  },
+
+  // Monthly breakdown for year
+  async getMonthlyBreakdown(year?: number): Promise<ApiResponse<{
+    month: string;
+    revenue: number;
+    profit: number;
+    expenses: number;
+    orders: number;
+    sellerPayments: number;
+  }[]>> {
+    const query = year ? `?year=${year}` : '';
+    return api.get(`/reports/monthly-breakdown${query}`);
+  },
+
+  // Seller payments report
+  async getSellerPayments(startDate?: string, endDate?: string): Promise<ApiResponse<{
+    sellerId: string;
+    sellerName: string;
+    totalSales: number;
+    commission: number;
+    paid: number;
+    pending: number;
+  }[]>> {
+    const queryParams = new URLSearchParams();
+    if (startDate) queryParams.append('startDate', startDate);
+    if (endDate) queryParams.append('endDate', endDate);
+    const query = queryParams.toString();
+    return api.get(`/reports/seller-payments${query ? `?${query}` : ''}`);
+  },
 };

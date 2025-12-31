@@ -111,4 +111,29 @@ export const stockService = {
   async healthCheck(): Promise<ApiResponse<{ status: string }>> {
     return api.get<{ status: string }>('/stock/health');
   },
+
+  // Add stock to existing medicine (not from supplier)
+  async addStock(request: {
+    medicineId: string;
+    quantity: number;
+    reason?: string;
+    batchNumber?: string;
+    expiryDate?: string;
+    costPrice?: number;
+    performedBy?: string;
+    performedByRole?: UserRole;
+  }): Promise<ApiResponse<StockMovement>> {
+    return api.post<StockMovement>('/stock/add', request);
+  },
+
+  // Get current stock for a medicine
+  async getCurrentStock(medicineId: string): Promise<ApiResponse<{
+    medicineId: string;
+    medicineName: string;
+    currentStock: number;
+    reorderLevel: number;
+    lastRestocked: string;
+  }>> {
+    return api.get(`/stock/current/${medicineId}`);
+  },
 };

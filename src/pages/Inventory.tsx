@@ -7,10 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { useStock } from '@/contexts/StockContext';
 import { useCategories } from '@/contexts/CategoriesContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Medicine, MedicineUnit } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
 import { reportService } from '@/services/reportService';
+import { stockService } from '@/services/stockService';
 import * as XLSX from 'xlsx';
 import {
   Table,
@@ -70,11 +72,15 @@ export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
+  const [addStockMedicine, setAddStockMedicine] = useState<Medicine | null>(null);
+  const [addStockQuantity, setAddStockQuantity] = useState<string>('');
+  const [addStockReason, setAddStockReason] = useState<string>('');
   const [editFormData, setEditFormData] = useState<any>({});
   const [editUnits, setEditUnits] = useState<UnitPrice[]>([]);
   const [tabletsPerBox, setTabletsPerBox] = useState<number>(100);
   const [tabletsPerStrip, setTabletsPerStrip] = useState<number>(10);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAddingStock, setIsAddingStock] = useState(false);
   const [inventoryStats, setInventoryStats] = useState({
     totalValue: 0,
     lowStockCount: 0,
@@ -85,6 +91,7 @@ export default function Inventory() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { medicines, refreshMedicines } = useStock();
   const { categories: categoryList, getCategoryNames, refreshCategories } = useCategories();
+  const { user } = useAuth();
   const { toast } = useToast();
 
   // Get category names from backend
@@ -751,15 +758,31 @@ export default function Inventory() {
                             )}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => startEdit(med)}
-                              disabled={isLoading}
-                            >
-                              <Edit2 className="h-4 w-4 mr-1" />
-                              Edit Stock
-                            </Button>
+                            <div className="flex justify-end gap-1">
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => {
+                                  setAddStockMedicine(med);
+                                  setAddStockQuantity('');
+                                  setAddStockReason('');
+                                }}
+                                disabled={isLoading}
+                                className="text-success hover:text-success"
+                              >
+                                <Plus className="h-4 w-4 mr-1" />
+                                Add Stock
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => startEdit(med)}
+                                disabled={isLoading}
+                              >
+                                <Edit2 className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -1093,6 +1116,139 @@ export default function Inventory() {
                     </>
                   ) : (
                     'Save Changes'
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Stock Dialog */}
+      <Dialog open={!!addStockMedicine} onOpenChange={() => setAddStockMedicine(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-success" />
+              Add Stock to Existing Item
+            </DialogTitle>
+          </DialogHeader>
+          {addStockMedicine && (
+            <div className="space-y-4 pt-4">
+              {/* Current Stock Info */}
+              <div className="p-4 bg-secondary/30 rounded-lg">
+                <h4 className="font-medium">{addStockMedicine.name}</h4>
+                <p className="text-sm text-muted-foreground">{addStockMedicine.genericName}</p>
+                <div className="mt-2 flex justify-between">
+                  <span className="text-sm text-muted-foreground">Current Stock:</span>
+                  <span className="font-bold">{addStockMedicine.stockQuantity.toLocaleString()} units</span>
+                </div>
+              </div>
+
+              {/* Quantity Input */}
+              <div className="space-y-2">
+                <Label htmlFor="addQuantity">Quantity to Add *</Label>
+                <Input
+                  id="addQuantity"
+                  type="number"
+                  min="1"
+                  value={addStockQuantity}
+                  onChange={(e) => setAddStockQuantity(e.target.value)}
+                  placeholder="Enter quantity to add"
+                  disabled={isAddingStock}
+                />
+                <p className="text-xs text-muted-foreground">
+                  New total will be: {(addStockMedicine.stockQuantity + (parseInt(addStockQuantity) || 0)).toLocaleString()} units
+                </p>
+              </div>
+
+              {/* Reason */}
+              <div className="space-y-2">
+                <Label htmlFor="addReason">Reason (Optional)</Label>
+                <Select value={addStockReason} onValueChange={setAddStockReason}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select reason for adding stock" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="purchase">Additional Purchase</SelectItem>
+                    <SelectItem value="return">Customer Return</SelectItem>
+                    <SelectItem value="correction">Stock Correction</SelectItem>
+                    <SelectItem value="transfer">Transfer from Another Location</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-4 pt-4">
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={() => setAddStockMedicine(null)}
+                  disabled={isAddingStock}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  variant="hero" 
+                  className="flex-1" 
+                  onClick={async () => {
+                    if (!addStockQuantity || parseInt(addStockQuantity) <= 0) {
+                      toast({
+                        title: 'Invalid Quantity',
+                        description: 'Please enter a valid quantity to add',
+                        variant: 'destructive',
+                      });
+                      return;
+                    }
+
+                    setIsAddingStock(true);
+                    try {
+                      const response = await stockService.addStock({
+                        medicineId: addStockMedicine.id,
+                        quantity: parseInt(addStockQuantity),
+                        reason: addStockReason || 'Additional stock added',
+                        performedBy: user?.id || user?.email || 'Unknown',
+                        performedByRole: user?.role,
+                      });
+
+                      if (response.success) {
+                        toast({
+                          title: 'Stock Added',
+                          description: `Added ${addStockQuantity} units to ${addStockMedicine.name}`,
+                        });
+                        await refreshMedicines();
+                        await fetchInventoryStats();
+                        setAddStockMedicine(null);
+                      } else {
+                        toast({
+                          title: 'Failed to Add Stock',
+                          description: response.error || 'Something went wrong',
+                          variant: 'destructive',
+                        });
+                      }
+                    } catch (error: any) {
+                      toast({
+                        title: 'Error',
+                        description: error.message || 'Failed to add stock',
+                        variant: 'destructive',
+                      });
+                    } finally {
+                      setIsAddingStock(false);
+                    }
+                  }}
+                  disabled={isAddingStock || !addStockQuantity}
+                >
+                  {isAddingStock ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Stock
+                    </>
                   )}
                 </Button>
               </div>

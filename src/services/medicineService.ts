@@ -12,12 +12,14 @@ interface CreateMedicineRequest {
     type: string;
     quantity: number;
     price: number;
+    label?: string;
   }>;
   stockQuantity: number;
   reorderLevel: number;
   costPrice: number;
   imageUrl?: string;
   description?: string;
+  productType?: string;
 }
 
 interface MedicineStats {
