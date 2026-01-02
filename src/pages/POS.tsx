@@ -436,12 +436,12 @@ export default function POS() {
                       className="pl-10 h-9 text-sm"
                     />
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="space-y-2">
                     <div className="flex items-center gap-1">
                       <Filter className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">Categories:</span>
                     </div>
-                    <div className="flex gap-1 overflow-x-auto pb-1 flex-1">
+                    <div className="flex gap-1 flex-wrap">
                       <Button
                         variant={selectedCategory === null ? 'default' : 'outline'}
                         size="sm"
@@ -450,12 +450,12 @@ export default function POS() {
                       >
                         All
                       </Button>
-                      {categories.slice(0, 6).map((cat) => (
+                      {categories.map((cat) => (
                         <Button
                           key={cat}
                           variant={selectedCategory === cat ? 'default' : 'outline'}
                           size="sm"
-                          className="h-7 px-2 text-xs whitespace-nowrap"
+                          className="h-7 px-2 text-xs"
                           onClick={() => setSelectedCategory(cat)}
                         >
                           {cat}
