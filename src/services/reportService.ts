@@ -8,6 +8,7 @@ interface DashboardStats {
   thisMonthProfit: number;
   lastMonthProfit: number;
   inventoryValue: number;
+  stockValue: number; // selling price value
   totalStockItems: number;
   lowStockCount: number;
   outOfStockCount: number;
@@ -188,6 +189,11 @@ export const reportService = {
   // Stock Breakdown
   async getStockBreakdown(): Promise<ApiResponse<StockBreakdown[]>> {
     return api.get<StockBreakdown[]>('/reports/stock-breakdown');
+  },
+
+  // Inventory Breakdown (detailed)
+  async getInventoryBreakdown(): Promise<ApiResponse<any>> {
+    return api.get('/reports/inventory-breakdown');
   },
 
   // Individual Medicine Values

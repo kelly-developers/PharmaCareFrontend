@@ -23,16 +23,33 @@ interface CreatePayrollRequest {
   bonuses: number;
 }
 
+interface PaginatedResponse<T> {
+  content: T[];
+  totalPages: number;
+  totalElements: number;
+  size: number;
+  number: number;
+}
+
 export const employeeService = {
-  // Get all employees
-  async getAll(status?: 'active' | 'inactive'): Promise<ApiResponse<Employee[]>> {
-    const query = status ? `?status=${status}` : '';
-    return api.get<Employee[]>(`/employees${query}`);
+  // Get all employees (paginated)
+  async getAll(page: number = 0, limit: number = 20): Promise<ApiResponse<PaginatedResponse<Employee>>> {
+    return api.get<PaginatedResponse<Employee>>(`/employees?page=${page}&limit=${limit}`);
+  },
+
+  // Get active employees
+  async getActive(): Promise<ApiResponse<Employee[]>> {
+    return api.get<Employee[]>('/employees/active');
   },
 
   // Get employee by ID
   async getById(id: string): Promise<ApiResponse<Employee>> {
     return api.get<Employee>(`/employees/${id}`);
+  },
+
+  // Get employee by user ID
+  async getByUserId(userId: string): Promise<ApiResponse<Employee>> {
+    return api.get<Employee>(`/employees/user/${userId}`);
   },
 
   // Create new employee
@@ -45,56 +62,57 @@ export const employeeService = {
     return api.put<Employee>(`/employees/${id}`, updates);
   },
 
-  // Delete employee
+  // Delete/deactivate employee
   async delete(id: string): Promise<ApiResponse<void>> {
     return api.delete<void>(`/employees/${id}`);
   },
 
-  // Deactivate employee
-  async deactivate(id: string): Promise<ApiResponse<Employee>> {
-    return api.patch<Employee>(`/employees/${id}/deactivate`);
+  // Activate employee
+  async activate(id: string): Promise<ApiResponse<void>> {
+    return api.patch<void>(`/employees/${id}/activate`);
   },
 
-  // Reactivate employee
-  async reactivate(id: string): Promise<ApiResponse<Employee>> {
-    return api.patch<Employee>(`/employees/${id}/reactivate`);
+  // Get employee statistics
+  async getStats(): Promise<ApiResponse<{ activeEmployees: number }>> {
+    return api.get('/employees/stats');
   },
 };
 
 export const payrollService = {
-  // Get all payroll entries
-  async getAll(month?: string): Promise<ApiResponse<PayrollEntry[]>> {
-    const query = month ? `?month=${month}` : '';
-    return api.get<PayrollEntry[]>(`/payroll${query}`);
-  },
-
-  // Get payroll by ID
-  async getById(id: string): Promise<ApiResponse<PayrollEntry>> {
-    return api.get<PayrollEntry>(`/payroll/${id}`);
+  // Get employee payroll (paginated)
+  async getByEmployee(employeeId: string, page: number = 0, limit: number = 20): Promise<ApiResponse<PaginatedResponse<PayrollEntry>>> {
+    return api.get<PaginatedResponse<PayrollEntry>>(`/employees/${employeeId}/payroll?page=${page}&limit=${limit}`);
   },
 
   // Create payroll entry
   async create(payroll: CreatePayrollRequest): Promise<ApiResponse<PayrollEntry>> {
-    return api.post<PayrollEntry>('/payroll', payroll);
+    return api.post<PayrollEntry>('/employees/payroll', payroll);
   },
 
-  // Update payroll entry
+  // Update payroll status
+  async updateStatus(id: string, status: string): Promise<ApiResponse<PayrollEntry>> {
+    return api.patch<PayrollEntry>(`/employees/payroll/${id}/status`, { status });
+  },
+
+  // Legacy methods for backward compatibility
+  async getAll(month?: string): Promise<ApiResponse<PayrollEntry[]>> {
+    const query = month ? `?month=${month}` : '';
+    return api.get<PayrollEntry[]>(`/employees/payroll${query}`);
+  },
+
+  async getById(id: string): Promise<ApiResponse<PayrollEntry>> {
+    return api.get<PayrollEntry>(`/employees/payroll/${id}`);
+  },
+
   async update(id: string, updates: Partial<CreatePayrollRequest>): Promise<ApiResponse<PayrollEntry>> {
-    return api.put<PayrollEntry>(`/payroll/${id}`, updates);
+    return api.put<PayrollEntry>(`/employees/payroll/${id}`, updates);
   },
 
-  // Mark as paid
   async markAsPaid(id: string): Promise<ApiResponse<PayrollEntry>> {
-    return api.patch<PayrollEntry>(`/payroll/${id}/pay`);
+    return api.patch<PayrollEntry>(`/employees/payroll/${id}/status`, { status: 'paid' });
   },
 
-  // Get payroll by employee
-  async getByEmployee(employeeId: string): Promise<ApiResponse<PayrollEntry[]>> {
-    return api.get<PayrollEntry[]>(`/payroll/employee/${employeeId}`);
-  },
-
-  // Generate payroll for all employees for a month
   async generateForMonth(month: string): Promise<ApiResponse<PayrollEntry[]>> {
-    return api.post<PayrollEntry[]>('/payroll/generate', { month });
+    return api.post<PayrollEntry[]>('/employees/payroll/generate', { month });
   },
 };

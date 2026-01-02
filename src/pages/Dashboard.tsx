@@ -41,7 +41,8 @@ export default function Dashboard() {
     todayProfit: 0,
     thisMonthProfit: 0,
     lastMonthProfit: 0,
-    inventoryValue: 0,
+    inventoryValue: 0, // cost price
+    stockValue: 0, // selling price
     totalStockItems: 0,
     lowStockCount: 0,
     expiringSoonCount: 0,
@@ -69,6 +70,7 @@ export default function Dashboard() {
           thisMonthProfit: response.data.thisMonthProfit || 0,
           lastMonthProfit: response.data.lastMonthProfit || 0,
           inventoryValue: response.data.inventoryValue || 0,
+          stockValue: response.data.stockValue || 0,
           totalStockItems: response.data.totalStockItems || 0,
           lowStockCount: response.data.lowStockCount || 0,
           expiringSoonCount: response.data.expiringCount || response.data.expiringSoonCount || 0,
@@ -189,11 +191,12 @@ export default function Dashboard() {
             iconClassName="bg-success/10 text-success"
           />
           <StatCard
-            title="Transactions"
-            value={dashboardData.todayTransactions.toString()}
-            icon={<ShoppingCart className="h-6 w-6" />}
-            trend={{ value: dashboardData.todayTransactions > 0 ? 8 : 0, isPositive: true }}
+            title="Stock Value"
+            value={`KSh ${dashboardData.stockValue.toLocaleString()}`}
+            icon={<Package className="h-6 w-6" />}
+            trend={{ value: 0, isPositive: true }}
             iconClassName="bg-info/10 text-info"
+            subtitle="At selling price"
           />
           <StatCard
             title="Inventory Value"
