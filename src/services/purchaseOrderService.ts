@@ -5,6 +5,7 @@ interface CreatePurchaseOrderRequest {
   supplierId: string;
   supplierName: string;
   items: PurchaseOrderItem[];
+  totalAmount?: number;
   expectedDate?: string;
 }
 

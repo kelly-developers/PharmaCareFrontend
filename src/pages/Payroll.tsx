@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/dashboard/StatCard';
+import { employeeService, payrollService } from '@/services/employeeService';
+import { Employee, PayrollEntry } from '@/types/pharmacy';
 import {
   Table,
   TableBody,
@@ -36,116 +38,133 @@ import {
   Send,
   Eye,
   X,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { exportTableToPDF } from '@/utils/pdfExport';
 
-// Demo payroll data
-const payrollData = [
-  {
-    id: '1',
-    employeeId: '1',
-    employeeName: 'John Kamau',
-    role: 'Admin',
-    month: '2024-01',
-    baseSalary: 85000,
-    deductions: 8500,
-    bonuses: 5000,
-    netPay: 81500,
-    status: 'paid',
-    paidAt: new Date('2024-01-28'),
-  },
-  {
-    id: '2',
-    employeeId: '2',
-    employeeName: 'Jane Wanjiku',
-    role: 'Manager',
-    month: '2024-01',
-    baseSalary: 65000,
-    deductions: 6500,
-    bonuses: 3000,
-    netPay: 61500,
-    status: 'paid',
-    paidAt: new Date('2024-01-28'),
-  },
-  {
-    id: '3',
-    employeeId: '3',
-    employeeName: 'Peter Omondi',
-    role: 'Pharmacist',
-    month: '2024-01',
-    baseSalary: 55000,
-    deductions: 5500,
-    bonuses: 2000,
-    netPay: 51500,
-    status: 'pending',
-  },
-  {
-    id: '4',
-    employeeId: '4',
-    employeeName: 'Mary Akinyi',
-    role: 'Cashier',
-    month: '2024-01',
-    baseSalary: 35000,
-    deductions: 3500,
-    bonuses: 1500,
-    netPay: 33000,
-    status: 'pending',
-  },
-  {
-    id: '5',
-    employeeId: '5',
-    employeeName: 'David Kiprop',
-    role: 'Cashier',
-    month: '2024-01',
-    baseSalary: 32000,
-    deductions: 3200,
-    bonuses: 1000,
-    netPay: 29800,
-    status: 'pending',
-  },
-];
-
-interface PayrollEntry {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  role: string;
-  month: string;
-  baseSalary: number;
-  deductions: number;
-  bonuses: number;
-  netPay: number;
-  status: string;
-  paidAt?: Date;
-}
-
 export default function Payroll() {
-  const [selectedMonth, setSelectedMonth] = useState('2024-01');
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [selectedEntry, setSelectedEntry] = useState<PayrollEntry | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [payrollData, setPayrollData] = useState<PayrollEntry[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
-  const totalPayroll = payrollData.reduce((sum, p) => sum + p.netPay, 0);
+  // Fetch payroll data
+  const fetchPayrollData = async () => {
+    setIsLoading(true);
+    try {
+      // Fetch all employees first
+      const empResponse = await employeeService.getActive();
+      if (empResponse.success && empResponse.data) {
+        setEmployees(Array.isArray(empResponse.data) ? empResponse.data : []);
+      }
+
+      // Fetch payroll for month
+      const payrollResponse = await payrollService.getAll(selectedMonth);
+      if (payrollResponse.success && payrollResponse.data) {
+        const data = payrollResponse.data;
+        if (Array.isArray(data)) {
+          setPayrollData(data);
+        } else if ((data as any).content) {
+          setPayrollData((data as any).content);
+        } else {
+          setPayrollData([]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch payroll data:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load payroll data',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPayrollData();
+  }, [selectedMonth]);
+
+  const totalPayroll = payrollData.reduce((sum, p) => sum + (p.netPay || 0), 0);
   const paidCount = payrollData.filter((p) => p.status === 'paid').length;
   const pendingCount = payrollData.filter((p) => p.status === 'pending').length;
   const pendingAmount = payrollData
     .filter((p) => p.status === 'pending')
-    .reduce((sum, p) => sum + p.netPay, 0);
+    .reduce((sum, p) => sum + (p.netPay || 0), 0);
 
-  const processPayment = (id: string) => {
-    toast({
-      title: 'Payment Processed',
-      description: 'Employee payment has been marked as paid.',
-    });
+  const processPayment = async (id: string) => {
+    try {
+      const response = await payrollService.markAsPaid(id);
+      if (response.success) {
+        toast({
+          title: 'Payment Processed',
+          description: 'Employee payment has been marked as paid.',
+        });
+        fetchPayrollData();
+      } else {
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to process payment',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to process payment',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const processAllPending = () => {
-    toast({
-      title: 'Bulk Payment Processed',
-      description: `${pendingCount} payments totaling KSh ${pendingAmount.toLocaleString()} processed.`,
-    });
+  const processAllPending = async () => {
+    try {
+      const pendingPayrolls = payrollData.filter(p => p.status === 'pending');
+      await Promise.all(pendingPayrolls.map(p => payrollService.markAsPaid(p.id)));
+      toast({
+        title: 'Bulk Payment Processed',
+        description: `${pendingCount} payments totaling KSh ${pendingAmount.toLocaleString()} processed.`,
+      });
+      fetchPayrollData();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to process some payments',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const generatePayrollForMonth = async () => {
+    try {
+      const response = await payrollService.generateForMonth(selectedMonth);
+      if (response.success) {
+        toast({
+          title: 'Payroll Generated',
+          description: 'Payroll entries have been generated for the month.',
+        });
+        fetchPayrollData();
+      } else {
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to generate payroll',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to generate payroll',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleViewEntry = (entry: PayrollEntry) => {
@@ -156,12 +175,12 @@ export default function Payroll() {
   const handleExportPDF = () => {
     const headers = ['Employee', 'Role', 'Base Salary', 'Deductions', 'Bonuses', 'Net Pay', 'Status'];
     const rows = payrollData.map(entry => [
-      entry.employeeName,
-      entry.role,
-      `KSh ${entry.baseSalary.toLocaleString()}`,
-      `KSh ${entry.deductions.toLocaleString()}`,
-      `KSh ${entry.bonuses.toLocaleString()}`,
-      `KSh ${entry.netPay.toLocaleString()}`,
+      entry.employeeName || 'Unknown',
+      (entry as any).role || '-',
+      `KSh ${(entry.baseSalary || 0).toLocaleString()}`,
+      `KSh ${(entry.deductions || 0).toLocaleString()}`,
+      `KSh ${(entry.bonuses || 0).toLocaleString()}`,
+      `KSh ${(entry.netPay || 0).toLocaleString()}`,
       entry.status === 'paid' ? 'Paid' : 'Pending',
     ]);
     
@@ -169,9 +188,9 @@ export default function Payroll() {
     rows.push([
       'TOTAL',
       '',
-      `KSh ${payrollData.reduce((sum, p) => sum + p.baseSalary, 0).toLocaleString()}`,
-      `KSh ${payrollData.reduce((sum, p) => sum + p.deductions, 0).toLocaleString()}`,
-      `KSh ${payrollData.reduce((sum, p) => sum + p.bonuses, 0).toLocaleString()}`,
+      `KSh ${payrollData.reduce((sum, p) => sum + (p.baseSalary || 0), 0).toLocaleString()}`,
+      `KSh ${payrollData.reduce((sum, p) => sum + (p.deductions || 0), 0).toLocaleString()}`,
+      `KSh ${payrollData.reduce((sum, p) => sum + (p.bonuses || 0), 0).toLocaleString()}`,
       `KSh ${totalPayroll.toLocaleString()}`,
       '',
     ]);
@@ -189,6 +208,13 @@ export default function Payroll() {
     return format(new Date(parseInt(year), parseInt(month) - 1), 'MMMM yyyy');
   };
 
+  // Generate month options for the last 12 months
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const date = new Date();
+    date.setMonth(date.getMonth() - i);
+    return format(date, 'yyyy-MM');
+  });
+
   return (
     <MainLayout>
       <div className="space-y-4 md:space-y-6">
@@ -205,15 +231,26 @@ export default function Payroll() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="2024-01">January 2024</SelectItem>
-                <SelectItem value="2023-12">December 2023</SelectItem>
-                <SelectItem value="2023-11">November 2023</SelectItem>
+                {monthOptions.map(month => (
+                  <SelectItem key={month} value={month}>
+                    {getMonthName(month)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
+            <Button variant="outline" onClick={fetchPayrollData} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
             <Button variant="outline" onClick={handleExportPDF}>
               <Download className="h-4 w-4 mr-2" />
               Export PDF
             </Button>
+            {payrollData.length === 0 && (
+              <Button variant="hero" onClick={generatePayrollForMonth}>
+                Generate Payroll
+              </Button>
+            )}
           </div>
         </div>
 
@@ -270,88 +307,100 @@ export default function Payroll() {
             <CardTitle className="text-base md:text-lg">{getMonthName(selectedMonth)} Payroll</CardTitle>
           </CardHeader>
           <CardContent className="p-0 md:p-6 md:pt-0">
-            <ScrollArea className="w-full">
-              <div className="min-w-[600px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-xs">Employee</TableHead>
-                      <TableHead className="text-right text-xs">Base</TableHead>
-                      <TableHead className="text-right text-xs">Deduct</TableHead>
-                      <TableHead className="text-right text-xs">Bonus</TableHead>
-                      <TableHead className="text-right text-xs">Net Pay</TableHead>
-                      <TableHead className="text-xs">Status</TableHead>
-                      <TableHead className="text-right text-xs">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payrollData.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell className="py-2">
-                          <div>
-                            <p className="font-medium text-sm">{entry.employeeName}</p>
-                            <p className="text-xs text-muted-foreground">{entry.role}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right text-xs font-mono">
-                          {(entry.baseSalary / 1000).toFixed(0)}K
-                        </TableCell>
-                        <TableCell className="text-right text-xs font-mono text-destructive">
-                          -{(entry.deductions / 1000).toFixed(1)}K
-                        </TableCell>
-                        <TableCell className="text-right text-xs font-mono text-success">
-                          +{(entry.bonuses / 1000).toFixed(1)}K
-                        </TableCell>
-                        <TableCell className="text-right text-sm font-bold font-mono">
-                          {(entry.netPay / 1000).toFixed(1)}K
-                        </TableCell>
-                        <TableCell>
-                          <Badge 
-                            variant={entry.status === 'paid' ? 'success' : 'warning'}
-                            className="text-xs"
-                          >
-                            {entry.status === 'paid' ? (
-                              <>
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Paid
-                              </>
-                            ) : (
-                              <>
-                                <Clock className="h-3 w-3 mr-1" />
-                                Pending
-                              </>
-                            )}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={() => handleViewEntry(entry)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            {entry.status === 'pending' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 px-2 text-xs"
-                                onClick={() => processPayment(entry.id)}
-                              >
-                                <Send className="h-3 w-3 mr-1" />
-                                Pay
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            </ScrollArea>
+            ) : payrollData.length === 0 ? (
+              <div className="text-center py-12">
+                <Users className="h-16 w-16 mx-auto text-muted-foreground/50 mb-4" />
+                <p className="text-lg font-medium text-muted-foreground">No payroll data for this month</p>
+                <p className="text-sm text-muted-foreground">Click "Generate Payroll" to create entries</p>
+              </div>
+            ) : (
+              <ScrollArea className="w-full">
+                <div className="min-w-[600px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Employee</TableHead>
+                        <TableHead className="text-right text-xs">Base</TableHead>
+                        <TableHead className="text-right text-xs">Deduct</TableHead>
+                        <TableHead className="text-right text-xs">Bonus</TableHead>
+                        <TableHead className="text-right text-xs">Net Pay</TableHead>
+                        <TableHead className="text-xs">Status</TableHead>
+                        <TableHead className="text-right text-xs">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payrollData.map((entry) => (
+                        <TableRow key={entry.id}>
+                          <TableCell className="py-2">
+                            <div>
+                              <p className="font-medium text-sm">{entry.employeeName || 'Unknown'}</p>
+                              <p className="text-xs text-muted-foreground">{(entry as any).role || '-'}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono">
+                            {((entry.baseSalary || 0) / 1000).toFixed(0)}K
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono text-destructive">
+                            -{((entry.deductions || 0) / 1000).toFixed(1)}K
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono text-success">
+                            +{((entry.bonuses || 0) / 1000).toFixed(1)}K
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-bold font-mono">
+                            {((entry.netPay || 0) / 1000).toFixed(1)}K
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant={entry.status === 'paid' ? 'success' : 'warning'}
+                              className="text-xs"
+                            >
+                              {entry.status === 'paid' ? (
+                                <>
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                  Paid
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  Pending
+                                </>
+                              )}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                onClick={() => handleViewEntry(entry)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              {entry.status === 'pending' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-2 text-xs"
+                                  onClick={() => processPayment(entry.id)}
+                                >
+                                  <Send className="h-3 w-3 mr-1" />
+                                  Pay
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </ScrollArea>
+            )}
           </CardContent>
         </Card>
 
@@ -370,8 +419,8 @@ export default function Payroll() {
               <div className="space-y-4">
                 {/* Employee Info */}
                 <div className="text-center border-b pb-4">
-                  <h3 className="font-bold text-lg">{selectedEntry.employeeName}</h3>
-                  <p className="text-muted-foreground">{selectedEntry.role}</p>
+                  <h3 className="font-bold text-lg">{selectedEntry.employeeName || 'Unknown'}</h3>
+                  <p className="text-muted-foreground">{(selectedEntry as any).role || '-'}</p>
                   <p className="text-sm text-muted-foreground mt-1">
                     {getMonthName(selectedEntry.month)}
                   </p>
@@ -381,19 +430,19 @@ export default function Payroll() {
                 <div className="space-y-2">
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-muted-foreground">Base Salary</span>
-                    <span className="font-mono font-medium">KSh {selectedEntry.baseSalary.toLocaleString()}</span>
+                    <span className="font-mono font-medium">KSh {(selectedEntry.baseSalary || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-muted-foreground">Bonuses</span>
-                    <span className="font-mono text-success">+KSh {selectedEntry.bonuses.toLocaleString()}</span>
+                    <span className="font-mono text-success">+KSh {(selectedEntry.bonuses || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-muted-foreground">Deductions</span>
-                    <span className="font-mono text-destructive">-KSh {selectedEntry.deductions.toLocaleString()}</span>
+                    <span className="font-mono text-destructive">-KSh {(selectedEntry.deductions || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between py-3 bg-primary/10 px-3 rounded-lg">
                     <span className="font-bold">Net Pay</span>
-                    <span className="font-mono font-bold text-lg">KSh {selectedEntry.netPay.toLocaleString()}</span>
+                    <span className="font-mono font-bold text-lg">KSh {(selectedEntry.netPay || 0).toLocaleString()}</span>
                   </div>
                 </div>
 
@@ -404,7 +453,7 @@ export default function Payroll() {
                     {selectedEntry.status === 'paid' ? (
                       <>
                         <CheckCircle className="h-3 w-3 mr-1" />
-                        Paid on {selectedEntry.paidAt ? format(selectedEntry.paidAt, 'MMM d, yyyy') : '-'}
+                        Paid on {selectedEntry.paidAt ? format(new Date(selectedEntry.paidAt), 'MMM d, yyyy') : '-'}
                       </>
                     ) : (
                       <>
