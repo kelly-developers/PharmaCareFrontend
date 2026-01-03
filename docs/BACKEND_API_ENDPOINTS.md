@@ -4,7 +4,7 @@ This document outlines all the required Spring Boot backend endpoints for the Ph
 
 ## Base URL
 ```
-https://pharmacare-ywjs.onrender.com/api
+https://pharma-care-backend-hdyf.onrender.com
 ```
 
 ## Authentication
