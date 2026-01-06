@@ -1,4 +1,4 @@
-// CreateMedicine.tsx - Supports all product types with optional fields
+// CreateMedicine.tsx - Supports all product types with proper backend integration
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -38,6 +38,7 @@ import {
   Scale,
   CircleDot,
   AlertCircle,
+  Info,
 } from 'lucide-react';
 import { medicineService } from '@/services/medicineService';
 
@@ -70,18 +71,18 @@ const getDefaultUnits = (productType: ProductType): UnitConfig[] => {
     case 'tablets':
       return [
         { id: id(), type: 'TABLET', label: 'Tablet', quantity: 1, price: 0 },
-        { id: id(), type: 'STRIP', label: 'Strip', quantity: 10, price: 0 },
-        { id: id(), type: 'BOX', label: 'Box', quantity: 100, price: 0 },
+        { id: id(), type: 'STRIP', label: 'Strip (10 tablets)', quantity: 10, price: 0 },
+        { id: id(), type: 'BOX', label: 'Box (100 tablets)', quantity: 100, price: 0 },
       ];
     case 'tablets_pair':
       return [
         { id: id(), type: 'PAIR', label: 'Pair (2 tablets)', quantity: 2, price: 0 },
-        { id: id(), type: 'STRIP', label: 'Strip', quantity: 10, price: 0 },
-        { id: id(), type: 'BOX', label: 'Box', quantity: 100, price: 0 },
+        { id: id(), type: 'STRIP', label: 'Strip (10 tablets)', quantity: 10, price: 0 },
+        { id: id(), type: 'BOX', label: 'Box (100 tablets)', quantity: 100, price: 0 },
       ];
     case 'syrup':
       return [
-        { id: id(), type: 'BOTTLE', label: 'Bottle', quantity: 1, price: 0 },
+        { id: id(), type: 'BOTTLE', label: 'Bottle (100ml)', quantity: 1, price: 0 },
         { id: id(), type: 'BOX', label: 'Box (1 bottle)', quantity: 1, price: 0 },
       ];
     case 'liquid_bottle':
@@ -92,6 +93,7 @@ const getDefaultUnits = (productType: ProductType): UnitConfig[] => {
       ];
     case 'weight_based':
       return [
+        { id: id(), type: 'GRAM', label: 'Per gram', quantity: 1, price: 0 },
         { id: id(), type: 'PACK', label: '50g Pack', quantity: 50, price: 0 },
         { id: id(), type: 'PACK', label: '100g Pack', quantity: 100, price: 0 },
       ];
@@ -128,21 +130,21 @@ export default function CreateMedicine() {
   const [productType, setProductType] = useState<ProductType>('tablets');
   const [units, setUnits] = useState<UnitConfig[]>(getDefaultUnits('tablets'));
   
-  // Updated form data with optional fields
+  // Form data with all fields
   const [formData, setFormData] = useState({
     name: '',
     genericName: '',
     category: '',
-    manufacturer: '', // Optional
-    batchNumber: '', // Optional
-    expiryDate: '', // Optional
+    manufacturer: '',
+    batchNumber: '',
+    expiryDate: '',
     stockQuantity: '0',
-    reorderLevel: '50',
+    reorderLevel: '10',
     costPrice: '0',
     description: '',
   });
 
-  // Track which fields are required based on product type
+  // Track field errors
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // Update units when product type changes
@@ -159,7 +161,7 @@ export default function CreateMedicine() {
   };
 
   const isValidDate = (dateStr: string) => {
-    if (!dateStr || dateStr.trim() === '') return true; // Optional field, empty is valid
+    if (!dateStr || dateStr.trim() === '') return true;
     const date = new Date(dateStr);
     return date instanceof Date && !isNaN(date.getTime());
   };
@@ -205,7 +207,6 @@ export default function CreateMedicine() {
   const calculatePrices = () => {
     if (units.length === 0) return;
     
-    // Find the largest unit (highest quantity)
     const sortedUnits = [...units].sort((a, b) => b.quantity - a.quantity);
     const largestUnit = sortedUnits[0];
     
@@ -236,15 +237,18 @@ export default function CreateMedicine() {
       errors.category = 'Category is required';
     }
     
-    // Validate expiry date if provided
+    // Validate expiry date format if provided
     if (formData.expiryDate && formData.expiryDate.trim() !== '') {
-      const expiryDate = new Date(formData.expiryDate);
-      if (expiryDate <= new Date()) {
-        errors.expiryDate = 'Expiry date must be in the future';
-      }
-      
       if (!isValidDate(formData.expiryDate)) {
-        errors.expiryDate = 'Please enter a valid expiry date';
+        errors.expiryDate = 'Please enter a valid date (YYYY-MM-DD)';
+      } else {
+        const expiryDate = new Date(formData.expiryDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        if (expiryDate <= today) {
+          errors.expiryDate = 'Expiry date must be in the future';
+        }
       }
     }
     
@@ -272,6 +276,16 @@ export default function CreateMedicine() {
       errors.reorderLevel = 'Reorder level must be a valid number';
     }
     
+    // Validate units have valid quantities
+    units.forEach((unit, index) => {
+      if (unit.quantity <= 0) {
+        errors[`unit-${index}-quantity`] = 'Unit quantity must be greater than 0';
+      }
+      if (unit.price < 0) {
+        errors[`unit-${index}-price`] = 'Unit price cannot be negative';
+      }
+    });
+    
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -291,32 +305,30 @@ export default function CreateMedicine() {
     setLoading(true);
 
     try {
-      // Prepare medicine data with optional fields
-      const medicineData: any = {
+      // Prepare medicine data in backend format
+      const medicineData = {
         name: formData.name.trim(),
-        genericName: formData.genericName.trim() || '',
+        genericName: formData.genericName.trim() || undefined,
         category: formData.category,
-        manufacturer: formData.manufacturer.trim() || '', // Optional
-        batchNumber: formData.batchNumber.trim() || '', // Optional
+        manufacturer: formData.manufacturer.trim() || undefined,
+        batchNumber: formData.batchNumber.trim() || undefined,
+        expiryDate: formData.expiryDate.trim() || undefined,
         units: units.map(u => ({
-          type: u.type,
+          type: u.type.toUpperCase(),
           quantity: u.quantity,
           price: parseFloat(u.price.toString()),
+          label: u.label || u.type
         })),
         stockQuantity: parseInt(formData.stockQuantity) || 0,
-        reorderLevel: parseInt(formData.reorderLevel) || 50,
+        reorderLevel: parseInt(formData.reorderLevel) || 10,
         costPrice: parseFloat(formData.costPrice) || 0,
-        imageUrl: imagePreview || '',
-        description: formData.description.trim() || '',
-        productType,
+        imageUrl: imagePreview || undefined,
+        description: formData.description.trim() || undefined,
+        productType: productType,
       };
 
-      // Only include expiryDate if provided
-      if (formData.expiryDate && formData.expiryDate.trim() !== '') {
-        medicineData.expiryDate = formData.expiryDate;
-      }
-
-      console.log('Sending medicine data:', medicineData);
+      console.log('📤 Sending medicine data to backend:', medicineData);
+      
       const response = await medicineService.create(medicineData);
       
       if (response.success && response.data) {
@@ -324,16 +336,35 @@ export default function CreateMedicine() {
           title: 'Success!', 
           description: `${formData.name} has been added to inventory` 
         });
-        navigate('/inventory');
+        
+        // Clear form
+        setFormData({
+          name: '',
+          genericName: '',
+          category: '',
+          manufacturer: '',
+          batchNumber: '',
+          expiryDate: '',
+          stockQuantity: '0',
+          reorderLevel: '10',
+          costPrice: '0',
+          description: '',
+        });
+        setUnits(getDefaultUnits(productType));
+        setImagePreview(null);
+        
+        // Navigate after a short delay
+        setTimeout(() => navigate('/inventory'), 1000);
       } else {
         toast({ 
           title: 'Error', 
           description: response.error || 'Failed to create medicine', 
           variant: 'destructive' 
         });
+        console.error('Backend error:', response.error);
       }
     } catch (error: any) {
-      console.error('Error:', error);
+      console.error('Error creating medicine:', error);
       toast({ 
         title: 'Error', 
         description: error.message || 'An unexpected error occurred', 
@@ -345,6 +376,9 @@ export default function CreateMedicine() {
   };
 
   const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
   return (
     <MainLayout>
@@ -352,24 +386,33 @@ export default function CreateMedicine() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl lg:text-3xl font-bold font-display">Add Product</h1>
+            <h1 className="text-2xl lg:text-3xl font-bold font-display">Add New Product</h1>
             <p className="text-muted-foreground mt-1">
               Add any product or service to inventory. Fields marked with * are required.
             </p>
           </div>
-          <Button 
-            onClick={handleRefreshCategories} 
-            variant="outline" 
-            size="sm" 
-            disabled={categoriesLoading}
-          >
-            {categoriesLoading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Refresh Categories
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              onClick={() => navigate('/inventory')} 
+              variant="outline" 
+              size="sm"
+            >
+              View Inventory
+            </Button>
+            <Button 
+              onClick={handleRefreshCategories} 
+              variant="outline" 
+              size="sm" 
+              disabled={categoriesLoading}
+            >
+              {categoriesLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Refresh Categories
+            </Button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -388,7 +431,10 @@ export default function CreateMedicine() {
                   <button
                     key={type.value}
                     type="button"
-                    onClick={() => setProductType(type.value)}
+                    onClick={() => {
+                      setProductType(type.value);
+                      setUnits(getDefaultUnits(type.value));
+                    }}
                     className={`p-3 rounded-lg border-2 text-left transition-all ${
                       productType === type.value
                         ? 'border-primary bg-primary/5'
@@ -402,6 +448,15 @@ export default function CreateMedicine() {
                     <p className="text-xs text-muted-foreground">{type.description}</p>
                   </button>
                 ))}
+              </div>
+              <div className="mt-4 p-3 bg-muted/30 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-primary mt-0.5" />
+                  <p className="text-xs text-muted-foreground">
+                    <strong>Current type:</strong> {PRODUCT_TYPES.find(t => t.value === productType)?.label}. 
+                    This will auto-configure the unit options below.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -430,6 +485,7 @@ export default function CreateMedicine() {
                     }}
                     placeholder="e.g., Paracetamol 500mg, Spirit 500ml, Cotton Wool 100g"
                     className={fieldErrors.name ? 'border-destructive' : ''}
+                    required
                   />
                   {fieldErrors.name && (
                     <p className="text-xs text-destructive flex items-center gap-1">
@@ -446,7 +502,7 @@ export default function CreateMedicine() {
                     onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
                     placeholder="e.g., Acetaminophen, Hydrogen Peroxide"
                   />
-                  <p className="text-xs text-muted-foreground">Optional</p>
+                  <p className="text-xs text-muted-foreground">Optional - for identification</p>
                 </div>
               </div>
 
@@ -462,6 +518,7 @@ export default function CreateMedicine() {
                       if (fieldErrors.category) setFieldErrors({...fieldErrors, category: ''});
                     }}
                     disabled={categoriesLoading}
+                    required
                   >
                     <SelectTrigger className={fieldErrors.category ? 'border-destructive' : ''}>
                       {categoriesLoading ? (
@@ -508,7 +565,7 @@ export default function CreateMedicine() {
                       id="manufacturer"
                       value={formData.manufacturer}
                       onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
-                      placeholder="e.g., GSK, Johnson & Johnson"
+                      placeholder="e.g., GSK, Johnson & Johnson, Generic"
                       className="pl-10"
                     />
                   </div>
@@ -522,7 +579,7 @@ export default function CreateMedicine() {
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Any additional information about this product"
+                  placeholder="Any additional information about this product (storage instructions, warnings, etc.)"
                   rows={2}
                 />
                 <p className="text-xs text-muted-foreground">Optional</p>
@@ -584,14 +641,16 @@ export default function CreateMedicine() {
             </CardContent>
           </Card>
 
-          {/* Batch & Stock - Optional Fields */}
+          {/* Batch & Stock Information */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Package className="h-5 w-5" />
                 Batch & Stock Information
               </CardTitle>
-              <CardDescription>Optional - Leave blank if not applicable</CardDescription>
+              <CardDescription>
+                Required for tracking inventory. Leave blank for services.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -603,11 +662,11 @@ export default function CreateMedicine() {
                       id="batchNumber"
                       value={formData.batchNumber}
                       onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
-                      placeholder="e.g., BATCH-2024-001"
+                      placeholder="e.g., BATCH-2024-001, LOT-12345"
                       className="pl-10"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">Optional - Leave blank if not applicable</p>
+                  <p className="text-xs text-muted-foreground">Optional but recommended</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="expiryDate">Expiry Date</Label>
@@ -622,7 +681,7 @@ export default function CreateMedicine() {
                         if (fieldErrors.expiryDate) setFieldErrors({...fieldErrors, expiryDate: ''});
                       }}
                       className={`pl-10 ${fieldErrors.expiryDate ? 'border-destructive' : ''}`}
-                      min={today}
+                      min={tomorrowStr}
                     />
                   </div>
                   {fieldErrors.expiryDate ? (
@@ -631,18 +690,19 @@ export default function CreateMedicine() {
                       {fieldErrors.expiryDate}
                     </p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Optional - Leave blank if no expiry date</p>
+                    <p className="text-xs text-muted-foreground">Optional - Required for perishable items</p>
                   )}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="stockQuantity">Initial Stock</Label>
+                  <Label htmlFor="stockQuantity">Initial Stock Quantity</Label>
                   <Input
                     id="stockQuantity"
                     type="number"
                     min="0"
+                    step="1"
                     value={formData.stockQuantity}
                     onChange={(e) => {
                       setFormData({ ...formData, stockQuantity: e.target.value });
@@ -657,7 +717,7 @@ export default function CreateMedicine() {
                       {fieldErrors.stockQuantity}
                     </p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">In smallest unit (e.g., tablets, ml, grams)</p>
+                    <p className="text-xs text-muted-foreground">In smallest unit (tablets, ml, grams)</p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -666,12 +726,13 @@ export default function CreateMedicine() {
                     id="reorderLevel"
                     type="number"
                     min="0"
+                    step="1"
                     value={formData.reorderLevel}
                     onChange={(e) => {
                       setFormData({ ...formData, reorderLevel: e.target.value });
                       if (fieldErrors.reorderLevel) setFieldErrors({...fieldErrors, reorderLevel: ''});
                     }}
-                    placeholder="50"
+                    placeholder="10"
                     className={fieldErrors.reorderLevel ? 'border-destructive' : ''}
                   />
                   {fieldErrors.reorderLevel ? (
@@ -684,7 +745,7 @@ export default function CreateMedicine() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="costPrice">Cost Price</Label>
+                  <Label htmlFor="costPrice">Cost Price (KSh)</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">KSh</span>
                     <Input
@@ -711,6 +772,20 @@ export default function CreateMedicine() {
                   )}
                 </div>
               </div>
+
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5" />
+                  <div>
+                    <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Stock Information</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400">
+                      <strong>Current product:</strong> {formData.name || 'Not set'} | 
+                      <strong> Stock:</strong> {formData.stockQuantity} units | 
+                      <strong> Cost:</strong> KSh {parseFloat(formData.costPrice).toFixed(2)} per unit
+                    </p>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -721,7 +796,7 @@ export default function CreateMedicine() {
                 <Calculator className="h-5 w-5" />
                 Units & Pricing <span className="text-destructive">*</span>
               </CardTitle>
-              <CardDescription>Configure how this product is sold</CardDescription>
+              <CardDescription>Configure how this product is sold to customers</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {fieldErrors.units && (
@@ -744,20 +819,19 @@ export default function CreateMedicine() {
                           <SelectTrigger className="h-9">
                             <SelectValue />
                           </SelectTrigger>
-<SelectContent className="bg-background border">
-  <SelectItem value="tablets">Tablet</SelectItem>
-  <SelectItem value="pair">Pair</SelectItem>
-  <SelectItem value="strip">Strip</SelectItem>
-  <SelectItem value="box">Box</SelectItem>
-  <SelectItem value="pack">Pack</SelectItem>
-  <SelectItem value="bottle">Bottle</SelectItem>
-  <SelectItem value="ml">ml</SelectItem>
-  <SelectItem value="gram">Gram</SelectItem>
-  <SelectItem value="piece">Piece</SelectItem>
-  <SelectItem value="service">Service</SelectItem>
-  <SelectItem value="injection">Injection</SelectItem>
-  <SelectItem value="unit">Unit</SelectItem>
-</SelectContent>
+                          <SelectContent className="bg-background border">
+                            <SelectItem value="TABLET">Tablet</SelectItem>
+                            <SelectItem value="PAIR">Pair</SelectItem>
+                            <SelectItem value="STRIP">Strip</SelectItem>
+                            <SelectItem value="BOX">Box</SelectItem>
+                            <SelectItem value="PACK">Pack</SelectItem>
+                            <SelectItem value="BOTTLE">Bottle</SelectItem>
+                            <SelectItem value="GRAM">Gram</SelectItem>
+                            <SelectItem value="PIECE">Piece</SelectItem>
+                            <SelectItem value="SERVICE">Service</SelectItem>
+                            <SelectItem value="INJECTION">Injection</SelectItem>
+                            <SelectItem value="UNIT">Unit</SelectItem>
+                          </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-1">
@@ -765,7 +839,7 @@ export default function CreateMedicine() {
                         <Input
                           value={unit.label}
                           onChange={(e) => updateUnit(unit.id, 'label', e.target.value)}
-                          placeholder="e.g., 500ml Bottle"
+                          placeholder="e.g., 500ml Bottle, 50g Pack"
                           className="h-9"
                         />
                       </div>
@@ -774,11 +848,15 @@ export default function CreateMedicine() {
                         <Input
                           type="number"
                           min="1"
+                          step="1"
                           value={unit.quantity}
                           onChange={(e) => updateUnit(unit.id, 'quantity', parseInt(e.target.value) || 1)}
                           placeholder="1"
-                          className="h-9"
+                          className={`h-9 ${fieldErrors[`unit-${index}-quantity`] ? 'border-destructive' : ''}`}
                         />
+                        {fieldErrors[`unit-${index}-quantity`] && (
+                          <p className="text-xs text-destructive">{fieldErrors[`unit-${index}-quantity`]}</p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Price (KSh)</Label>
@@ -789,11 +867,19 @@ export default function CreateMedicine() {
                           value={unit.price}
                           onChange={(e) => {
                             updateUnit(unit.id, 'price', parseFloat(e.target.value) || 0);
-                            if (fieldErrors.units) setFieldErrors({...fieldErrors, units: ''});
+                            if (fieldErrors.units || fieldErrors[`unit-${index}-price`]) {
+                              const newErrors = {...fieldErrors};
+                              delete newErrors.units;
+                              delete newErrors[`unit-${index}-price`];
+                              setFieldErrors(newErrors);
+                            }
                           }}
                           placeholder="0.00"
-                          className="h-9"
+                          className={`h-9 ${fieldErrors[`unit-${index}-price`] ? 'border-destructive' : ''}`}
                         />
+                        {fieldErrors[`unit-${index}-price`] && (
+                          <p className="text-xs text-destructive">{fieldErrors[`unit-${index}-price`]}</p>
+                        )}
                       </div>
                     </div>
                     <Button
@@ -860,12 +946,12 @@ export default function CreateMedicine() {
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Creating...
+                  Creating Product...
                 </>
               ) : (
                 <>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Product
+                  Add Product to Inventory
                 </>
               )}
             </Button>
