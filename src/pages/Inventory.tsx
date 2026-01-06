@@ -94,16 +94,13 @@ interface UnitPrice {
 
 // Helper function to safely parse and format dates
 const formatDateSafe = (dateInput: string | Date | null | undefined): string => {
-  // Return blank for empty/null/undefined values
   if (!dateInput || dateInput === '' || dateInput === null || dateInput === undefined) {
     return '';
   }
   
   try {
-    // If it's already a Date object
     const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
     
-    // If invalid, try parsing with Date.parse
     if (!isValid(date)) {
       if (typeof dateInput === 'string') {
         const timestamp = Date.parse(dateInput);
@@ -114,14 +111,12 @@ const formatDateSafe = (dateInput: string | Date | null | undefined): string => 
           }
         }
       }
-      // Return blank instead of "Invalid Date"
       return '';
     }
     
     return format(date, 'MMM dd, yyyy');
   } catch (error) {
     console.error('Error formatting date:', error, dateInput);
-    // Return blank instead of "Invalid Date"
     return '';
   }
 };
@@ -136,7 +131,6 @@ const parseDateForInput = (dateInput: string | Date): string => {
       return date.toISOString().split('T')[0];
     }
     
-    // Try alternative parsing for strings
     if (typeof dateInput === 'string') {
       const parsed = parseISO(dateInput);
       if (isValid(parsed)) {
@@ -160,12 +154,33 @@ const calculateDaysToExpiry = (expiryDateInput: string | Date): number => {
     if (!isValid(expiryDate)) return Infinity;
     
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const timeDiff = expiryDate.getTime() - today.getTime();
     return Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
   } catch (error) {
     console.error('Error calculating days to expiry:', error);
     return Infinity;
   }
+};
+
+// Helper function to parse units from string or object
+const parseUnits = (units: any): MedicineUnit[] => {
+  if (!units) return [];
+  
+  if (typeof units === 'string') {
+    try {
+      return JSON.parse(units);
+    } catch (e) {
+      console.error('Failed to parse units string:', e);
+      return [];
+    }
+  }
+  
+  if (Array.isArray(units)) {
+    return units;
+  }
+  
+  return [];
 };
 
 export default function Inventory() {
@@ -201,43 +216,69 @@ export default function Inventory() {
     refreshCategories();
   }, []);
 
-  const filteredMedicines = medicines.filter((med) => {
+  // Ensure medicines data is properly formatted
+  const formattedMedicines = React.useMemo(() => {
+    return medicines.map(med => {
+      // Ensure units are properly parsed
+      const parsedUnits = parseUnits(med.units);
+      
+      // Get stock quantity directly from the data
+      const stockQuantity = med.stockQuantity || 0;
+      
+      // Get cost price
+      const costPrice = med.costPrice || 0;
+      
+      // Calculate stock value based on actual data
+      const stockValue = stockQuantity * costPrice;
+      
+      return {
+        ...med,
+        units: parsedUnits,
+        stockQuantity,
+        costPrice,
+        // Add a computed stockValue for display
+        computedStockValue: stockValue
+      };
+    });
+  }, [medicines]);
+
+  const filteredMedicines = formattedMedicines.filter((med) => {
     const matchesSearch = med.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       med.genericName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      med.batchNumber.toLowerCase().includes(searchQuery.toLowerCase());
+      med.batchNumber?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = categoryFilter === 'all' || med.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
 
-  // Calculate medicine stock value
-  const calculateMedicineStockValue = (medicine: Medicine): number => {
-    if (!medicine || !medicine.units || medicine.stockQuantity === 0) {
-      return 0;
-    }
-
-    // Find single unit (tablet) price
-    const singleUnit = medicine.units.find(u => 
-      u.type.toUpperCase() === 'SINGLE'
-    );
+  // Calculate medicine stock value - FIXED VERSION
+  const calculateMedicineStockValue = (medicine: any): number => {
+    if (!medicine) return 0;
     
-    if (singleUnit && singleUnit.price > 0) {
-      // Use selling price per tablet × stock quantity
-      const pricePerTablet = singleUnit.price / singleUnit.quantity;
-      return medicine.stockQuantity * pricePerTablet;
-    }
-
-    // Fallback to cost price calculation
-    // Find box unit to get tablets per box
-    const boxUnit = medicine.units.find(u => 
-      u.type.toUpperCase() === 'BOX'
-    );
-    const tabletsPerBox = boxUnit?.quantity || 100;
+    const stockQuantity = medicine.stockQuantity || 0;
+    const costPrice = medicine.costPrice || 0;
     
-    if (tabletsPerBox > 0) {
-      const costPerTablet = medicine.costPrice / tabletsPerBox;
-      return medicine.stockQuantity * costPerTablet;
+    // Most accurate: stock quantity * cost price (from backend data)
+    if (costPrice > 0 && stockQuantity > 0) {
+      return stockQuantity * costPrice;
     }
-
+    
+    // Alternative: using computed stock value if available
+    if (medicine.computedStockValue) {
+      return medicine.computedStockValue;
+    }
+    
+    // Fallback: try to calculate from units
+    if (medicine.units && medicine.units.length > 0) {
+      const tabletUnit = medicine.units.find((u: any) => 
+        u.type && u.type.toUpperCase() === 'TABLET'
+      );
+      
+      if (tabletUnit && tabletUnit.price > 0 && tabletUnit.quantity > 0) {
+        const pricePerTablet = tabletUnit.price / tabletUnit.quantity;
+        return stockQuantity * pricePerTablet;
+      }
+    }
+    
     return 0;
   };
 
@@ -248,7 +289,7 @@ export default function Inventory() {
   );
 
   const lowStockCount = filteredMedicines.filter(
-    (med) => med.stockQuantity <= med.reorderLevel
+    (med) => (med.stockQuantity || 0) <= (med.reorderLevel || 0)
   ).length;
 
   const expiringCount = filteredMedicines.filter((med) => {
@@ -261,7 +302,6 @@ export default function Inventory() {
     try {
       setIsLoading(true);
       
-      // Fetch dashboard stats which includes inventory value
       const response = await reportService.getDashboardStats();
       
       if (response.success && response.data) {
@@ -282,7 +322,6 @@ export default function Inventory() {
       }
     } catch (error) {
       console.error('Failed to fetch inventory stats:', error);
-      // Fallback to local calculation
       setInventoryStats({
         totalValue,
         lowStockCount,
@@ -324,10 +363,7 @@ export default function Inventory() {
   const startEdit = (med: Medicine) => {
     setEditingMedicine(med);
     
-    // Parse expiry date safely
     const parsedExpiryDate = parseDateForInput(med.expiryDate);
-    
-    // Detect product type from existing units or use stored productType
     const detectedProductType = (med as any).productType || 'tablets';
     setEditProductType(detectedProductType);
     
@@ -338,24 +374,26 @@ export default function Inventory() {
       manufacturer: med.manufacturer || '',
       batchNumber: med.batchNumber || '',
       expiryDate: parsedExpiryDate,
-      stockQuantity: med.stockQuantity.toString(),
-      reorderLevel: med.reorderLevel.toString(),
-      costPrice: med.costPrice.toString(),
-      description: (med as any).description || ''
+      stockQuantity: med.stockQuantity?.toString() || '0',
+      reorderLevel: med.reorderLevel?.toString() || '10',
+      costPrice: med.costPrice?.toString() || '0',
+      description: (med as any).description || '',
+      unit_price: (med as any).unit_price || ''
     });
     
     // Initialize units based on medicine data
     const id = () => Math.random().toString(36).substr(2, 9);
-    const defaultUnits: UnitPrice[] = med.units.map(u => ({
+    const units = med.units || [];
+    const defaultUnits: UnitPrice[] = units.map(u => ({
       id: id(),
-      type: u.type.toUpperCase(),
-      label: (u as any).label || u.type,
-      quantity: u.quantity,
-      price: u.price,
+      type: u.type?.toUpperCase() || 'TABLET',
+      label: u.label || u.type || 'Tablet',
+      quantity: u.quantity || 1,
+      price: u.price || 0,
     }));
     
     setEditUnits(defaultUnits.length > 0 ? defaultUnits : [
-      { id: id(), type: 'TABLET', label: 'Tablet', quantity: 1, price: 0 },
+      { id: id(), type: 'TABLET', label: 'Tablet', quantity: 1, price: med.costPrice || 0 },
     ]);
   };
 
@@ -363,8 +401,8 @@ export default function Inventory() {
   const addEditUnit = () => {
     setEditUnits([...editUnits, { 
       id: Math.random().toString(36).substr(2, 9), 
-      type: 'UNIT', 
-      label: 'New Unit', 
+      type: 'TABLET', 
+      label: 'Tablet', 
       quantity: 1, 
       price: 0 
     }]);
@@ -386,7 +424,6 @@ export default function Inventory() {
   const calculateEditPrices = () => {
     if (editUnits.length === 0) return;
     
-    // Find the largest unit (highest quantity)
     const sortedUnits = [...editUnits].sort((a, b) => b.quantity - a.quantity);
     const largestUnit = sortedUnits[0];
     
@@ -412,16 +449,14 @@ export default function Inventory() {
     try {
       setIsLoading(true);
       
-      // Handle optional expiry date
       let expiryDateStr = '';
       if (editFormData.expiryDate && editFormData.expiryDate.trim() !== '') {
         const dateObj = new Date(editFormData.expiryDate);
         if (isValid(dateObj)) {
-          expiryDateStr = dateObj.toISOString().split('T')[0];
+          expiryDateStr = dateObj.toISOString();
         }
       }
       
-      // Prepare units for backend - include label
       const unitsForBackend = editUnits.map(u => ({
         type: u.type.toUpperCase(),
         label: u.label,
@@ -436,14 +471,13 @@ export default function Inventory() {
         manufacturer: editFormData.manufacturer || '',
         batchNumber: editFormData.batchNumber || '',
         stockQuantity: parseInt(editFormData.stockQuantity) || 0,
-        reorderLevel: parseInt(editFormData.reorderLevel) || 50,
+        reorderLevel: parseInt(editFormData.reorderLevel) || 10,
         costPrice: parseFloat(editFormData.costPrice) || 0,
         units: unitsForBackend,
         description: editFormData.description || '',
         productType: editProductType,
       };
 
-      // Only include expiryDate if provided
       if (expiryDateStr) {
         updateData.expiryDate = expiryDateStr;
       }
@@ -456,7 +490,6 @@ export default function Inventory() {
           description: `${editFormData.name} has been updated successfully`,
         });
         
-        // Refresh medicines and inventory stats
         await refreshMedicines();
         await fetchInventoryStats();
         setEditingMedicine(null);
@@ -481,7 +514,7 @@ export default function Inventory() {
 
   // Export medicines to Excel
   const handleExport = () => {
-    const exportData = medicines.map(med => {
+    const exportData = formattedMedicines.map(med => {
       const stockValue = calculateMedicineStockValue(med);
       
       return {
@@ -489,20 +522,14 @@ export default function Inventory() {
         'Generic Name': med.genericName || '',
         'Category': med.category,
         'Manufacturer': med.manufacturer || '',
-        'Batch Number': med.batchNumber,
+        'Batch Number': med.batchNumber || '',
         'Expiry Date': formatDateSafe(med.expiryDate),
-        'Stock Quantity': med.stockQuantity,
-        'Reorder Level': med.reorderLevel,
-        'Cost Price': med.costPrice,
-        'Selling Price per Tablet': (() => {
-          const singleUnit = med.units?.find(u => u.type.toUpperCase() === 'SINGLE');
-          if (singleUnit && singleUnit.price > 0) {
-            return singleUnit.price / singleUnit.quantity;
-          }
-          return med.costPrice / 100;
-        })(),
+        'Stock Quantity': med.stockQuantity || 0,
+        'Reorder Level': med.reorderLevel || 10,
+        'Cost Price': med.costPrice || 0,
+        'Unit Price': (med as any).unit_price || '',
         'Stock Value': stockValue,
-        'Status': med.stockQuantity === 0 ? 'Out of Stock' : med.stockQuantity <= med.reorderLevel ? 'Low Stock' : 'In Stock',
+        'Status': (med.stockQuantity || 0) === 0 ? 'Out of Stock' : (med.stockQuantity || 0) <= (med.reorderLevel || 0) ? 'Low Stock' : 'In Stock',
       };
     });
 
@@ -556,17 +583,17 @@ export default function Inventory() {
             category: rowData['Category'] || rowData['category'] || 'General',
             manufacturer: rowData['Manufacturer'] || rowData['manufacturer'] || '',
             batchNumber: rowData['Batch Number'] || rowData['batchNumber'] || `BATCH-${Date.now()}`,
-            expiryDate: rowData['Expiry Date'] ? new Date(rowData['Expiry Date']).toISOString().split('T')[0] : 
-                     new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            expiryDate: rowData['Expiry Date'] ? new Date(rowData['Expiry Date']).toISOString() : 
+                     new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
             units: [{
-              type: 'SINGLE',
+              type: 'TABLET',
               quantity: 1,
-              price: parseFloat(rowData['Selling Price per Tablet']) || 
+              price: parseFloat(rowData['Unit Price']) || 
                      parseFloat(rowData['sellingPrice']) || 
-                     (parseFloat(rowData['Selling Price']) || 0) / 100,
+                     parseFloat(rowData['Cost Price']) || 0,
             }],
             stockQuantity: parseInt(rowData['Stock Quantity']) || parseInt(rowData['stockQuantity']) || 0,
-            reorderLevel: parseInt(rowData['Reorder Level']) || parseInt(rowData['reorderLevel']) || 50,
+            reorderLevel: parseInt(rowData['Reorder Level']) || parseInt(rowData['reorderLevel']) || 10,
             costPrice: parseFloat(rowData['Cost Price']) || parseFloat(rowData['costPrice']) || 0,
             imageUrl: '',
             description: rowData['Description'] || ''
@@ -774,13 +801,16 @@ export default function Inventory() {
                   </TableHeader>
                   <TableBody>
                     {filteredMedicines.map((med) => {
-                      const isLowStock = med.stockQuantity <= med.reorderLevel;
-                      const isOutOfStock = med.stockQuantity === 0;
+                      const stockQuantity = med.stockQuantity || 0;
+                      const reorderLevel = med.reorderLevel || 0;
+                      const isLowStock = stockQuantity <= reorderLevel;
+                      const isOutOfStock = stockQuantity === 0;
                       const daysToExpiry = calculateDaysToExpiry(med.expiryDate);
                       const isExpiring = daysToExpiry <= 90;
                       const isExpired = daysToExpiry <= 0;
                       const stockValue = calculateMedicineStockValue(med);
                       const formattedExpiry = formatDateSafe(med.expiryDate);
+                      const costPrice = med.costPrice || 0;
 
                       return (
                         <TableRow key={med.id}>
@@ -791,21 +821,25 @@ export default function Inventory() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="secondary">{med.category}</Badge>
+                            <Badge variant="secondary">{med.category || 'Uncategorized'}</Badge>
                           </TableCell>
-                          <TableCell className="font-mono text-sm">{med.batchNumber}</TableCell>
+                          <TableCell className="font-mono text-sm">
+                            {med.batchNumber || 'N/A'}
+                          </TableCell>
                           <TableCell>
                             <span className={isExpiring || isExpired ? 'text-destructive font-medium' : ''}>
-                              {formattedExpiry}
+                              {formattedExpiry || 'No expiry'}
                               {isExpiring && !isExpired && daysToExpiry !== Infinity && (
                                 <span className="text-xs text-muted-foreground block">({daysToExpiry} days)</span>
                               )}
                             </span>
                           </TableCell>
                           <TableCell className={`text-right font-medium ${isLowStock ? 'text-destructive' : ''}`}>
-                            {med.stockQuantity.toLocaleString()}
+                            {stockQuantity.toLocaleString()}
                           </TableCell>
-                          <TableCell className="text-right">KSh {med.costPrice.toLocaleString()}</TableCell>
+                          <TableCell className="text-right">
+                            KSh {costPrice.toLocaleString()}
+                          </TableCell>
                           <TableCell className="text-right font-bold text-green-700">
                             KSh {stockValue.toLocaleString()}
                           </TableCell>
@@ -828,7 +862,7 @@ export default function Inventory() {
                                 variant="outline" 
                                 size="sm" 
                                 onClick={() => {
-                                  setAddStockMedicine(med);
+                                  setAddStockMedicine(med as Medicine);
                                   setAddStockQuantity('');
                                   setAddStockReason('');
                                 }}
@@ -841,7 +875,7 @@ export default function Inventory() {
                               <Button 
                                 variant="ghost" 
                                 size="sm" 
-                                onClick={() => startEdit(med)}
+                                onClick={() => startEdit(med as Medicine)}
                                 disabled={isLoading}
                               >
                                 <Edit2 className="h-4 w-4 mr-1" />
@@ -1159,7 +1193,7 @@ export default function Inventory() {
                 <p className="text-sm text-muted-foreground">{addStockMedicine.genericName}</p>
                 <div className="mt-2 flex justify-between">
                   <span className="text-sm text-muted-foreground">Current Stock:</span>
-                  <span className="font-bold">{addStockMedicine.stockQuantity.toLocaleString()} units</span>
+                  <span className="font-bold">{(addStockMedicine.stockQuantity || 0).toLocaleString()} units</span>
                 </div>
               </div>
 
@@ -1176,7 +1210,7 @@ export default function Inventory() {
                   disabled={isAddingStock}
                 />
                 <p className="text-xs text-muted-foreground">
-                  New total will be: {(addStockMedicine.stockQuantity + (parseInt(addStockQuantity) || 0)).toLocaleString()} units
+                  New total will be: {((addStockMedicine.stockQuantity || 0) + (parseInt(addStockQuantity) || 0)).toLocaleString()} units
                 </p>
               </div>
 
