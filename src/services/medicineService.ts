@@ -35,26 +35,27 @@ interface MedicineStats {
 }
 
 export const medicineService = {
-  // Get all medicines (paginated)
-  async getAll(params?: {
-    category?: string;
-    search?: string;
-    lowStock?: boolean;
-    expiringSoon?: boolean;
-    page?: number;
-    limit?: number;
-  }): Promise<ApiResponse<any>> {
-    const queryParams = new URLSearchParams();
-    if (params?.category) queryParams.append('category', params.category);
-    if (params?.search) queryParams.append('search', params.search);
-    if (params?.lowStock) queryParams.append('lowStock', 'true');
-    if (params?.expiringSoon) queryParams.append('expiringSoon', 'true');
-    if (params?.page) queryParams.append('page', params.page.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    
-    const query = queryParams.toString();
-    return api.get<any>(`/medicines${query ? `?${query}` : ''}`);
-  },
+// In your medicineService.ts, update the getAll method to handle the response structure:
+
+async getAll(params?: {
+  category?: string;
+  search?: string;
+  lowStock?: boolean;
+  expiringSoon?: boolean;
+  page?: number;
+  limit?: number;
+}): Promise<ApiResponse<any>> {
+  const queryParams = new URLSearchParams();
+  if (params?.category) queryParams.append('category', params.category);
+  if (params?.search) queryParams.append('search', params.search);
+  if (params?.lowStock) queryParams.append('lowStock', 'true');
+  if (params?.expiringSoon) queryParams.append('expiringSoon', 'true');
+  if (params?.page) queryParams.append('page', params.page.toString());
+  if (params?.limit) queryParams.append('limit', params.limit.toString());
+  
+  const query = queryParams.toString();
+  return api.get<any>(`/medicines${query ? `?${query}` : ''}`);
+},
 
   // Get medicine by ID
   async getById(id: string): Promise<ApiResponse<Medicine>> {

@@ -9,7 +9,7 @@ import { useStock } from '@/contexts/StockContext';
 import { useCategories } from '@/contexts/CategoriesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Medicine, MedicineUnit } from '@/types/pharmacy';
+import { Medicine, MedicineUnit, ProductType } from '@/types/pharmacy';
 import { medicineService } from '@/services/medicineService';
 import { reportService } from '@/services/reportService';
 import { stockService } from '@/services/stockService';
@@ -54,8 +54,6 @@ import {
 } from 'lucide-react';
 import { format, isValid, parseISO } from 'date-fns';
 import { Link } from 'react-router-dom';
-
-import { ProductType } from '@/types/pharmacy';
 
 const unitTypes = [
   { value: 'TABLET', label: 'Tablet' },
@@ -183,6 +181,30 @@ const parseUnits = (units: any): MedicineUnit[] => {
   return [];
 };
 
+// Transform backend medicine to frontend format
+const transformBackendMedicine = (backendMedicine: any): Medicine => {
+  return {
+    id: backendMedicine.id,
+    name: backendMedicine.name,
+    genericName: backendMedicine.generic_name || '',
+    category: backendMedicine.category,
+    manufacturer: backendMedicine.manufacturer || '',
+    batchNumber: backendMedicine.batch_number || '',
+    expiryDate: backendMedicine.expiry_date ? new Date(backendMedicine.expiry_date) : new Date(),
+    units: parseUnits(backendMedicine.units),
+    stockQuantity: backendMedicine.stock_quantity || 0,
+    reorderLevel: backendMedicine.reorder_level || 10,
+    supplierId: backendMedicine.supplier_id || '',
+    costPrice: backendMedicine.cost_price || 0,
+    imageUrl: backendMedicine.image_url,
+    description: backendMedicine.description || '',
+    productType: backendMedicine.product_type as ProductType || 'tablets',
+    createdAt: backendMedicine.created_at ? new Date(backendMedicine.created_at) : new Date(),
+    updatedAt: backendMedicine.updated_at ? new Date(backendMedicine.updated_at) : new Date(),
+    isActive: backendMedicine.is_active !== false,
+  };
+};
+
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -216,27 +238,14 @@ export default function Inventory() {
     refreshCategories();
   }, []);
 
-  // Ensure medicines data is properly formatted
+  // Format medicines data
   const formattedMedicines = React.useMemo(() => {
     return medicines.map(med => {
-      // Ensure units are properly parsed
-      const parsedUnits = parseUnits(med.units);
-      
-      // Get stock quantity directly from the data
-      const stockQuantity = med.stockQuantity || 0;
-      
-      // Get cost price
-      const costPrice = med.costPrice || 0;
-      
-      // Calculate stock value based on actual data
-      const stockValue = stockQuantity * costPrice;
+      // Calculate stock value based on cost price
+      const stockValue = (med.stockQuantity || 0) * (med.costPrice || 0);
       
       return {
         ...med,
-        units: parsedUnits,
-        stockQuantity,
-        costPrice,
-        // Add a computed stockValue for display
         computedStockValue: stockValue
       };
     });
@@ -250,41 +259,9 @@ export default function Inventory() {
     return matchesSearch && matchesCategory;
   });
 
-  // Calculate medicine stock value - FIXED VERSION
-  const calculateMedicineStockValue = (medicine: any): number => {
-    if (!medicine) return 0;
-    
-    const stockQuantity = medicine.stockQuantity || 0;
-    const costPrice = medicine.costPrice || 0;
-    
-    // Most accurate: stock quantity * cost price (from backend data)
-    if (costPrice > 0 && stockQuantity > 0) {
-      return stockQuantity * costPrice;
-    }
-    
-    // Alternative: using computed stock value if available
-    if (medicine.computedStockValue) {
-      return medicine.computedStockValue;
-    }
-    
-    // Fallback: try to calculate from units
-    if (medicine.units && medicine.units.length > 0) {
-      const tabletUnit = medicine.units.find((u: any) => 
-        u.type && u.type.toUpperCase() === 'TABLET'
-      );
-      
-      if (tabletUnit && tabletUnit.price > 0 && tabletUnit.quantity > 0) {
-        const pricePerTablet = tabletUnit.price / tabletUnit.quantity;
-        return stockQuantity * pricePerTablet;
-      }
-    }
-    
-    return 0;
-  };
-
-  // Calculate totals using backend-corrected formula
+  // Calculate totals
   const totalValue = filteredMedicines.reduce(
-    (sum, med) => sum + calculateMedicineStockValue(med),
+    (sum, med) => sum + (med.computedStockValue || 0),
     0
   );
 
@@ -306,9 +283,9 @@ export default function Inventory() {
       
       if (response.success && response.data) {
         setInventoryStats({
-          totalValue: response.data.inventoryValue || 0,
-          lowStockCount: response.data.lowStockCount || 0,
-          expiringCount: response.data.expiringCount || response.data.expiringSoonCount || 0,
+          totalValue: response.data.stockValue || totalValue,
+          lowStockCount: response.data.lowStockItems || lowStockCount,
+          expiringCount: response.data.expiringSoon || expiringCount,
           loading: false
         });
       } else {
@@ -364,8 +341,7 @@ export default function Inventory() {
     setEditingMedicine(med);
     
     const parsedExpiryDate = parseDateForInput(med.expiryDate);
-    const detectedProductType = (med as any).productType || 'tablets';
-    setEditProductType(detectedProductType);
+    setEditProductType(med.productType || 'tablets');
     
     setEditFormData({
       name: med.name,
@@ -377,8 +353,7 @@ export default function Inventory() {
       stockQuantity: med.stockQuantity?.toString() || '0',
       reorderLevel: med.reorderLevel?.toString() || '10',
       costPrice: med.costPrice?.toString() || '0',
-      description: (med as any).description || '',
-      unit_price: (med as any).unit_price || ''
+      description: med.description || '',
     });
     
     // Initialize units based on medicine data
@@ -515,7 +490,7 @@ export default function Inventory() {
   // Export medicines to Excel
   const handleExport = () => {
     const exportData = formattedMedicines.map(med => {
-      const stockValue = calculateMedicineStockValue(med);
+      const stockValue = (med.stockQuantity || 0) * (med.costPrice || 0);
       
       return {
         'Medicine Name': med.name,
@@ -527,7 +502,6 @@ export default function Inventory() {
         'Stock Quantity': med.stockQuantity || 0,
         'Reorder Level': med.reorderLevel || 10,
         'Cost Price': med.costPrice || 0,
-        'Unit Price': (med as any).unit_price || '',
         'Stock Value': stockValue,
         'Status': (med.stockQuantity || 0) === 0 ? 'Out of Stock' : (med.stockQuantity || 0) <= (med.reorderLevel || 0) ? 'Low Stock' : 'In Stock',
       };
@@ -540,7 +514,7 @@ export default function Inventory() {
     ws['!cols'] = [
       { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 15 },
       { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
-      { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }
+      { wch: 12 }, { wch: 12 }, { wch: 10 }
     ];
     
     XLSX.writeFile(wb, `inventory_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
@@ -591,12 +565,14 @@ export default function Inventory() {
               price: parseFloat(rowData['Unit Price']) || 
                      parseFloat(rowData['sellingPrice']) || 
                      parseFloat(rowData['Cost Price']) || 0,
+              label: 'Tablet'
             }],
             stockQuantity: parseInt(rowData['Stock Quantity']) || parseInt(rowData['stockQuantity']) || 0,
             reorderLevel: parseInt(rowData['Reorder Level']) || parseInt(rowData['reorderLevel']) || 10,
             costPrice: parseFloat(rowData['Cost Price']) || parseFloat(rowData['costPrice']) || 0,
             imageUrl: '',
-            description: rowData['Description'] || ''
+            description: rowData['Description'] || '',
+            productType: 'tablets'
           };
 
           if (medicine.name) {
@@ -808,7 +784,7 @@ export default function Inventory() {
                       const daysToExpiry = calculateDaysToExpiry(med.expiryDate);
                       const isExpiring = daysToExpiry <= 90;
                       const isExpired = daysToExpiry <= 0;
-                      const stockValue = calculateMedicineStockValue(med);
+                      const stockValue = med.computedStockValue || 0;
                       const formattedExpiry = formatDateSafe(med.expiryDate);
                       const costPrice = med.costPrice || 0;
 

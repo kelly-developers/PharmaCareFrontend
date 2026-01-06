@@ -43,17 +43,48 @@ interface StockContextType {
 
 const StockContext = createContext<StockContextType | undefined>(undefined);
 
-// Helper to extract array from various response formats
-function extractArray<T>(data: unknown): T[] {
-  if (!data) return [];
-  if (Array.isArray(data)) return data;
+// Transform backend snake_case to frontend camelCase
+function transformBackendMedicine(backendMedicine: any): Medicine {
+  console.log('🔧 Transforming backend medicine:', backendMedicine);
   
-  const obj = data as Record<string, unknown>;
-  if (obj.content && Array.isArray(obj.content)) return obj.content;
-  if (obj.data && Array.isArray(obj.data)) return obj.data;
-  if (obj.items && Array.isArray(obj.items)) return obj.items;
+  // Parse units from string or object
+  let units: any[] = [];
+  if (backendMedicine.units) {
+    try {
+      units = typeof backendMedicine.units === 'string' 
+        ? JSON.parse(backendMedicine.units)
+        : backendMedicine.units;
+    } catch (e) {
+      console.error('Failed to parse units:', e);
+      units = [];
+    }
+  }
   
-  return [];
+  return {
+    id: backendMedicine.id,
+    name: backendMedicine.name,
+    genericName: backendMedicine.generic_name || backendMedicine.genericName || '',
+    category: backendMedicine.category,
+    manufacturer: backendMedicine.manufacturer || '',
+    batchNumber: backendMedicine.batch_number || backendMedicine.batchNumber || '',
+    expiryDate: backendMedicine.expiry_date ? new Date(backendMedicine.expiry_date) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    units: units.map(unit => ({
+      type: unit.type || 'TABLET',
+      quantity: unit.quantity || 1,
+      price: unit.price || 0,
+      label: unit.label || unit.type
+    })),
+    stockQuantity: backendMedicine.stock_quantity || backendMedicine.stockQuantity || 0,
+    reorderLevel: backendMedicine.reorder_level || backendMedicine.reorderLevel || 10,
+    supplierId: backendMedicine.supplier_id || backendMedicine.supplierId || '',
+    costPrice: backendMedicine.cost_price || backendMedicine.costPrice || 0,
+    imageUrl: backendMedicine.image_url || backendMedicine.imageUrl,
+    description: backendMedicine.description || '',
+    productType: backendMedicine.product_type || backendMedicine.productType || 'tablets',
+    createdAt: backendMedicine.created_at ? new Date(backendMedicine.created_at) : new Date(),
+    updatedAt: backendMedicine.updated_at ? new Date(backendMedicine.updated_at) : new Date(),
+    isActive: backendMedicine.is_active !== false,
+  };
 }
 
 export function StockProvider({ children }: { children: ReactNode }) {
@@ -72,25 +103,24 @@ export function StockProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await medicineService.getAll();
+      console.log('📊 Raw medicines response:', response);
+      
       if (response.success && response.data) {
-        const medicinesArray = extractArray<Medicine>(response.data);
-        console.log('📊 Fetched medicines:', medicinesArray.length);
+        let medicinesArray: any[] = [];
         
-        // Transform the data to match frontend types
-        const transformedMedicines = medicinesArray.map(med => ({
-          ...med,
-          // Ensure dates are properly converted
-          expiryDate: new Date(med.expiryDate),
-          createdAt: new Date(med.createdAt || new Date()),
-          updatedAt: new Date(med.updatedAt || new Date()),
-          // Ensure units exist
-          units: med.units || [],
-          // Ensure numeric fields are numbers
-          stockQuantity: Number(med.stockQuantity) || 0,
-          reorderLevel: Number(med.reorderLevel) || 50,
-          costPrice: Number(med.costPrice) || 0,
-        }));
+        // Extract array from response
+        if (response.data.content && Array.isArray(response.data.content)) {
+          medicinesArray = response.data.content;
+        } else if (Array.isArray(response.data)) {
+          medicinesArray = response.data;
+        }
         
+        console.log('📊 Extracted medicines:', medicinesArray.length);
+        
+        // Transform the data
+        const transformedMedicines = medicinesArray.map(med => transformBackendMedicine(med));
+        
+        console.log('📊 Transformed medicines:', transformedMedicines);
         setMedicines(transformedMedicines);
       } else {
         console.warn('Failed to fetch medicines:', response.error);
@@ -114,11 +144,31 @@ export function StockProvider({ children }: { children: ReactNode }) {
       console.log('📊 Stock Movements Response:', response);
       
       if (response.success && response.data) {
-        const movementsArray = extractArray<StockMovement>(response.data);
-        setStockMovements(movementsArray.map(mov => ({
-          ...mov,
-          createdAt: new Date(mov.createdAt),
-        })));
+        let movementsArray: any[] = [];
+        
+        if (response.data.content && Array.isArray(response.data.content)) {
+          movementsArray = response.data.content;
+        } else if (Array.isArray(response.data)) {
+          movementsArray = response.data;
+        }
+        
+        const transformedMovements = movementsArray.map(mov => ({
+          id: mov.id,
+          medicineId: mov.medicine_id,
+          medicineName: mov.medicine_name,
+          type: mov.type.toLowerCase() as any,
+          quantity: mov.quantity,
+          previousStock: mov.previous_stock,
+          newStock: mov.new_stock,
+          unitType: mov.unit_type as UnitType,
+          referenceId: mov.reference_id,
+          reason: mov.reason,
+          performedBy: mov.performed_by_name || mov.created_by,
+          performedByRole: mov.performed_by_role as UserRole,
+          createdAt: new Date(mov.created_at),
+        }));
+        
+        setStockMovements(transformedMovements);
       } else {
         console.warn('No data in stock movements response');
         setStockMovements([]);
@@ -138,8 +188,7 @@ export function StockProvider({ children }: { children: ReactNode }) {
       console.log('📅 Monthly Stocks Response:', response);
       
       if (response.success && response.data) {
-        const monthlyArray = extractArray<MonthlyStock>(response.data);
-        setMonthlyStocks(monthlyArray);
+        setMonthlyStocks(response.data);
       } else {
         console.warn('No data in monthly stocks response');
         setMonthlyStocks([]);
@@ -177,22 +226,12 @@ export function StockProvider({ children }: { children: ReactNode }) {
       const response = await medicineService.deductStock(medicineId, quantity, unitType, referenceId, performedBy, performedByRole);
       
       if (response.success) {
-        setMedicines(prev => prev.map(med => {
-          if (med.id === medicineId) {
-            const unit = med.units?.find(u => u.type === unitType);
-            const actualQty = unit ? quantity * unit.quantity : quantity;
-            return {
-              ...med,
-              stockQuantity: Math.max(0, med.stockQuantity - actualQty),
-            };
-          }
-          return med;
-        }));
-        
+        await refreshMedicines();
         await refreshMovements();
       }
     } catch (err) {
       console.error('Failed to deduct stock:', err);
+      throw err;
     }
   };
 
@@ -208,20 +247,12 @@ export function StockProvider({ children }: { children: ReactNode }) {
       const response = await medicineService.addStock(medicineId, quantity, referenceId, performedBy, performedByRole);
       
       if (response.success) {
-        setMedicines(prev => prev.map(med => {
-          if (med.id === medicineId) {
-            return {
-              ...med,
-              stockQuantity: med.stockQuantity + quantity,
-            };
-          }
-          return med;
-        }));
-        
+        await refreshMedicines();
         await refreshMovements();
       }
     } catch (err) {
       console.error('Failed to add stock:', err);
+      throw err;
     }
   };
 
@@ -242,19 +273,11 @@ export function StockProvider({ children }: { children: ReactNode }) {
         performedByRole,
       });
       
-      setMedicines(prev => prev.map(med => {
-        if (med.id === medicineId) {
-          return {
-            ...med,
-            stockQuantity: Math.max(0, med.stockQuantity - quantity),
-          };
-        }
-        return med;
-      }));
-      
+      await refreshMedicines();
       await refreshMovements();
     } catch (err) {
       console.error('Failed to record stock loss:', err);
+      throw err;
     }
   };
 
@@ -275,19 +298,11 @@ export function StockProvider({ children }: { children: ReactNode }) {
         performedByRole,
       });
       
-      setMedicines(prev => prev.map(med => {
-        if (med.id === medicineId) {
-          return {
-            ...med,
-            stockQuantity: Math.max(0, med.stockQuantity + quantity),
-          };
-        }
-        return med;
-      }));
-      
+      await refreshMedicines();
       await refreshMovements();
     } catch (err) {
       console.error('Failed to record stock adjustment:', err);
+      throw err;
     }
   };
 
@@ -305,60 +320,47 @@ export function StockProvider({ children }: { children: ReactNode }) {
           type: unit.type.toUpperCase(),
           quantity: unit.quantity,
           price: unit.price,
+          label: unit.label || unit.type
         })),
         stockQuantity: medicineData.stockQuantity,
         reorderLevel: medicineData.reorderLevel,
         costPrice: medicineData.costPrice,
         imageUrl: medicineData.imageUrl,
+        description: medicineData.description,
+        productType: medicineData.productType,
       });
       
       if (response.success && response.data) {
-        const newMedicine = {
-          ...response.data,
-          id: response.data.id,
-          name: response.data.name,
-          genericName: response.data.genericName,
-          category: response.data.category,
-          manufacturer: response.data.manufacturer,
-          batchNumber: response.data.batchNumber,
-          expiryDate: new Date(response.data.expiryDate),
-          units: response.data.units || [],
-          stockQuantity: response.data.stockQuantity || 0,
-          reorderLevel: response.data.reorderLevel || 50,
-          supplierId: response.data.supplierId || medicineData.supplierId,
-          costPrice: response.data.costPrice || 0,
-          imageUrl: response.data.imageUrl,
-          createdAt: new Date(response.data.createdAt || new Date()),
-          updatedAt: new Date(response.data.updatedAt || new Date()),
-        };
-        
+        const newMedicine = transformBackendMedicine(response.data);
         setMedicines(prev => [...prev, newMedicine]);
         return newMedicine;
       }
       return null;
     } catch (error) {
       console.error('Error adding medicine:', error);
-      return null;
+      throw error;
     }
   };
 
-  // Upload opening stock - Not available in new API, use local state
+  // Upload opening stock
   const uploadOpeningStock = async (month: string, items: StockItem[]) => {
     try {
-      console.log('Upload opening stock - storing locally:', month, items);
+      console.log('Upload opening stock:', month, items);
       await refreshMonthlyStocks();
     } catch (err) {
       console.error('Failed to upload opening stock:', err);
+      throw err;
     }
   };
 
-  // Upload closing stock - Not available in new API, use local state
+  // Upload closing stock
   const uploadClosingStock = async (month: string, items: StockItem[]) => {
     try {
-      console.log('Upload closing stock - storing locally:', month, items);
+      console.log('Upload closing stock:', month, items);
       await refreshMonthlyStocks();
     } catch (err) {
       console.error('Failed to upload closing stock:', err);
+      throw err;
     }
   };
 
