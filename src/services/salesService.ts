@@ -26,6 +26,57 @@ interface TodaySalesSummary {
   sales: Sale[];
 }
 
+// Helper function to transform sale data from backend to frontend format
+const transformSale = (sale: any): Sale => {
+  if (!sale) {
+    return {
+      id: '',
+      cashierId: '',
+      cashierName: '',
+      subtotal: 0,
+      discount: 0,
+      tax: 0,
+      total: 0,
+      paymentMethod: 'cash',
+      customerName: 'Walk-in',
+      customerPhone: '',
+      notes: '',
+      createdAt: new Date(),
+      items: []
+    };
+  }
+  
+  // Handle null/undefined values safely
+  const subtotal = parseFloat(sale.total_amount || sale.subtotal || 0) || 0;
+  const discount = parseFloat(sale.discount || 0) || 0;
+  const total = parseFloat(sale.final_amount || sale.total || 0) || 0;
+  
+  return {
+    id: sale.id || `sale-${Date.now()}`,
+    cashierId: sale.cashier_id || sale.cashierId || '',
+    cashierName: sale.cashier_name || sale.cashierName || 'Unknown',
+    subtotal: subtotal,
+    discount: discount,
+    tax: 0,
+    total: total,
+    paymentMethod: (sale.payment_method || sale.paymentMethod || 'CASH').toLowerCase() as 'cash' | 'mpesa' | 'card',
+    customerName: sale.customer_name || sale.customerName || 'Walk-in',
+    customerPhone: sale.customer_phone || sale.customerPhone || '',
+    notes: sale.notes || '',
+    createdAt: new Date(sale.created_at || sale.createdAt || new Date()),
+    items: (sale.items || []).map((item: any) => ({
+      medicineId: item.medicine_id || item.medicineId || '',
+      medicineName: item.medicine_name || item.medicineName || '',
+      unitType: item.unit_type || item.unitType || '',
+      quantity: item.quantity || 0,
+      unitPrice: item.unit_price || item.unitPrice || 0,
+      totalPrice: item.subtotal || item.totalPrice || 0,
+      costPrice: item.cost_price || item.costPrice || 0,
+      profit: item.profit || 0
+    }))
+  };
+};
+
 export const salesService = {
   // Get all sales (paginated)
   async getAll(filters?: any): Promise<ApiResponse<any>> {
@@ -48,7 +99,7 @@ export const salesService = {
         const data = response.data.data || response.data;
         const content = data?.content || data?.sales || data || [];
         
-        const transformedSales = content.map((sale: any) => this.transformSale(sale));
+        const transformedSales = content.map((sale: any) => transformSale(sale));
         
         return {
           success: true,
@@ -70,7 +121,7 @@ export const salesService = {
       
       if (response.success && response.data) {
         const saleData = response.data.data || response.data;
-        const transformedSale = this.transformSale(saleData);
+        const transformedSale = transformSale(saleData);
         
         return {
           success: true,
@@ -186,7 +237,7 @@ export const salesService = {
           transactionCount: data.transactionCount || data.transaction_count || 0,
           totalSales: data.totalSales || data.total_sales || 0,
           totalProfit: data.totalProfit || data.total_profit || 0,
-          sales: (data.sales || []).map((sale: any) => this.transformSale(sale))
+          sales: (data.sales || []).map((sale: any) => transformSale(sale))
         };
         
         return {
@@ -227,7 +278,7 @@ export const salesService = {
           transactionCount: responseData.transactionCount || responseData.transaction_count || 0,
           totalSales: responseData.totalSales || responseData.total_sales || 0,
           totalProfit: responseData.totalProfit || responseData.total_profit || 0,
-          sales: (responseData.sales || []).map((sale: any) => this.transformSale(sale))
+          sales: (responseData.sales || []).map((sale: any) => transformSale(sale))
         };
         
         return {
@@ -272,7 +323,7 @@ export const salesService = {
         const data = response.data.data || response.data;
         const content = data?.content || data?.sales || data || [];
         
-        const transformedSales = content.map((sale: any) => this.transformSale(sale));
+        const transformedSales = content.map((sale: any) => transformSale(sale));
         
         return {
           success: true,
@@ -305,56 +356,5 @@ export const salesService = {
       console.error('❌ Error fetching period total:', error);
       throw error;
     }
-  },
-
-  // Helper function to transform sale data from backend to frontend format
-  private transformSale(sale: any): Sale {
-    if (!sale) {
-      return {
-        id: '',
-        cashierId: '',
-        cashierName: '',
-        subtotal: 0,
-        discount: 0,
-        tax: 0,
-        total: 0,
-        paymentMethod: 'cash',
-        customerName: 'Walk-in',
-        customerPhone: '',
-        notes: '',
-        createdAt: new Date(),
-        items: []
-      };
-    }
-    
-    // Handle null/undefined values safely
-    const subtotal = parseFloat(sale.total_amount || sale.subtotal || 0) || 0;
-    const discount = parseFloat(sale.discount || 0) || 0;
-    const total = parseFloat(sale.final_amount || sale.total || 0) || 0;
-    
-    return {
-      id: sale.id || `sale-${Date.now()}`,
-      cashierId: sale.cashier_id || sale.cashierId || '',
-      cashierName: sale.cashier_name || sale.cashierName || 'Unknown',
-      subtotal: subtotal,
-      discount: discount,
-      tax: 0,
-      total: total,
-      paymentMethod: (sale.payment_method || sale.paymentMethod || 'CASH').toLowerCase() as 'cash' | 'mpesa' | 'card',
-      customerName: sale.customer_name || sale.customerName || 'Walk-in',
-      customerPhone: sale.customer_phone || sale.customerPhone || '',
-      notes: sale.notes || '',
-      createdAt: new Date(sale.created_at || sale.createdAt || new Date()),
-      items: (sale.items || []).map((item: any) => ({
-        medicineId: item.medicine_id || item.medicineId || '',
-        medicineName: item.medicine_name || item.medicineName || '',
-        unitType: item.unit_type || item.unitType || '',
-        quantity: item.quantity || 0,
-        unitPrice: item.unit_price || item.unitPrice || 0,
-        totalPrice: item.subtotal || item.totalPrice || 0,
-        costPrice: item.cost_price || item.costPrice || 0,
-        profit: item.profit || 0
-      }))
-    };
   }
 };
