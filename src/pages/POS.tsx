@@ -50,7 +50,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-
+import { salesService } from '@/services/salesService'; // ADD THIS IMPORT
 import { getUnitLabel } from '@/types/pharmacy';
 
 // Store carts per cashier in memory
@@ -64,10 +64,11 @@ export default function POS() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mpesa' | 'card'>('cash');
+  const [isProcessing, setIsProcessing] = useState(false); // ADDED: Loading state
   const { toast } = useToast();
   const { user } = useAuth();
   const { medicines, deductStock } = useStock();
-  const { addSale } = useSales();
+  const { addSale, refreshCashierTodaySales } = useSales(); // ADDED: refresh function
   const { getPendingPrescriptions, updatePrescriptionStatus } = usePrescriptions();
   const { categories: categoryList } = useCategories();
   
@@ -109,6 +110,21 @@ export default function POS() {
     const unit = medicine.units.find((u) => u.type === unitType);
     if (!unit) return;
 
+    // Check if we have enough stock
+    const currentInCart = cart.find(item => 
+      item.medicineId === medicineId && item.unitType === unitType
+    )?.quantity || 0;
+    
+    if (currentInCart + 1 > medicine.stockQuantity) {
+      toast({
+        title: 'Insufficient Stock',
+        description: `Only ${medicine.stockQuantity} ${getUnitLabel(unitType)}(s) available`,
+        variant: 'destructive',
+        duration: 3000,
+      });
+      return;
+    }
+
     setCart((prev) => {
       const existingIndex = prev.findIndex(
         (item) => item.medicineId === medicineId && item.unitType === unitType
@@ -146,6 +162,27 @@ export default function POS() {
     setCart((prev) => {
       const updated = [...prev];
       const newQty = updated[index].quantity + delta;
+      
+      // Check stock before updating
+      const item = updated[index];
+      const medicine = medicines.find(m => m.id === item.medicineId);
+      const currentInCart = prev.reduce((sum, cartItem) => {
+        if (cartItem.medicineId === item.medicineId && cartItem.unitType === item.unitType) {
+          return sum + cartItem.quantity;
+        }
+        return sum;
+      }, 0);
+      
+      if (medicine && newQty > medicine.stockQuantity + currentInCart - item.quantity) {
+        toast({
+          title: 'Insufficient Stock',
+          description: `Only ${medicine.stockQuantity} available`,
+          variant: 'destructive',
+          duration: 3000,
+        });
+        return prev;
+      }
+      
       if (newQty <= 0) {
         return prev.filter((_, i) => i !== index);
       }
@@ -238,17 +275,29 @@ export default function POS() {
         const totalQuantity = dosageQty * frequencyPerDay * durationDays;
         
         const unit = medicine.units[0]; // Use default unit
-        const quantity = Math.min(totalQuantity, medicine.stockQuantity); // Don't exceed stock
         
-        newCartItems.push({
-          medicineId: medicine.id,
-          medicineName: medicine.name,
-          unitType: unit.type,
-          quantity,
-          unitPrice: unit.price,
-          totalPrice: unit.price * quantity,
-          costPrice: medicine.costPrice * unit.quantity,
-        });
+        // Don't exceed available stock
+        const availableStock = medicine.stockQuantity;
+        const currentInCart = newCartItems.reduce((sum, cartItem) => {
+          if (cartItem.medicineId === medicine.id && cartItem.unitType === unit.type) {
+            return sum + cartItem.quantity;
+          }
+          return sum;
+        }, 0);
+        
+        const quantity = Math.min(totalQuantity, availableStock - currentInCart);
+        
+        if (quantity > 0) {
+          newCartItems.push({
+            medicineId: medicine.id,
+            medicineName: medicine.name,
+            unitType: unit.type,
+            quantity,
+            unitPrice: unit.price,
+            totalPrice: unit.price * quantity,
+            costPrice: medicine.costPrice * unit.quantity,
+          });
+        }
       }
     });
     
@@ -273,7 +322,8 @@ export default function POS() {
   const tax = 0;
   const total = subtotal + tax;
 
-  const handleCheckout = () => {
+  // FIXED: Now actually sends data to backend
+  const handleCheckout = async () => {
     if (cart.length === 0) {
       toast({
         title: 'Cart is empty',
@@ -283,62 +333,257 @@ export default function POS() {
       return;
     }
 
-    const sale: Sale = {
-      id: `INV-${Date.now()}`,
-      items: cart,
-      subtotal,
-      discount: 0,
-      tax,
-      total,
-      paymentMethod,
-      cashierId: user?.id || '',
-      cashierName: user?.name || '',
-      customerName: customerName || 'Walk-in',
-      customerPhone: customerPhone || undefined,
-      createdAt: new Date(),
-    };
-    
-    setLastSale(sale);
-    
-    // Deduct stock for each item sold with tracking
-    cart.forEach(item => {
-      deductStock(
-        item.medicineId, 
-        item.quantity, 
-        item.unitType,
-        sale.id,
-        user?.name || 'Unknown',
-        user?.role || 'cashier'
-      );
-    });
-    
-    // Store sale in SalesContext
-    addSale(sale);
-    
-    // Mark prescription as dispensed if loaded from prescription
-    if (loadedPrescriptionId) {
-      updatePrescriptionStatus(loadedPrescriptionId, 'DISPENSED', user?.name);
-      setLoadedPrescriptionId(null);
+    if (!user?.id || !user?.name) {
+      toast({
+        title: 'Authentication Error',
+        description: 'Please login to complete sale',
+        variant: 'destructive',
+      });
+      return;
     }
+
+    setIsProcessing(true);
     
-    toast({
-      title: 'Sale Complete!',
-      description: `Payment of KSh ${total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
-    });
-    
-    setCart([]);
-    setCustomerName('');
-    setCustomerPhone('');
-    setShowReceipt(true);
-    
-    // Auto print receipt
-    setTimeout(() => {
-      window.print();
-    }, 500);
+    try {
+      // Prepare sale data for backend API
+      const saleData = {
+        items: cart.map(item => ({
+          medicineId: item.medicineId, // Backend will handle both medicineId and medicine_id
+          medicineName: item.medicineName,
+          unitType: item.unitType,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          costPrice: item.costPrice
+        })),
+        payment_method: paymentMethod.toUpperCase(), // Backend expects uppercase
+        customer_name: customerName || 'Walk-in',
+        customer_phone: customerPhone || undefined,
+        discount: 0, // You can add discount field later
+        notes: loadedPrescriptionId ? `Prescription: ${loadedPrescriptionId}` : ''
+      };
+
+      console.log('📤 Sending sale to backend:', saleData);
+
+      // Call the backend API to create the sale
+      const response = await salesService.create(saleData);
+      
+      if (response.success && response.data) {
+        const backendSale = response.data;
+        
+        console.log('✅ Sale created successfully:', backendSale);
+        
+        // Create frontend sale object for receipt display
+        const frontendSale: Sale = {
+          id: backendSale.id,
+          items: backendSale.items || cart.map(item => ({
+            medicineId: item.medicineId,
+            medicineName: item.medicineName,
+            unitType: item.unitType,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            costPrice: item.costPrice
+          })),
+          subtotal: backendSale.total_amount || subtotal,
+          discount: backendSale.discount || 0,
+          tax: 0,
+          total: backendSale.final_amount || total,
+          paymentMethod: (backendSale.payment_method || paymentMethod).toLowerCase() as 'cash' | 'mpesa' | 'card',
+          cashierId: backendSale.cashier_id || user.id,
+          cashierName: backendSale.cashier_name || user.name,
+          customerName: backendSale.customer_name || customerName || 'Walk-in',
+          customerPhone: backendSale.customer_phone || customerPhone,
+          createdAt: new Date(backendSale.created_at || new Date()),
+        };
+        
+        setLastSale(frontendSale);
+        
+        // Update local context with the sale from backend
+        addSale(frontendSale);
+        
+        // Refresh cashier's today sales
+        if (user.id) {
+          await refreshCashierTodaySales(user.id);
+        }
+        
+        // Mark prescription as dispensed if loaded from prescription
+        if (loadedPrescriptionId) {
+          updatePrescriptionStatus(loadedPrescriptionId, 'DISPENSED', user.name);
+          setLoadedPrescriptionId(null);
+        }
+        
+        toast({
+          title: 'Sale Complete!',
+          description: `Payment of KSh ${backendSale.final_amount?.toLocaleString() || total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
+        });
+        
+        // Clear cart
+        setCart([]);
+        setCustomerName('');
+        setCustomerPhone('');
+        
+        // Show receipt
+        setShowReceipt(true);
+        
+      } else {
+        throw new Error(response.error || 'Failed to create sale');
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Failed to create sale:', error);
+      
+      toast({
+        title: 'Sale Failed',
+        description: error.message || 'Could not process sale. Please try again.',
+        variant: 'destructive',
+        duration: 5000,
+      });
+      
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const printReceipt = () => {
-    window.print();
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast({
+        title: 'Print Error',
+        description: 'Please allow popups to print receipt',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!lastSale) return;
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Receipt</title>
+        <style>
+          body { font-family: monospace; font-size: 12px; margin: 0; padding: 10px; }
+          .header { text-align: center; margin-bottom: 10px; }
+          .header h2 { font-size: 14px; font-weight: bold; margin: 0; }
+          .header p { font-size: 10px; margin: 2px 0; }
+          .info { margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 5px; }
+          .info div { display: flex; justify-content: space-between; margin: 2px 0; }
+          .items-header { display: flex; font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 5px; }
+          .items-header span:first-child { flex: 1; }
+          .items-header span { width: 50px; text-align: center; }
+          .items-header span:last-child { width: 60px; text-align: right; }
+          .item { margin: 3px 0; }
+          .item-row { display: flex; }
+          .item-name { flex: 1; font-weight: bold; font-size: 11px; }
+          .item-qty { width: 50px; text-align: center; }
+          .item-price { width: 50px; text-align: right; }
+          .item-total { width: 60px; text-align: right; font-weight: bold; }
+          .item-details { font-size: 10px; color: #666; margin-left: 5px; }
+          .totals { border-top: 1px dashed #000; padding-top: 5px; margin-top: 10px; }
+          .total-row { display: flex; justify-content: space-between; margin: 2px 0; }
+          .grand-total { font-weight: bold; font-size: 14px; margin-top: 5px; }
+          .payment-info { border-top: 1px dashed #000; padding-top: 5px; margin-top: 10px; }
+          .footer { text-align: center; margin-top: 15px; font-size: 10px; color: #666; }
+          @media print {
+            body { padding: 0; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2>PHARMACY NAME</h2>
+          <p>123 Main Street, Nairobi</p>
+          <p>Tel: 0712 345 678</p>
+          <p>PIN: P051234567A</p>
+        </div>
+        
+        <div class="info">
+          <div><span>Receipt #:</span><span>${lastSale.id}</span></div>
+          <div><span>Date:</span><span>${format(new Date(lastSale.createdAt), 'dd/MM/yyyy HH:mm')}</span></div>
+          <div><span>Cashier:</span><span>${lastSale.cashierName}</span></div>
+          ${lastSale.customerName !== 'Walk-in' ? `<div><span>Customer:</span><span>${lastSale.customerName}</span></div>` : ''}
+        </div>
+        
+        <div class="items-header">
+          <span>Item</span>
+          <span>Qty</span>
+          <span>Price</span>
+          <span>Total</span>
+        </div>
+        
+        ${lastSale.items.map(item => `
+          <div class="item">
+            <div class="item-row">
+              <span class="item-name">${item.medicineName}</span>
+              <span class="item-qty">${item.quantity}</span>
+              <span class="item-price">KSh ${item.unitPrice.toLocaleString()}</span>
+              <span class="item-total">KSh ${item.totalPrice.toLocaleString()}</span>
+            </div>
+            <div class="item-details">@KSh ${item.unitPrice.toLocaleString()}/${getUnitLabel(item.unitType)}</div>
+          </div>
+        `).join('')}
+        
+        <div class="totals">
+          <div class="total-row">
+            <span>Subtotal (${lastSale.items.length} items)</span>
+            <span>KSh ${lastSale.subtotal.toLocaleString()}</span>
+          </div>
+          ${lastSale.discount > 0 ? `
+            <div class="total-row">
+              <span>Discount</span>
+              <span>-KSh ${lastSale.discount.toLocaleString()}</span>
+            </div>
+          ` : ''}
+          <div class="total-row grand-total">
+            <span>TOTAL</span>
+            <span>KSh ${lastSale.total.toLocaleString()}</span>
+          </div>
+        </div>
+        
+        <div class="payment-info">
+          <div class="total-row">
+            <span>Payment:</span>
+            <span>${lastSale.paymentMethod.toUpperCase()}</span>
+          </div>
+          <div class="total-row">
+            <span>Tendered:</span>
+            <span>KSh ${lastSale.total.toLocaleString()}</span>
+          </div>
+          <div class="total-row">
+            <span>Change:</span>
+            <span>KSh 0</span>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p>Thank you for your purchase!</p>
+          <p>Get well soon</p>
+          <p>Served by: ${lastSale.cashierName}</p>
+          <p>${format(new Date(), 'EEEE, dd MMMM yyyy')}</p>
+        </div>
+        
+        <div class="no-print" style="margin-top: 20px; text-align: center;">
+          <button onclick="window.print()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Print Receipt
+          </button>
+          <button onclick="window.close()" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px;">
+            Close
+          </button>
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(receiptHTML);
+    printWindow.document.close();
+    
+    // Auto-print after a short delay
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
   };
 
   return (
@@ -377,8 +622,9 @@ export default function POS() {
                     variant="default"
                     className="h-8"
                     onClick={handleCheckout}
+                    disabled={isProcessing}
                   >
-                    Checkout
+                    {isProcessing ? 'Processing...' : 'Checkout'}
                   </Button>
                 </div>
               </div>
@@ -485,7 +731,12 @@ export default function POS() {
                             {/* Stock Indicator */}
                             <div className="absolute top-2 right-2">
                               <Badge 
-                                className="text-[10px] px-1.5 py-0.5 h-4 bg-destructive text-destructive-foreground font-bold"
+                                className={cn(
+                                  "text-[10px] px-1.5 py-0.5 h-4 font-bold",
+                                  medicine.stockQuantity <= medicine.reorderLevel
+                                    ? "bg-destructive text-destructive-foreground"
+                                    : "bg-success text-success-foreground"
+                                )}
                               >
                                 {medicine.stockQuantity}
                               </Badge>
@@ -527,7 +778,7 @@ export default function POS() {
                                     }}
                                   >
                                     <Plus className="h-2 w-2 mr-0.5" />
-                                    {getUnitLabel(unit.type)} {unit.price}
+                                    {getUnitLabel(unit.type)} KSh {unit.price}
                                   </Button>
                                 ))}
                               </div>
@@ -727,6 +978,7 @@ export default function POS() {
                       size="sm" 
                       onClick={clearCart}
                       className="h-7 px-2 text-xs"
+                      disabled={isProcessing}
                     >
                       <Trash2 className="h-3 w-3 mr-1" />
                       Clear
@@ -756,6 +1008,7 @@ export default function POS() {
                               value={customerName}
                               onChange={(e) => setCustomerName(e.target.value)}
                               className="h-7 pl-7 text-xs"
+                              disabled={isProcessing}
                             />
                           </div>
                         </div>
@@ -768,6 +1021,7 @@ export default function POS() {
                               value={customerPhone}
                               onChange={(e) => setCustomerPhone(e.target.value)}
                               className="h-7 pl-7 text-xs"
+                              disabled={isProcessing}
                             />
                           </div>
                         </div>
@@ -791,6 +1045,7 @@ export default function POS() {
                                 size="sm"
                                 className="h-5 w-5 p-0 text-destructive hover:text-destructive"
                                 onClick={() => removeFromCart(index)}
+                                disabled={isProcessing}
                               >
                                 <X className="h-3 w-3" />
                               </Button>
@@ -805,6 +1060,7 @@ export default function POS() {
                                   size="sm"
                                   className="h-6 w-6 p-0"
                                   onClick={() => updateQuantity(index, -1)}
+                                  disabled={isProcessing}
                                 >
                                   <Minus className="h-3 w-3" />
                                 </Button>
@@ -814,6 +1070,7 @@ export default function POS() {
                                   size="sm"
                                   className="h-6 w-6 p-0"
                                   onClick={() => updateQuantity(index, 1)}
+                                  disabled={isProcessing}
                                 >
                                   <Plus className="h-3 w-3" />
                                 </Button>
@@ -834,10 +1091,12 @@ export default function POS() {
                         value={paymentMethod} 
                         onValueChange={(value) => setPaymentMethod(value as 'cash' | 'mpesa' | 'card')}
                         className="flex gap-2"
+                        disabled={isProcessing}
                       >
                         <div className={cn(
                           "flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors",
-                          paymentMethod === 'cash' ? 'border-primary bg-primary/10' : 'hover:bg-accent'
+                          paymentMethod === 'cash' ? 'border-primary bg-primary/10' : 'hover:bg-accent',
+                          isProcessing && 'opacity-50 cursor-not-allowed'
                         )}>
                           <RadioGroupItem value="cash" id="cash" className="sr-only" />
                           <label htmlFor="cash" className="flex items-center gap-1.5 cursor-pointer w-full">
@@ -847,7 +1106,8 @@ export default function POS() {
                         </div>
                         <div className={cn(
                           "flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors",
-                          paymentMethod === 'mpesa' ? 'border-primary bg-primary/10' : 'hover:bg-accent'
+                          paymentMethod === 'mpesa' ? 'border-primary bg-primary/10' : 'hover:bg-accent',
+                          isProcessing && 'opacity-50 cursor-not-allowed'
                         )}>
                           <RadioGroupItem value="mpesa" id="mpesa" className="sr-only" />
                           <label htmlFor="mpesa" className="flex items-center gap-1.5 cursor-pointer w-full">
@@ -857,7 +1117,8 @@ export default function POS() {
                         </div>
                         <div className={cn(
                           "flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors",
-                          paymentMethod === 'card' ? 'border-primary bg-primary/10' : 'hover:bg-accent'
+                          paymentMethod === 'card' ? 'border-primary bg-primary/10' : 'hover:bg-accent',
+                          isProcessing && 'opacity-50 cursor-not-allowed'
                         )}>
                           <RadioGroupItem value="card" id="card" className="sr-only" />
                           <label htmlFor="card" className="flex items-center gap-1.5 cursor-pointer w-full">
@@ -885,9 +1146,19 @@ export default function POS() {
                       <Button
                         className="w-full h-10"
                         onClick={handleCheckout}
+                        disabled={isProcessing || cart.length === 0}
                       >
-                        <ShoppingCart className="h-4 w-4 mr-2" />
-                        Complete Sale
+                        {isProcessing ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingCart className="h-4 w-4 mr-2" />
+                            Complete Sale
+                          </>
+                        )}
                       </Button>
                     </div>
                   </>

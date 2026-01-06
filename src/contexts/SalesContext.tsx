@@ -187,59 +187,69 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, user, fetchAllSales]);
 
-  // Fetch cashier's today sales from backend - UPDATED
-  const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
-    if (!cashierId) return;
-    
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await salesService.getCashierTodaySales(cashierId);
-      console.log('👤 Cashier today sales response:', response);
-      
-      if (response.success && response.data) {
-        let todaySales: Sale[] = [];
-        
-        // Handle nested data.data structure or extract from sales array
-        const data = response.data as any;
-        if (data.data && Array.isArray(data.data)) {
-          todaySales = data.data;
-        } else if (data.sales && Array.isArray(data.sales)) {
-          todaySales = data.sales;
-        } else {
-          todaySales = extractArray<Sale>(response.data);
-        }
-        
-        const mappedSales = todaySales.map(sale => ({
-          ...sale,
-          createdAt: new Date(sale.createdAt),
-          paymentMethod: sale.paymentMethod.toLowerCase() as 'cash' | 'mpesa' | 'card',
-        }));
-        
-        console.log('👤 Cashier today sales:', mappedSales.length, 'sales');
-        
-        // Store in state
-        setCashierTodaySales(mappedSales);
-        
-        // Save to localStorage for persistence
-        saveCashierTodaySales(cashierId, mappedSales);
-        
-      } else {
-        console.warn('❌ API failed, trying localStorage...');
-        // Try to get from localStorage if API fails
-        const stored = loadStoredCashierTodaySales(cashierId);
-        setCashierTodaySales(stored);
-      }
-    } catch (err) {
-      console.error('❌ Failed to fetch today sales:', err);
-      // Fallback to localStorage
-      const stored = loadStoredCashierTodaySales(cashierId);
-      setCashierTodaySales(stored);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+// In your SalesContext, update the fetchCashierTodaySales function:
 
+const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
+  if (!cashierId) return;
+  
+  setIsLoading(true);
+  setError(null);
+  try {
+    const response = await salesService.getCashierTodaySales(cashierId);
+    console.log('👤 Cashier today sales response:', response);
+    
+    if (response.success && response.data) {
+      // Handle both possible response structures
+      let todaySales: Sale[] = [];
+      
+      if (response.data.sales && Array.isArray(response.data.sales)) {
+        todaySales = response.data.sales;
+      } else if (Array.isArray(response.data)) {
+        todaySales = response.data;
+      }
+      
+      console.log('👤 Extracted sales:', todaySales.length);
+      
+      // Transform to frontend Sale type
+      const transformedSales = todaySales.map(sale => ({
+        id: sale.id,
+        cashierId: sale.cashierId || sale.cashier_id,
+        cashierName: sale.cashierName || sale.cashier_name,
+        total: sale.finalAmount || sale.final_amount || sale.total || 0,
+        subtotal: sale.totalAmount || sale.total_amount || 0,
+        discount: sale.discount || 0,
+        tax: 0, // Add if your backend includes tax
+        paymentMethod: (sale.paymentMethod || sale.payment_method || 'cash').toLowerCase(),
+        customerName: sale.customerName || sale.customer_name,
+        customerPhone: sale.customerPhone || sale.customer_phone,
+        notes: sale.notes,
+        createdAt: new Date(sale.createdAt || sale.created_at),
+        items: (sale.items || []).map((item: any) => ({
+          medicineId: item.medicineId || item.medicine_id,
+          medicineName: item.medicineName || item.medicine_name,
+          quantity: item.quantity,
+          unitType: item.unitType || item.unit_type,
+          unitLabel: item.unitLabel || item.unit_label,
+          unitPrice: item.unitPrice || item.unit_price,
+          costPrice: item.costPrice || item.cost_price,
+          totalPrice: item.subtotal || item.totalPrice || 0,
+          profit: item.profit || 0
+        }))
+      }));
+      
+      console.log('👤 Transformed sales for frontend:', transformedSales.length);
+      
+      setCashierTodaySales(transformedSales);
+      saveCashierTodaySales(cashierId, transformedSales);
+    }
+  } catch (err) {
+    console.error('❌ Failed to fetch today sales:', err);
+    const stored = loadStoredCashierTodaySales(cashierId);
+    setCashierTodaySales(stored);
+  } finally {
+    setIsLoading(false);
+  }
+}, []);
   // Refresh cashier's today sales (force update from backend)
   const refreshCashierTodaySales = async (cashierId: string) => {
     if (!cashierId) return [];
