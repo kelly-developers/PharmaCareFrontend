@@ -322,33 +322,62 @@ export default function POS() {
   const tax = 0;
   const total = subtotal + tax;
 
-  // FIXED: Now actually sends data to backend
-  const handleCheckout = async () => {
-    if (cart.length === 0) {
-      toast({
-        title: 'Cart is empty',
-        description: 'Add items to cart before checkout',
-        variant: 'destructive',
-      });
-      return;
-    }
+// In your handleCheckout function in POS.jsx:
+const handleCheckout = async () => {
+  if (cart.length === 0) {
+    toast({
+      title: 'Cart is empty',
+      description: 'Add items to cart before checkout',
+      variant: 'destructive',
+    });
+    return;
+  }
 
-    if (!user?.id || !user?.name) {
-      toast({
-        title: 'Authentication Error',
-        description: 'Please login to complete sale',
-        variant: 'destructive',
-      });
-      return;
-    }
+  if (!user?.id || !user?.name) {
+    toast({
+      title: 'Authentication Error',
+      description: 'Please login to complete sale',
+      variant: 'destructive',
+    });
+    return;
+  }
 
-    setIsProcessing(true);
+  setIsProcessing(true);
+  
+  try {
+    // Prepare sale data for backend API - FIXED: Ensure all values are safe
+    const saleData = {
+      items: cart.map(item => ({
+        medicineId: item.medicineId,
+        medicineName: item.medicineName,
+        unitType: item.unitType,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        costPrice: item.costPrice
+      })),
+      paymentMethod: paymentMethod || 'cash', // FIXED: Ensure value exists
+      customerName: customerName || 'Walk-in',
+      customerPhone: customerPhone || '', // FIXED: Convert undefined to empty string
+      discount: 0,
+      notes: loadedPrescriptionId ? `Prescription: ${loadedPrescriptionId}` : ''
+    };
+
+    console.log('📤 Sending sale to backend:', saleData);
+
+    // Call the backend API to create the sale
+    const response = await salesService.create(saleData);
     
-    try {
-      // Prepare sale data for backend API
-      const saleData = {
-        items: cart.map(item => ({
-          medicineId: item.medicineId, // Backend will handle both medicineId and medicine_id
+    if (response.success && response.data) {
+      const backendSale = response.data;
+      
+      console.log('✅ Sale created successfully:', backendSale);
+      
+      // Create frontend sale object for receipt display
+      const frontendSale: Sale = {
+        id: backendSale.id,
+        items: backendSale.items || cart.map(item => ({
+          medicineId: item.medicineId,
           medicineName: item.medicineName,
           unitType: item.unitType,
           quantity: item.quantity,
@@ -356,94 +385,65 @@ export default function POS() {
           totalPrice: item.totalPrice,
           costPrice: item.costPrice
         })),
-        payment_method: paymentMethod.toUpperCase(), // Backend expects uppercase
-        customer_name: customerName || 'Walk-in',
-        customer_phone: customerPhone || undefined,
-        discount: 0, // You can add discount field later
-        notes: loadedPrescriptionId ? `Prescription: ${loadedPrescriptionId}` : ''
+        subtotal: backendSale.total_amount || subtotal,
+        discount: backendSale.discount || 0,
+        tax: 0,
+        total: backendSale.final_amount || total,
+        paymentMethod: (backendSale.payment_method || paymentMethod).toLowerCase() as 'cash' | 'mpesa' | 'card',
+        cashierId: backendSale.cashier_id || user.id,
+        cashierName: backendSale.cashier_name || user.name,
+        customerName: backendSale.customer_name || customerName || 'Walk-in',
+        customerPhone: backendSale.customer_phone || customerPhone || '',
+        createdAt: new Date(backendSale.created_at || new Date()),
       };
-
-      console.log('📤 Sending sale to backend:', saleData);
-
-      // Call the backend API to create the sale
-      const response = await salesService.create(saleData);
       
-      if (response.success && response.data) {
-        const backendSale = response.data;
-        
-        console.log('✅ Sale created successfully:', backendSale);
-        
-        // Create frontend sale object for receipt display
-        const frontendSale: Sale = {
-          id: backendSale.id,
-          items: backendSale.items || cart.map(item => ({
-            medicineId: item.medicineId,
-            medicineName: item.medicineName,
-            unitType: item.unitType,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalPrice: item.totalPrice,
-            costPrice: item.costPrice
-          })),
-          subtotal: backendSale.total_amount || subtotal,
-          discount: backendSale.discount || 0,
-          tax: 0,
-          total: backendSale.final_amount || total,
-          paymentMethod: (backendSale.payment_method || paymentMethod).toLowerCase() as 'cash' | 'mpesa' | 'card',
-          cashierId: backendSale.cashier_id || user.id,
-          cashierName: backendSale.cashier_name || user.name,
-          customerName: backendSale.customer_name || customerName || 'Walk-in',
-          customerPhone: backendSale.customer_phone || customerPhone,
-          createdAt: new Date(backendSale.created_at || new Date()),
-        };
-        
-        setLastSale(frontendSale);
-        
-        // Update local context with the sale from backend
-        addSale(frontendSale);
-        
-        // Refresh cashier's today sales
-        if (user.id) {
-          await refreshCashierTodaySales(user.id);
-        }
-        
-        // Mark prescription as dispensed if loaded from prescription
-        if (loadedPrescriptionId) {
-          updatePrescriptionStatus(loadedPrescriptionId, 'DISPENSED', user.name);
-          setLoadedPrescriptionId(null);
-        }
-        
-        toast({
-          title: 'Sale Complete!',
-          description: `Payment of KSh ${backendSale.final_amount?.toLocaleString() || total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
-        });
-        
-        // Clear cart
-        setCart([]);
-        setCustomerName('');
-        setCustomerPhone('');
-        
-        // Show receipt
-        setShowReceipt(true);
-        
-      } else {
-        throw new Error(response.error || 'Failed to create sale');
+      setLastSale(frontendSale);
+      
+      // Update local context with the sale from backend
+      addSale(frontendSale);
+      
+      // Refresh cashier's today sales
+      if (user.id) {
+        await refreshCashierTodaySales(user.id);
       }
       
-    } catch (error: any) {
-      console.error('❌ Failed to create sale:', error);
+      // Mark prescription as dispensed if loaded from prescription
+      if (loadedPrescriptionId) {
+        updatePrescriptionStatus(loadedPrescriptionId, 'DISPENSED', user.name);
+        setLoadedPrescriptionId(null);
+      }
       
       toast({
-        title: 'Sale Failed',
-        description: error.message || 'Could not process sale. Please try again.',
-        variant: 'destructive',
-        duration: 5000,
+        title: 'Sale Complete!',
+        description: `Payment of KSh ${backendSale.final_amount?.toLocaleString() || total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
       });
       
-    } finally {
-      setIsProcessing(false);
+      // Clear cart
+      setCart([]);
+      setCustomerName('');
+      setCustomerPhone('');
+      
+      // Show receipt
+      setShowReceipt(true);
+      
+    } else {
+      throw new Error(response.error || 'Failed to create sale');
     }
-  };
+    
+  } catch (error: any) {
+    console.error('❌ Failed to create sale:', error);
+    
+    toast({
+      title: 'Sale Failed',
+      description: error.message || 'Could not process sale. Please try again.',
+      variant: 'destructive',
+      duration: 5000,
+    });
+    
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
   const printReceipt = () => {
     const printWindow = window.open('', '_blank');

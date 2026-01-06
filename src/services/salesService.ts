@@ -136,12 +136,12 @@ export const salesService = {
     }
   },
 
-  // Create sale - COMPLETELY FIXED: Handle nested response structure
+  // Create sale - COMPLETELY FIXED: Handle undefined values
   async create(saleData: CreateSaleRequest): Promise<ApiResponse<Sale>> {
     try {
       console.log('📤 Creating sale:', saleData);
       
-      // Transform frontend data to match backend expectations
+      // FIXED: Ensure all values are safe before sending
       const backendSaleData = {
         items: saleData.items.map(item => ({
           medicine_id: item.medicineId,
@@ -152,9 +152,11 @@ export const salesService = {
           total_price: item.totalPrice,
           cost_price: item.costPrice
         })),
-        payment_method: saleData.paymentMethod.toUpperCase(),
+        // FIXED: Add safety check for paymentMethod
+        payment_method: (saleData.paymentMethod || 'cash').toUpperCase(),
         customer_name: saleData.customerName || 'Walk-in',
-        customer_phone: saleData.customerPhone,
+        // FIXED: Convert undefined to empty string
+        customer_phone: saleData.customerPhone || '',
         discount: saleData.discount || 0,
         notes: saleData.notes || ''
       };
@@ -185,7 +187,7 @@ export const salesService = {
           total: saleData.final_amount || saleData.total || 0,
           paymentMethod: (saleData.payment_method || saleData.paymentMethod || 'CASH').toLowerCase() as 'cash' | 'mpesa' | 'card',
           customerName: saleData.customer_name || saleData.customerName || 'Walk-in',
-          customerPhone: saleData.customer_phone || saleData.customerPhone,
+          customerPhone: saleData.customer_phone || saleData.customerPhone || '',
           notes: saleData.notes || '',
           createdAt: new Date(saleData.created_at || saleData.createdAt || new Date()),
           items: (saleData.items || []).map((item: any) => ({
