@@ -188,6 +188,7 @@ export interface Sale {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
+  notes?: string;
   createdAt: Date;
 }
 

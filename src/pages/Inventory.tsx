@@ -284,8 +284,8 @@ export default function Inventory() {
       if (response.success && response.data) {
         setInventoryStats({
           totalValue: response.data.stockValue || totalValue,
-          lowStockCount: response.data.lowStockItems || lowStockCount,
-          expiringCount: response.data.expiringSoon || expiringCount,
+          lowStockCount: response.data.lowStockCount || lowStockCount,
+          expiringCount: response.data.expiringSoonCount || response.data.expiringCount || expiringCount,
           loading: false
         });
       } else {

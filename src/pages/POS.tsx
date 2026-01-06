@@ -374,6 +374,7 @@ const handleCheckout = async () => {
       console.log('✅ Sale created successfully:', backendSale);
       
       // Create frontend sale object for receipt display
+      // Note: backendSale is already transformed by salesService to have camelCase properties
       const frontendSale: Sale = {
         id: backendSale.id,
         items: backendSale.items || cart.map(item => ({
@@ -385,22 +386,19 @@ const handleCheckout = async () => {
           totalPrice: item.totalPrice,
           costPrice: item.costPrice
         })),
-        subtotal: backendSale.total_amount || subtotal,
+        subtotal: backendSale.subtotal || subtotal,
         discount: backendSale.discount || 0,
         tax: 0,
-        total: backendSale.final_amount || total,
-        paymentMethod: (backendSale.payment_method || paymentMethod).toLowerCase() as 'cash' | 'mpesa' | 'card',
-        cashierId: backendSale.cashier_id || user.id,
-        cashierName: backendSale.cashier_name || user.name,
-        customerName: backendSale.customer_name || customerName || 'Walk-in',
-        customerPhone: backendSale.customer_phone || customerPhone || '',
-        createdAt: new Date(backendSale.created_at || new Date()),
+        total: backendSale.total || total,
+        paymentMethod: backendSale.paymentMethod || paymentMethod,
+        cashierId: backendSale.cashierId || user.id,
+        cashierName: backendSale.cashierName || user.name,
+        customerName: backendSale.customerName || customerName || 'Walk-in',
+        customerPhone: backendSale.customerPhone || customerPhone || '',
+        createdAt: new Date(backendSale.createdAt || new Date()),
       };
       
       setLastSale(frontendSale);
-      
-      // Update local context with the sale from backend
-      addSale(frontendSale);
       
       // Refresh cashier's today sales
       if (user.id) {
@@ -415,7 +413,7 @@ const handleCheckout = async () => {
       
       toast({
         title: 'Sale Complete!',
-        description: `Payment of KSh ${backendSale.final_amount?.toLocaleString() || total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
+        description: `Payment of KSh ${backendSale.total?.toLocaleString() || total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
       });
       
       // Clear cart

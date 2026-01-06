@@ -188,7 +188,14 @@ export function StockProvider({ children }: { children: ReactNode }) {
       console.log('📅 Monthly Stocks Response:', response);
       
       if (response.success && response.data) {
-        setMonthlyStocks(response.data);
+        // Transform backend MonthlyStockSummary to frontend MonthlyStock format
+        const transformedData: MonthlyStock[] = (response.data as any[]).map((item: any) => ({
+          month: item.month,
+          openingStock: [], // Backend returns numeric, we keep empty for now
+          closingStock: [], // Backend returns numeric, we keep empty for now
+          uploadedAt: item.uploadedAt
+        }));
+        setMonthlyStocks(transformedData);
       } else {
         console.warn('No data in monthly stocks response');
         setMonthlyStocks([]);
@@ -223,7 +230,7 @@ export function StockProvider({ children }: { children: ReactNode }) {
     performedByRole: UserRole
   ) => {
     try {
-      const response = await medicineService.deductStock(medicineId, quantity, unitType, referenceId, performedBy, performedByRole);
+      const response = await medicineService.deductStock(medicineId, quantity, `Stock deducted for ${unitType}`, referenceId);
       
       if (response.success) {
         await refreshMedicines();
@@ -244,7 +251,7 @@ export function StockProvider({ children }: { children: ReactNode }) {
     performedByRole: UserRole
   ) => {
     try {
-      const response = await medicineService.addStock(medicineId, quantity, referenceId, performedBy, performedByRole);
+      const response = await medicineService.addStock(medicineId, quantity, undefined, undefined, undefined, `Reference: ${referenceId}, By: ${performedBy}`);
       
       if (response.success) {
         await refreshMedicines();

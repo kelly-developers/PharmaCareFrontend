@@ -64,61 +64,12 @@ function extractArray<T>(data: unknown): T[] {
   return [];
 }
 
-// Get localStorage key for cashier's today sales
-const getStorageKey = (cashierId: string) => `cashier_${cashierId}_today_sales_${new Date().toISOString().split('T')[0]}`;
-
-// Get midnight timestamp
-const getMidnightTimestamp = () => {
-  const now = new Date();
-  const midnight = new Date(now);
-  midnight.setHours(23, 59, 59, 999);
-  return midnight.getTime();
-};
-
 export function SalesProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
   const [cashierTodaySales, setCashierTodaySales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Load cashier's today sales from localStorage
-  const loadStoredCashierTodaySales = (cashierId: string): Sale[] => {
-    try {
-      const stored = localStorage.getItem(getStorageKey(cashierId));
-      if (stored) {
-        const data = JSON.parse(stored);
-        // Check if data is still valid (same day)
-        if (data.expiresAt > Date.now() && data.cashierId === cashierId) {
-          return data.sales.map((sale: any) => ({
-            ...sale,
-            createdAt: new Date(sale.createdAt),
-          }));
-        } else {
-          // Clear expired data
-          localStorage.removeItem(getStorageKey(cashierId));
-        }
-      }
-    } catch (err) {
-      console.error('Error reading stored sales:', err);
-    }
-    return [];
-  };
-
-  // Save cashier's today sales to localStorage
-  const saveCashierTodaySales = (cashierId: string, salesData: Sale[]) => {
-    try {
-      const storageData = {
-        sales: salesData,
-        expiresAt: getMidnightTimestamp(),
-        cashierId,
-        savedAt: new Date().toISOString(),
-      };
-      localStorage.setItem(getStorageKey(cashierId), JSON.stringify(storageData));
-    } catch (err) {
-      console.error('Error saving sales to localStorage:', err);
-    }
-  };
 
   // Fetch all sales (for admins/managers) - SIMPLIFIED VERSION
   const fetchAllSales = useCallback(async (filters?: any) => {
@@ -210,42 +161,38 @@ const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
       
       console.log('👤 Extracted sales:', todaySales.length);
       
-      // Transform to frontend Sale type
-      const transformedSales = todaySales.map(sale => ({
+      // Transform to frontend Sale type - cast to any to handle backend snake_case
+      const transformedSales: Sale[] = todaySales.map((sale: any) => ({
         id: sale.id,
-        cashierId: sale.cashierId || sale.cashier_id,
-        cashierName: sale.cashierName || sale.cashier_name,
-        total: sale.finalAmount || sale.final_amount || sale.total || 0,
-        subtotal: sale.totalAmount || sale.total_amount || 0,
+        cashierId: sale.cashierId || sale.cashier_id || '',
+        cashierName: sale.cashierName || sale.cashier_name || 'Unknown',
+        total: sale.total || sale.finalAmount || sale.final_amount || 0,
+        subtotal: sale.subtotal || sale.totalAmount || sale.total_amount || 0,
         discount: sale.discount || 0,
-        tax: 0, // Add if your backend includes tax
-        paymentMethod: (sale.paymentMethod || sale.payment_method || 'cash').toLowerCase(),
-        customerName: sale.customerName || sale.customer_name,
-        customerPhone: sale.customerPhone || sale.customer_phone,
-        notes: sale.notes,
-        createdAt: new Date(sale.createdAt || sale.created_at),
+        tax: 0,
+        paymentMethod: (sale.paymentMethod || sale.payment_method || 'cash').toLowerCase() as 'cash' | 'mpesa' | 'card',
+        customerName: sale.customerName || sale.customer_name || 'Walk-in',
+        customerPhone: sale.customerPhone || sale.customer_phone || '',
+        notes: sale.notes || '',
+        createdAt: new Date(sale.createdAt || sale.created_at || new Date()),
         items: (sale.items || []).map((item: any) => ({
-          medicineId: item.medicineId || item.medicine_id,
-          medicineName: item.medicineName || item.medicine_name,
-          quantity: item.quantity,
-          unitType: item.unitType || item.unit_type,
-          unitLabel: item.unitLabel || item.unit_label,
-          unitPrice: item.unitPrice || item.unit_price,
-          costPrice: item.costPrice || item.cost_price,
+          medicineId: item.medicineId || item.medicine_id || '',
+          medicineName: item.medicineName || item.medicine_name || '',
+          quantity: item.quantity || 0,
+          unitType: item.unitType || item.unit_type || '',
+          unitPrice: item.unitPrice || item.unit_price || 0,
+          costPrice: item.costPrice || item.cost_price || 0,
           totalPrice: item.subtotal || item.totalPrice || 0,
-          profit: item.profit || 0
         }))
       }));
       
       console.log('👤 Transformed sales for frontend:', transformedSales.length);
       
       setCashierTodaySales(transformedSales);
-      saveCashierTodaySales(cashierId, transformedSales);
     }
   } catch (err) {
     console.error('❌ Failed to fetch today sales:', err);
-    const stored = loadStoredCashierTodaySales(cashierId);
-    setCashierTodaySales(stored);
+    // On error, keep current state (don't use localStorage fallback)
   } finally {
     setIsLoading(false);
   }
@@ -278,9 +225,6 @@ const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
         // Store in state
         setCashierTodaySales(mappedSales);
         
-        // Save to localStorage for persistence
-        saveCashierTodaySales(cashierId, mappedSales);
-        
         return mappedSales;
       }
     } catch (err) {
@@ -297,11 +241,7 @@ const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
       console.log('🚀 Initializing sales for user:', user.role, user.id);
       
       if (user.role === 'cashier') {
-        // For cashiers, load their today sales from localStorage first
-        const storedSales = loadStoredCashierTodaySales(user.id);
-        setCashierTodaySales(storedSales);
-        
-        // Then fetch from backend to get latest
+        // For cashiers, fetch their today sales from backend
         fetchCashierTodaySales(user.id);
       } else if (user.role === 'admin' || user.role === 'manager') {
         // For admins/managers, fetch all sales
@@ -314,52 +254,33 @@ const fetchCashierTodaySales = useCallback(async (cashierId: string) => {
     }
   }, [isAuthenticated, user, fetchAllSales, fetchCashierTodaySales]);
 
-  // Add a new sale
-  const addSale = async (saleData: Omit<Sale, 'id'>): Promise<Sale | null> => {
+  // Add a new sale to local state (used after API call succeeds)
+  const addSale = async (sale: Sale): Promise<Sale | null> => {
     try {
-      const response = await salesService.create({
-        items: saleData.items,
-        subtotal: saleData.subtotal,
-        discount: saleData.discount,
-        tax: saleData.tax,
-        total: saleData.total,
-        paymentMethod: saleData.paymentMethod,
-        cashierId: saleData.cashierId,
-        cashierName: saleData.cashierName,
-        customerName: saleData.customerName,
-        customerPhone: saleData.customerPhone,
-      });
+      console.log('➕ Adding sale to local state:', sale);
       
-      if (response.success && response.data) {
-        const newSale = {
-          ...response.data,
-          createdAt: new Date(response.data.createdAt),
-        };
-        
-        console.log('➕ New sale added:', newSale);
-        
-        // Update both states
-        setSales(prev => [newSale, ...prev]);
-        
-        // Check if this sale is from today
-        const saleDate = new Date(newSale.createdAt);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        saleDate.setHours(0, 0, 0, 0);
-        
-        // If this is the current cashier's sale from today, add to today sales
-        if (user && user.id === saleData.cashierId && saleDate.getTime() === today.getTime()) {
-          setCashierTodaySales(prev => [newSale, ...prev]);
-          
-          // Update localStorage
-          saveCashierTodaySales(user.id, [newSale, ...cashierTodaySales]);
-        }
-        
-        return newSale;
+      const newSale = {
+        ...sale,
+        createdAt: new Date(sale.createdAt),
+      };
+      
+      // Update all sales state
+      setSales(prev => [newSale, ...prev]);
+      
+      // Check if this sale is from today
+      const saleDate = new Date(newSale.createdAt);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      saleDate.setHours(0, 0, 0, 0);
+      
+      // If this is the current cashier's sale from today, add to today sales
+      if (user && user.id === sale.cashierId && saleDate.getTime() === today.getTime()) {
+        setCashierTodaySales(prev => [newSale, ...prev]);
       }
-      return null;
+      
+      return newSale;
     } catch (error) {
-      console.error('Error adding sale:', error);
+      console.error('Error adding sale to state:', error);
       return null;
     }
   };
