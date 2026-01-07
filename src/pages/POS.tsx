@@ -23,10 +23,8 @@ import {
   Banknote,
   Package,
   Printer,
-  Image as ImageIcon,
   User,
   Phone,
-  Filter,
   Clock,
   X,
   FileText,
@@ -44,13 +42,7 @@ import { format } from 'date-fns';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs';
-import { salesService } from '@/services/salesService'; // ADD THIS IMPORT
+import { salesService } from '@/services/salesService';
 import { getUnitLabel } from '@/types/pharmacy';
 
 // Store carts per cashier in memory
@@ -95,12 +87,16 @@ export default function POS() {
     setCart(cashierCarts[cashierId] || []);
   }, [cashierId]);
 
+  // Debug: Log all medicines
+  console.log('🛒 POS medicines from context:', medicines);
+  
   const filteredMedicines = medicines.filter((med) => {
     const matchesSearch = med.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       med.genericName?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !selectedCategory || med.category === selectedCategory;
-    const inStock = med.stockQuantity > 0;
-    return matchesSearch && matchesCategory && inStock;
+    const inStock = (med.stockQuantity || 0) > 0;
+    const hasUnits = med.units && med.units.length > 0;
+    return matchesSearch && matchesCategory && inStock && hasUnits;
   });
 
   const addToCart = (medicineId: string, unitType: UnitType) => {
@@ -632,162 +628,159 @@ const handleCheckout = async () => {
 
         {/* Main Content */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0 overflow-hidden">
-          {/* Products/Prescriptions Section */}
+          {/* Products Section */}
           <div className="lg:col-span-2 flex flex-col min-h-0 bg-card rounded-lg border overflow-hidden">
-            {/* Tab Navigation */}
-            <div className="flex border-b">
-              <button
-                onClick={() => setActiveTab('products')}
-                className={cn(
-                  "flex-1 py-2.5 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors",
-                  activeTab === 'products' 
-                    ? "bg-primary/10 text-primary border-b-2 border-primary" 
-                    : "text-muted-foreground hover:bg-accent"
-                )}
-              >
-                <Package className="h-4 w-4" />
-                Products
-              </button>
-              <button
-                onClick={() => setActiveTab('prescriptions')}
-                className={cn(
-                  "flex-1 py-2.5 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative",
-                  activeTab === 'prescriptions' 
-                    ? "bg-primary/10 text-primary border-b-2 border-primary" 
-                    : "text-muted-foreground hover:bg-accent"
-                )}
-              >
-                <ClipboardList className="h-4 w-4" />
-                Prescriptions
+            {/* Compact Search & Categories */}
+            <div className="p-2 space-y-2 border-b">
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search medicines..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 h-8 text-sm"
+                  />
+                </div>
                 {pendingPrescriptions.length > 0 && (
-                  <Badge className="h-5 px-1.5 text-[10px] bg-destructive">
-                    {pendingPrescriptions.length}
-                  </Badge>
+                  <Button
+                    variant={activeTab === 'prescriptions' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-8 text-xs gap-1"
+                    onClick={() => setActiveTab(activeTab === 'prescriptions' ? 'products' : 'prescriptions')}
+                  >
+                    <ClipboardList className="h-3 w-3" />
+                    Rx ({pendingPrescriptions.length})
+                  </Button>
                 )}
-              </button>
+              </div>
+              {activeTab === 'products' && (
+                <ScrollArea className="w-full whitespace-nowrap">
+                  <div className="flex gap-1 pb-1">
+                    <Button
+                      variant={selectedCategory === null ? 'default' : 'ghost'}
+                      size="sm"
+                      className="h-6 px-2 text-[10px] shrink-0"
+                      onClick={() => setSelectedCategory(null)}
+                    >
+                      All ({medicines.filter(m => (m.stockQuantity || 0) > 0).length})
+                    </Button>
+                    {categories.slice(0, 8).map((cat) => (
+                      <Button
+                        key={cat}
+                        variant={selectedCategory === cat ? 'default' : 'ghost'}
+                        size="sm"
+                        className="h-6 px-2 text-[10px] shrink-0"
+                        onClick={() => setSelectedCategory(cat)}
+                      >
+                        {cat}
+                      </Button>
+                    ))}
+                    {categories.length > 8 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px] shrink-0"
+                        onClick={() => setSelectedCategory(null)}
+                      >
+                        +{categories.length - 8} more
+                      </Button>
+                    )}
+                  </div>
+                </ScrollArea>
+              )}
             </div>
 
             {activeTab === 'products' ? (
-              <>
-                {/* Search & Filters */}
-                <div className="p-3 space-y-2 border-b">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search medicines by name or generic..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10 h-9 text-sm"
-                    />
+              /* Products Grid */
+              <ScrollArea className="flex-1 p-2">
+                {filteredMedicines.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full p-4">
+                    <Package className="h-12 w-12 text-muted-foreground/40 mb-2" />
+                    <p className="text-sm text-muted-foreground">No medicines in stock</p>
+                    <p className="text-xs text-muted-foreground/60">
+                      {medicines.length > 0 ? `${medicines.length} medicines exist but may be out of stock` : 'Add medicines to inventory'}
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1">
-                      <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">Categories:</span>
-                    </div>
-                    <div className="flex gap-1 flex-wrap">
-                      <Button
-                        variant={selectedCategory === null ? 'default' : 'outline'}
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setSelectedCategory(null)}
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1.5 pb-4">
+                    {filteredMedicines.map((medicine) => (
+                      <div
+                        key={medicine.id}
+                        className="group relative rounded-md border bg-card hover:bg-accent/50 hover:border-primary/50 transition-all cursor-pointer overflow-hidden"
+                        onClick={() => addToCart(medicine.id, medicine.units[0]?.type)}
                       >
-                        All
-                      </Button>
-                      {categories.map((cat) => (
-                        <Button
-                          key={cat}
-                          variant={selectedCategory === cat ? 'default' : 'outline'}
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setSelectedCategory(cat)}
-                        >
-                          {cat}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Products Grid */}
-                <ScrollArea className="flex-1 p-2">
-                  {filteredMedicines.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full p-8">
-                      <Package className="h-16 w-16 text-muted-foreground/40 mb-3" />
-                      <p className="text-muted-foreground">No medicines found</p>
-                      <p className="text-sm text-muted-foreground/60">Try a different search</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 pb-4">
-                      {filteredMedicines.map((medicine) => (
-                        <div
-                          key={medicine.id}
-                          className="group relative rounded-lg border bg-card hover:bg-accent transition-colors cursor-pointer"
-                          onClick={() => addToCart(medicine.id, medicine.units[0].type)}
-                        >
-                          <div className="p-2">
-                            {/* Stock Indicator */}
-                            <div className="absolute top-2 right-2">
-                              <Badge 
-                                className={cn(
-                                  "text-[10px] px-1.5 py-0.5 h-4 font-bold",
-                                  medicine.stockQuantity <= medicine.reorderLevel
-                                    ? "bg-destructive text-destructive-foreground"
-                                    : "bg-success text-success-foreground"
-                                )}
-                              >
-                                {medicine.stockQuantity}
-                              </Badge>
-                            </div>
-                            
-                            {/* Image */}
-                            <div className="w-full h-14 mb-2 rounded bg-secondary/50 flex items-center justify-center overflow-hidden">
-                              {medicine.imageUrl ? (
-                                <img 
-                                  src={medicine.imageUrl} 
-                                  alt={medicine.name}
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                                />
-                              ) : (
-                                <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
-                              )}
-                            </div>
-                            
-                            {/* Details */}
-                            <div className="space-y-0.5">
-                              <h3 className="font-medium text-xs leading-tight line-clamp-1">
-                                {medicine.name}
-                              </h3>
-                              <p className="text-[9px] text-muted-foreground truncate">
-                                {medicine.genericName || medicine.category}
-                              </p>
-                              
-                              {/* Unit Prices */}
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {medicine.units.slice(0, 2).map((unit) => (
-                                  <Button
-                                    key={unit.type}
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-5 px-1.5 text-[10px]"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      addToCart(medicine.id, unit.type);
-                                    }}
-                                  >
-                                    <Plus className="h-2 w-2 mr-0.5" />
-                                    {getUnitLabel(unit.type)} KSh {unit.price}
-                                  </Button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
+                        {/* Stock Badge */}
+                        <div className="absolute top-1 right-1 z-10">
+                          <Badge 
+                            className={cn(
+                              "text-[9px] px-1 py-0 h-4 font-bold shadow-sm",
+                              (medicine.stockQuantity || 0) <= (medicine.reorderLevel || 0)
+                                ? "bg-destructive text-destructive-foreground"
+                                : "bg-emerald-500 text-white"
+                            )}
+                          >
+                            {medicine.stockQuantity || 0}
+                          </Badge>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </>
+                        
+                        {/* Image - Using medicine-specific placeholder */}
+                        <div className="w-full aspect-square bg-gradient-to-br from-primary/5 to-primary/20 flex items-center justify-center overflow-hidden">
+                          {medicine.imageUrl ? (
+                            <img 
+                              src={medicine.imageUrl} 
+                              alt={medicine.name}
+                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                              }}
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-primary/40">
+                              <Package className="h-6 w-6" />
+                              <span className="text-[8px] mt-0.5 font-medium">{medicine.category?.substring(0, 6) || 'MED'}</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Details */}
+                        <div className="p-1.5">
+                          <h3 className="font-medium text-[10px] leading-tight line-clamp-1" title={medicine.name}>
+                            {medicine.name}
+                          </h3>
+                          <p className="text-primary font-bold text-xs mt-0.5">
+                            KSh {medicine.units[0]?.price?.toLocaleString() || 0}
+                          </p>
+                          
+                          {/* Quick unit buttons */}
+                          {medicine.units.length > 1 && (
+                            <div className="flex gap-0.5 mt-1 flex-wrap">
+                              {medicine.units.slice(0, 2).map((unit, idx) => (
+                                <button
+                                  key={unit.type}
+                                  className={cn(
+                                    "text-[8px] px-1 py-0.5 rounded border transition-colors",
+                                    idx === 0 
+                                      ? "bg-primary/10 border-primary/30 text-primary" 
+                                      : "hover:bg-accent border-border"
+                                  )}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addToCart(medicine.id, unit.type);
+                                  }}
+                                >
+                                  {getUnitLabel(unit.type)}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
             ) : (
               /* Prescriptions Tab */
               <ScrollArea className="flex-1 p-3">

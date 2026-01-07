@@ -238,6 +238,9 @@ export default function Inventory() {
     refreshCategories();
   }, []);
 
+  // Debug: Log all medicines
+  console.log('📦 Inventory medicines from context:', medicines);
+  
   // Format medicines data
   const formattedMedicines = React.useMemo(() => {
     return medicines.map(med => {
@@ -791,9 +794,26 @@ export default function Inventory() {
                       return (
                         <TableRow key={med.id}>
                           <TableCell>
-                            <div>
-                              <p className="font-medium">{med.name}</p>
-                              <p className="text-sm text-muted-foreground">{med.genericName}</p>
+                            <div className="flex items-center gap-3">
+                              {/* Medicine Image */}
+                              <div className="w-10 h-10 rounded-md bg-gradient-to-br from-primary/10 to-primary/20 flex items-center justify-center overflow-hidden shrink-0">
+                                {med.imageUrl ? (
+                                  <img 
+                                    src={med.imageUrl} 
+                                    alt={med.name}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <Package className="h-5 w-5 text-primary/40" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-medium">{med.name}</p>
+                                <p className="text-sm text-muted-foreground">{med.genericName}</p>
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>
