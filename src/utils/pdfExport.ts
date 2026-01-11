@@ -108,10 +108,12 @@ export function exportTableToPDF(title: string, headers: string[], rows: string[
             font-size: 12px;
           }
           th {
-            background: #f3f4f6;
+            background: #0066cc;
+            color: white;
             padding: 10px 8px;
             border: 1px solid #ddd;
             text-align: left;
+            font-weight: 600;
           }
           td {
             padding: 8px;
@@ -295,28 +297,37 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           border-collapse: collapse;
           margin-bottom: 30px;
           font-size: 12px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          border-radius: 8px;
+          overflow: hidden;
         }
         .items-table th {
-          background: #0066cc;
-          color: white;
-          padding: 10px 12px;
+          background: #0066cc !important;
+          color: white !important;
+          padding: 12px 15px;
           text-align: left;
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 600;
+          border: none;
         }
         .items-table th:last-child {
           text-align: right;
         }
         .items-table td {
-          padding: 10px 12px;
+          padding: 12px 15px;
           border-bottom: 1px solid #e9ecef;
           font-size: 12px;
+          border-left: none;
+          border-right: none;
         }
         .items-table td:last-child {
           text-align: right;
         }
         .items-table tr:nth-child(even) {
           background: #f8f9fa;
+        }
+        .items-table tr:hover {
+          background: #f1f5f9;
         }
         .summary {
           display: flex;
@@ -391,6 +402,22 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           }
           .no-print {
             display: none;
+          }
+          .items-table th {
+            background: #0066cc !important;
+            color: white !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+        }
+        @media screen {
+          .items-table th {
+            background: #0066cc;
+            color: white;
           }
         }
       </style>
