@@ -26,10 +26,10 @@ interface PurchaseOrderStats {
 
 export const purchaseOrderService = {
   // Get all purchase orders (paginated)
-  async getAll(page: number = 1, limit: number = 20, status?: string): Promise<ApiResponse<any>> {
+  async getAll(page: number = 0, limit: number = 1000, status?: string): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     queryParams.append('page', page.toString());
-    queryParams.append('limit', limit.toString());
+    queryParams.append('size', limit.toString());
     if (status) queryParams.append('status', status);
     return api.get<any>(`/purchase-orders?${queryParams.toString()}`);
   },
@@ -41,12 +41,40 @@ export const purchaseOrderService = {
 
   // Create purchase order
   async create(order: CreatePurchaseOrderRequest): Promise<ApiResponse<PurchaseOrder>> {
-    return api.post<PurchaseOrder>('/purchase-orders', order);
+    const backendOrder = {
+      supplier_id: order.supplierId,
+      supplier_name: order.supplierName,
+      items: order.items.map(item => ({
+        medicine_id: item.medicineId,
+        medicine_name: item.medicineName,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        unit_cost: item.unitPrice,
+        subtotal: item.totalPrice,
+        total_cost: item.totalPrice
+      })),
+      total: order.totalAmount,
+      total_amount: order.totalAmount,
+      expected_delivery_date: order.expectedDate
+    };
+    return api.post<PurchaseOrder>('/purchase-orders', backendOrder);
   },
 
   // Update purchase order
   async update(id: string, updates: UpdatePurchaseOrderRequest): Promise<ApiResponse<PurchaseOrder>> {
-    return api.put<PurchaseOrder>(`/purchase-orders/${id}`, updates);
+    const backendUpdates = {
+      items: updates.items?.map(item => ({
+        medicine_id: item.medicineId,
+        medicine_name: item.medicineName,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        unit_cost: item.unitPrice,
+        subtotal: item.totalPrice,
+        total_cost: item.totalPrice
+      })),
+      expected_delivery_date: updates.expectedDate
+    };
+    return api.put<PurchaseOrder>(`/purchase-orders/${id}`, backendUpdates);
   },
 
   // Submit purchase order

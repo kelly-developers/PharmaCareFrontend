@@ -19,9 +19,9 @@ interface SupplierStats {
 }
 
 export const supplierService = {
-  // Get all suppliers (paginated)
-  async getAll(page: number = 1, limit: number = 20): Promise<ApiResponse<any>> {
-    return api.get<any>(`/suppliers?page=${page}&limit=${limit}`);
+  // Get all suppliers (paginated) - UPDATED to match backend
+  async getAll(page: number = 0, limit: number = 1000): Promise<ApiResponse<any>> {
+    return api.get<any>(`/suppliers?page=${page}&size=${limit}`);
   },
 
   // Get supplier by ID
@@ -36,12 +36,28 @@ export const supplierService = {
 
   // Create new supplier
   async create(supplier: CreateSupplierRequest): Promise<ApiResponse<Supplier>> {
-    return api.post<Supplier>('/suppliers', supplier);
+    const backendSupplier = {
+      name: supplier.name,
+      contact_person: supplier.contactPerson,
+      email: supplier.email,
+      phone: supplier.phone,
+      address: supplier.address,
+      city: supplier.city
+    };
+    return api.post<Supplier>('/suppliers', backendSupplier);
   },
 
   // Update supplier
   async update(id: string, updates: UpdateSupplierRequest): Promise<ApiResponse<Supplier>> {
-    return api.put<Supplier>(`/suppliers/${id}`, updates);
+    const backendUpdates = {
+      name: updates.name,
+      contact_person: updates.contactPerson,
+      email: updates.email,
+      phone: updates.phone,
+      address: updates.address,
+      city: updates.city
+    };
+    return api.put<Supplier>(`/suppliers/${id}`, backendUpdates);
   },
 
   // Delete/deactivate supplier
@@ -64,7 +80,7 @@ export const supplierService = {
     return api.get<SupplierStats>('/suppliers/stats');
   },
 
-  // Search suppliers (using getAll with search)
+  // Search suppliers
   async search(query: string): Promise<ApiResponse<Supplier[]>> {
     return api.get<Supplier[]>(`/suppliers?search=${encodeURIComponent(query)}`);
   },

@@ -1,3 +1,4 @@
+// ... (imports remain exactly the same)
 import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -65,7 +66,6 @@ interface LowStockItem {
   selected: boolean;
 }
 
-// Default pharmacy info - in real app this would come from settings/context
 const DEFAULT_PHARMACY: PharmacyInfo = {
   name: 'PharmaCare Kenya',
   licenseNo: 'PPB-2024-12345',
@@ -85,12 +85,10 @@ export default function PurchaseOrders() {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  // Calculate low stock items from medicines
   const calculateLowStockItems = useCallback((meds: Medicine[]): LowStockItem[] => {
     return meds
       .filter(med => med.stockQuantity <= med.reorderLevel && med.isActive !== false)
       .map(med => {
-        // Suggested quantity: enough to reach 3x reorder level
         const suggestedQty = Math.max(50, (med.reorderLevel * 3) - med.stockQuantity);
         return {
           medicineId: med.id,
@@ -107,52 +105,111 @@ export default function PurchaseOrders() {
       .sort((a, b) => (a.currentStock / a.reorderLevel) - (b.currentStock / b.reorderLevel));
   }, []);
 
-  // Fetch data from backend
+  // FIXED: fetchData function with proper backend response handling
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [ordersRes, suppliersRes, medicinesRes] = await Promise.all([
-        purchaseOrderService.getAll(1, 1000),
-        supplierService.getAll(1, 1000),
+        purchaseOrderService.getAll(0, 1000),
+        supplierService.getAll(0, 1000),
         medicineService.getAll(),
       ]);
 
-      if (ordersRes.success && ordersRes.data) {
-        const data = ordersRes.data;
-        if (Array.isArray(data)) {
-          setOrders(data);
-        } else if ((data as any).content) {
-          setOrders((data as any).content);
-        } else {
-          setOrders([]);
-        }
-      }
+      console.log('Suppliers API Response:', suppliersRes); // Debug
 
+      // Handle suppliers response
       if (suppliersRes.success && suppliersRes.data) {
         const data = suppliersRes.data;
         let suppliersList: Supplier[] = [];
-        if (Array.isArray(data)) {
+        
+        if (data.content && Array.isArray(data.content)) {
+          suppliersList = data.content;
+        } else if (Array.isArray(data)) {
           suppliersList = data;
-        } else if ((data as any).content) {
-          suppliersList = (data as any).content;
-        } else if ((data as any).data) {
-          suppliersList = (data as any).data;
-        } else if ((data as any).suppliers) {
-          suppliersList = (data as any).suppliers;
+        } else if (data.data && Array.isArray(data.data)) {
+          suppliersList = data.data;
+        } else if (data.suppliers && Array.isArray(data.suppliers)) {
+          suppliersList = data.suppliers;
         }
-        setSuppliers(suppliersList);
+        
+        // Transform backend snake_case to frontend camelCase
+        const transformedSuppliers = suppliersList.map(supplier => ({
+          id: supplier.id,
+          name: supplier.name,
+          contactPerson: supplier.contact_person || supplier.contactPerson,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
+          city: supplier.city,
+          country: supplier.country,
+          notes: supplier.notes,
+          isActive: supplier.is_active !== false && supplier.active !== false,
+          createdAt: supplier.created_at,
+          updatedAt: supplier.updated_at
+        }));
+        
+        setSuppliers(transformedSuppliers);
+        console.log('Transformed suppliers:', transformedSuppliers.length, transformedSuppliers);
+      } else {
+        console.warn('Suppliers response not successful:', suppliersRes);
+        setSuppliers([]);
       }
 
+      // Handle orders response
+      if (ordersRes.success && ordersRes.data) {
+        const data = ordersRes.data;
+        let ordersList: PurchaseOrder[] = [];
+        
+        if (data.content && Array.isArray(data.content)) {
+          ordersList = data.content;
+        } else if (Array.isArray(data)) {
+          ordersList = data;
+        } else if (data.data && Array.isArray(data.data)) {
+          ordersList = data.data;
+        } else if (data.orders && Array.isArray(data.orders)) {
+          ordersList = data.orders;
+        }
+        
+        // Transform orders if needed
+        const transformedOrders = ordersList.map(order => ({
+          id: order.id,
+          orderNumber: order.order_number || order.orderNumber,
+          supplierId: order.supplier_id || order.supplierId,
+          supplierName: order.supplier_name || order.supplierName,
+          items: order.items || [],
+          totalAmount: order.total_amount || order.totalAmount || order.total || 0,
+          status: order.status,
+          createdAt: order.created_at || order.createdAt,
+          expectedDate: order.expected_delivery_date || order.expectedDate
+        }));
+        
+        setOrders(transformedOrders);
+      } else {
+        console.warn('Orders response not successful:', ordersRes);
+        setOrders([]);
+      }
+
+      // Handle medicines response
       if (medicinesRes.success && medicinesRes.data) {
         const medData = medicinesRes.data;
         let medsList: Medicine[] = [];
+        
         if (Array.isArray(medData)) {
           medsList = medData;
-        } else if ((medData as any).content) {
-          medsList = (medData as any).content;
+        } else if (medData.content && Array.isArray(medData.content)) {
+          medsList = medData.content;
+        } else if (medData.data && Array.isArray(medData.data)) {
+          medsList = medData.data;
+        } else if (medData.medicines && Array.isArray(medData.medicines)) {
+          medsList = medData.medicines;
         }
+        
         setMedicines(medsList);
         setLowStockItems(calculateLowStockItems(medsList));
+      } else {
+        console.warn('Medicines response not successful:', medicinesRes);
+        setMedicines([]);
+        setLowStockItems([]);
       }
     } catch (error) {
       console.error('Failed to fetch data:', error);
@@ -161,6 +218,9 @@ export default function PurchaseOrders() {
         description: 'Failed to load data',
         variant: 'destructive',
       });
+      setSuppliers([]);
+      setOrders([]);
+      setMedicines([]);
     } finally {
       setIsLoading(false);
     }
@@ -170,7 +230,7 @@ export default function PurchaseOrders() {
     fetchData();
   }, [fetchData]);
 
-  // Toggle item selection
+  // Also update the toggleItemSelection function:
   const toggleItemSelection = (medicineId: string) => {
     setLowStockItems(prev => 
       prev.map(item => 
@@ -233,17 +293,24 @@ export default function PurchaseOrders() {
     }
 
     const supplier = suppliers.find(s => s.id === selectedSupplier);
-    if (!supplier) return;
+    if (!supplier) {
+      toast({
+        title: 'Supplier Not Found',
+        description: 'Selected supplier not found in database',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     const orderNumber = `PO-${format(new Date(), 'yyyyMMdd')}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
     const supplierInfo: SupplierInfo = {
       name: supplier.name,
-      contactPerson: supplier.contactPerson,
-      phone: supplier.phone,
-      email: supplier.email,
-      address: supplier.address,
-      city: supplier.city,
+      contactPerson: supplier.contactPerson || '',
+      phone: supplier.phone || '',
+      email: supplier.email || '',
+      address: supplier.address || '',
+      city: supplier.city || '',
     };
 
     const orderItems: OrderItem[] = selectedItems.map(item => ({
@@ -282,9 +349,18 @@ export default function PurchaseOrders() {
       return;
     }
 
+    const supplier = suppliers.find(s => s.id === selectedSupplier);
+    if (!supplier) {
+      toast({
+        title: 'Error',
+        description: 'Selected supplier not found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const supplier = suppliers.find(s => s.id === selectedSupplier);
       const orderItems: PurchaseOrderItem[] = selectedItems.map(item => ({
         medicineId: item.medicineId,
         medicineName: item.medicineName,
@@ -295,7 +371,7 @@ export default function PurchaseOrders() {
 
       const response = await purchaseOrderService.create({
         supplierId: selectedSupplier,
-        supplierName: supplier?.name || '',
+        supplierName: supplier.name,
         items: orderItems,
         totalAmount,
         expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -304,7 +380,7 @@ export default function PurchaseOrders() {
       if (response.success) {
         toast({
           title: 'Order Created',
-          description: `Purchase order for ${supplier?.name} has been saved`,
+          description: `Purchase order for ${supplier.name} has been saved`,
         });
         setShowNewOrder(false);
         setSelectedSupplier('');
@@ -316,11 +392,11 @@ export default function PurchaseOrders() {
           variant: 'destructive',
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create order:', error);
       toast({
         title: 'Error',
-        description: 'Failed to create order',
+        description: error.message || 'Failed to create order',
         variant: 'destructive',
       });
     } finally {
@@ -334,9 +410,11 @@ export default function PurchaseOrders() {
       if (response.success) {
         toast({ title: 'Order Submitted', description: 'The order has been submitted to the supplier' });
         fetchData();
+      } else {
+        toast({ title: 'Error', description: response.error || 'Failed to submit order', variant: 'destructive' });
       }
-    } catch (error) {
-      toast({ title: 'Error', description: 'Failed to submit order', variant: 'destructive' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to submit order', variant: 'destructive' });
     }
   };
 
@@ -346,9 +424,11 @@ export default function PurchaseOrders() {
       if (response.success) {
         toast({ title: 'Order Approved', description: 'The order has been approved' });
         fetchData();
+      } else {
+        toast({ title: 'Error', description: response.error || 'Failed to approve order', variant: 'destructive' });
       }
-    } catch (error) {
-      toast({ title: 'Error', description: 'Failed to approve order', variant: 'destructive' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to approve order', variant: 'destructive' });
     }
   };
 
@@ -358,9 +438,11 @@ export default function PurchaseOrders() {
       if (response.success) {
         toast({ title: 'Order Received', description: 'The order has been marked as received' });
         fetchData();
+      } else {
+        toast({ title: 'Error', description: response.error || 'Failed to receive order', variant: 'destructive' });
       }
-    } catch (error) {
-      toast({ title: 'Error', description: 'Failed to receive order', variant: 'destructive' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to receive order', variant: 'destructive' });
     }
   };
 
@@ -370,9 +452,11 @@ export default function PurchaseOrders() {
       if (response.success) {
         toast({ title: 'Order Cancelled', description: 'The order has been cancelled' });
         fetchData();
+      } else {
+        toast({ title: 'Error', description: response.error || 'Failed to cancel order', variant: 'destructive' });
       }
-    } catch (error) {
-      toast({ title: 'Error', description: 'Failed to cancel order', variant: 'destructive' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to cancel order', variant: 'destructive' });
     }
   };
 
@@ -436,11 +520,17 @@ export default function PurchaseOrders() {
                           <SelectValue placeholder="Choose a supplier" />
                         </SelectTrigger>
                         <SelectContent>
-                          {suppliers.map((sup) => (
-                            <SelectItem key={sup.id} value={sup.id}>
-                              {sup.name} - {sup.city}
-                            </SelectItem>
-                          ))}
+                          {suppliers.length === 0 ? (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              {isLoading ? 'Loading suppliers...' : 'No suppliers found'}
+                            </div>
+                          ) : (
+                            suppliers.map((sup) => (
+                              <SelectItem key={sup.id} value={sup.id}>
+                                {sup.name} - {sup.city}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                       
@@ -449,10 +539,10 @@ export default function PurchaseOrders() {
                         return supplier && (
                           <div className="mt-3 p-3 bg-muted rounded-lg text-sm space-y-1">
                             <p className="font-medium">{supplier.name}</p>
-                            <p className="text-muted-foreground">Contact: {supplier.contactPerson}</p>
-                            <p className="text-muted-foreground">Tel: {supplier.phone}</p>
-                            <p className="text-muted-foreground">Email: {supplier.email}</p>
-                            <p className="text-muted-foreground">{supplier.address}, {supplier.city}</p>
+                            <p className="text-muted-foreground">Contact: {supplier.contactPerson || 'N/A'}</p>
+                            <p className="text-muted-foreground">Tel: {supplier.phone || 'N/A'}</p>
+                            <p className="text-muted-foreground">Email: {supplier.email || 'N/A'}</p>
+                            <p className="text-muted-foreground">{supplier.address || 'N/A'}, {supplier.city || 'N/A'}</p>
                           </div>
                         );
                       })()}
@@ -687,7 +777,7 @@ export default function PurchaseOrders() {
                     {orders.map((order) => (
                       <TableRow key={order.id}>
                         <TableCell className="font-mono font-medium">
-                          {order.id.substring(0, 12)}...
+                          {order.orderNumber || order.id.substring(0, 12)}...
                         </TableCell>
                         <TableCell>{order.supplierName}</TableCell>
                         <TableCell>{order.items?.length || 0} items</TableCell>
@@ -704,25 +794,25 @@ export default function PurchaseOrders() {
                               <FileText className="h-4 w-4 mr-1" />
                               View
                             </Button>
-                            {order.status === 'draft' && (
+                            {order.status === 'DRAFT' && (
                               <Button variant="outline" size="sm" onClick={() => handleSubmitOrder(order.id)}>
                                 <Send className="h-3 w-3 mr-1" />
                                 Submit
                               </Button>
                             )}
-                            {order.status === 'sent' && (
+                            {order.status === 'SUBMITTED' && (
                               <Button variant="outline" size="sm" onClick={() => handleApproveOrder(order.id)}>
                                 <CheckCircle className="h-3 w-3 mr-1" />
                                 Approve
                               </Button>
                             )}
-                            {(order.status as string) === 'approved' && (
+                            {order.status === 'APPROVED' && (
                               <Button variant="outline" size="sm" onClick={() => handleReceiveOrder(order.id)}>
                                 <Package className="h-3 w-3 mr-1" />
                                 Receive
                               </Button>
                             )}
-                            {order.status === 'draft' && (
+                            {order.status === 'DRAFT' && (
                               <Button 
                                 variant="ghost"
                                 size="sm" 
