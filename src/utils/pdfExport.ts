@@ -302,13 +302,14 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           overflow: hidden;
         }
         .items-table th {
-          background: #0066cc !important;
-          color: white !important;
+          background: #f8f9fa !important;
+          color: #0066cc !important;
           padding: 12px 15px;
           text-align: left;
           font-size: 13px;
           font-weight: 600;
           border: none;
+          border-bottom: 2px solid #0066cc;
         }
         .items-table th:last-child {
           text-align: right;
@@ -404,10 +405,10 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
             display: none;
           }
           .items-table th {
-            background: #0066cc !important;
-            color: white !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
+            background: #f8f9fa !important;
+            color: #0066cc !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           * {
             -webkit-print-color-adjust: exact !important;
@@ -416,8 +417,8 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
         }
         @media screen {
           .items-table th {
-            background: #0066cc;
-            color: white;
+            background: #f8f9fa !important;
+            color: #0066cc !important;
           }
         }
       </style>
