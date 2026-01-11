@@ -1,4 +1,3 @@
-// ... (imports remain exactly the same)
 import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -86,36 +85,63 @@ export default function PurchaseOrders() {
   const { toast } = useToast();
 
   const calculateLowStockItems = useCallback((meds: Medicine[]): LowStockItem[] => {
-    return meds
-      .filter(med => med.stockQuantity <= med.reorderLevel && med.isActive !== false)
+    console.log('📊 Calculating low stock items from:', meds.length, 'medicines');
+    
+    const lowStockMeds = meds.filter(med => {
+      const stockQuantity = med.stockQuantity || med.stock_quantity || 0;
+      const reorderLevel = med.reorderLevel || med.reorder_level || 10;
+      const isActive = med.isActive !== false && med.active !== false;
+      
+      console.log('📦 Medicine:', med.name, {
+        stockQuantity,
+        reorderLevel,
+        isActive,
+        isLow: stockQuantity <= reorderLevel
+      });
+      
+      return stockQuantity <= reorderLevel && isActive;
+    });
+    
+    console.log('⚠️ Found low stock items:', lowStockMeds.length);
+    
+    return lowStockMeds
       .map(med => {
-        const suggestedQty = Math.max(50, (med.reorderLevel * 3) - med.stockQuantity);
+        const currentStock = med.stockQuantity || med.stock_quantity || 0;
+        const reorderLevel = med.reorderLevel || med.reorder_level || 10;
+        const costPrice = med.costPrice || med.cost_price || 0;
+        
+        // Suggested quantity: enough to reach 3x reorder level
+        const suggestedQty = Math.max(50, (reorderLevel * 3) - currentStock);
+        
         return {
           medicineId: med.id,
           medicineName: med.name,
-          currentStock: med.stockQuantity,
-          reorderLevel: med.reorderLevel,
+          currentStock,
+          reorderLevel,
           suggestedQty,
-          costPrice: med.costPrice || 0,
+          costPrice,
           orderQty: suggestedQty,
-          totalPrice: suggestedQty * (med.costPrice || 0),
+          totalPrice: suggestedQty * costPrice,
           selected: true,
         };
       })
       .sort((a, b) => (a.currentStock / a.reorderLevel) - (b.currentStock / b.reorderLevel));
   }, []);
 
-  // FIXED: fetchData function with proper backend response handling
+  // FIXED: fetchData function with proper medicine response handling
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
+      console.log('🔄 Fetching data for purchase orders...');
+      
       const [ordersRes, suppliersRes, medicinesRes] = await Promise.all([
         purchaseOrderService.getAll(0, 1000),
         supplierService.getAll(0, 1000),
         medicineService.getAll(),
       ]);
 
-      console.log('Suppliers API Response:', suppliersRes); // Debug
+      console.log('📋 Suppliers API Response:', suppliersRes);
+      console.log('💊 Medicines API Response:', medicinesRes);
 
       // Handle suppliers response
       if (suppliersRes.success && suppliersRes.data) {
@@ -149,9 +175,9 @@ export default function PurchaseOrders() {
         }));
         
         setSuppliers(transformedSuppliers);
-        console.log('Transformed suppliers:', transformedSuppliers.length, transformedSuppliers);
+        console.log('✅ Transformed suppliers:', transformedSuppliers.length, transformedSuppliers);
       } else {
-        console.warn('Suppliers response not successful:', suppliersRes);
+        console.warn('❌ Suppliers response not successful:', suppliersRes);
         setSuppliers([]);
       }
 
@@ -185,15 +211,18 @@ export default function PurchaseOrders() {
         
         setOrders(transformedOrders);
       } else {
-        console.warn('Orders response not successful:', ordersRes);
+        console.warn('❌ Orders response not successful:', ordersRes);
         setOrders([]);
       }
 
-      // Handle medicines response
+      // FIXED: Handle medicines response
       if (medicinesRes.success && medicinesRes.data) {
         const medData = medicinesRes.data;
-        let medsList: Medicine[] = [];
+        let medsList: any[] = [];
         
+        console.log('💊 Medicine response structure:', medData);
+        
+        // Handle various response structures
         if (Array.isArray(medData)) {
           medsList = medData;
         } else if (medData.content && Array.isArray(medData.content)) {
@@ -202,17 +231,79 @@ export default function PurchaseOrders() {
           medsList = medData.data;
         } else if (medData.medicines && Array.isArray(medData.medicines)) {
           medsList = medData.medicines;
+        } else if (typeof medData === 'object' && medData !== null) {
+          // If it's an object with nested data
+          Object.keys(medData).forEach(key => {
+            if (Array.isArray(medData[key])) {
+              medsList = medData[key];
+            }
+          });
         }
         
-        setMedicines(medsList);
-        setLowStockItems(calculateLowStockItems(medsList));
+        console.log('📦 Extracted medicines:', medsList.length, medsList);
+        
+        // Transform medicine data
+        const transformedMeds: Medicine[] = medsList.map(med => ({
+          id: med.id,
+          name: med.name,
+          genericName: med.generic_name || med.genericName,
+          category: med.category,
+          manufacturer: med.manufacturer,
+          batchNumber: med.batch_number || med.batchNumber,
+          expiryDate: med.expiry_date || med.expiryDate,
+          units: med.units || [],
+          stockQuantity: med.stock_quantity || med.stockQuantity || 0,
+          reorderLevel: med.reorder_level || med.reorderLevel || 10,
+          supplierId: med.supplier_id || med.supplierId,
+          costPrice: med.cost_price || med.costPrice || 0,
+          imageUrl: med.image_url || med.imageUrl,
+          description: med.description,
+          productType: med.product_type || med.productType,
+          createdAt: med.created_at || med.createdAt,
+          updatedAt: med.updated_at || med.updatedAt,
+          isActive: med.is_active !== false && med.active !== false,
+          active: med.active !== false,
+          is_active: med.is_active !== false,
+        }));
+        
+        console.log('✅ Transformed medicines:', transformedMeds.length);
+        
+        // Log first few medicines for debugging
+        transformedMeds.slice(0, 5).forEach((med, i) => {
+          console.log(`📦 Medicine ${i + 1}:`, med.name, {
+            stockQuantity: med.stockQuantity,
+            reorderLevel: med.reorderLevel,
+            isLow: (med.stockQuantity || 0) <= (med.reorderLevel || 10)
+          });
+        });
+        
+        setMedicines(transformedMeds);
+        
+        // Calculate low stock items
+        const calculatedLowStock = calculateLowStockItems(transformedMeds);
+        console.log('⚠️ Calculated low stock items:', calculatedLowStock.length);
+        setLowStockItems(calculatedLowStock);
+        
+        // Show toast if we found low stock items
+        if (calculatedLowStock.length > 0) {
+          console.log('🔴 Low stock items found:', calculatedLowStock.map(item => ({
+            name: item.medicineName,
+            current: item.currentStock,
+            reorder: item.reorderLevel
+          })));
+        }
       } else {
-        console.warn('Medicines response not successful:', medicinesRes);
+        console.warn('❌ Medicines response not successful:', medicinesRes);
         setMedicines([]);
         setLowStockItems([]);
+        toast({
+          title: 'Medicines Error',
+          description: 'Failed to load medicine data. Please check your medicine service.',
+          variant: 'destructive',
+        });
       }
     } catch (error) {
-      console.error('Failed to fetch data:', error);
+      console.error('❌ Failed to fetch data:', error);
       toast({
         title: 'Error',
         description: 'Failed to load data',
@@ -221,6 +312,7 @@ export default function PurchaseOrders() {
       setSuppliers([]);
       setOrders([]);
       setMedicines([]);
+      setLowStockItems([]);
     } finally {
       setIsLoading(false);
     }
@@ -230,7 +322,7 @@ export default function PurchaseOrders() {
     fetchData();
   }, [fetchData]);
 
-  // Also update the toggleItemSelection function:
+  // Toggle item selection
   const toggleItemSelection = (medicineId: string) => {
     setLowStockItems(prev => 
       prev.map(item => 
@@ -651,9 +743,22 @@ export default function PurchaseOrders() {
                     </div>
                   ) : (
                     <div className="text-center py-12">
-                      <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
-                      <p className="text-lg font-medium text-muted-foreground">All items are well stocked!</p>
-                      <p className="text-sm text-muted-foreground">No items are below reorder level</p>
+                      {medicines.length === 0 ? (
+                        <>
+                          <Package className="h-16 w-16 mx-auto text-muted-foreground/50 mb-4" />
+                          <p className="text-lg font-medium text-muted-foreground">No medicines found</p>
+                          <p className="text-sm text-muted-foreground">Check your medicine service or add some medicines first</p>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
+                          <p className="text-lg font-medium text-muted-foreground">All items are well stocked!</p>
+                          <p className="text-sm text-muted-foreground">No items are below reorder level</p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            (Total medicines: {medicines.length}, Reorder level check: {medicines.filter(m => (m.stockQuantity || 0) <= (m.reorderLevel || 10)).length} low stock)
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
 
