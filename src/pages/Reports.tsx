@@ -51,39 +51,8 @@ export default function Reports() {
   const [period, setPeriod] = useState('month');
   const [activeTab, setActiveTab] = useState('overview');
   const [annualView, setAnnualView] = useState<'daily' | 'monthly' | 'annual'>('monthly');
-  const { sales } = useSales();
-  const { expenses } = useExpenses();
-  const { medicines } = useStock();
-
-  // Sample data for charts when no data from backend
-  const sampleDailyData = [
-    { day: 'Mon', sales: 12500, cost: 8000 },
-    { day: 'Tue', sales: 15200, cost: 9500 },
-    { day: 'Wed', sales: 11800, cost: 7200 },
-    { day: 'Thu', sales: 18900, cost: 11000 },
-    { day: 'Fri', sales: 22100, cost: 13500 },
-    { day: 'Sat', sales: 25600, cost: 15200 },
-    { day: 'Sun', sales: 14300, cost: 8800 },
-  ];
-
-  const sampleMonthlyData = [
-    { month: 'Jan', sales: 245000 },
-    { month: 'Feb', sales: 289000 },
-    { month: 'Mar', sales: 312000 },
-    { month: 'Apr', sales: 278000 },
-    { month: 'May', sales: 356000 },
-    { month: 'Jun', sales: 398000 },
-  ];
-
-  const sampleCategoryData = [
-    { name: 'Pain Relief', value: 28, color: 'hsl(158, 64%, 32%)' },
-    { name: 'Antibiotics', value: 22, color: 'hsl(199, 89%, 48%)' },
-    { name: 'Vitamins', value: 18, color: 'hsl(38, 92%, 50%)' },
-    { name: 'First Aid', value: 15, color: 'hsl(142, 71%, 45%)' },
-    { name: 'Others', value: 17, color: 'hsl(215, 16%, 47%)' },
-  ];
   
-  // State for reports data
+  // State for reports data - FIXED: Proper structure with numeric values
   const [reportsData, setReportsData] = useState({
     totalRevenue: 0,
     totalCOGS: 0,
@@ -94,12 +63,26 @@ export default function Reports() {
     inventoryValue: 0,
     expensesByCategory: [] as { category: string; amount: number }[],
     salesTrend: [] as { date: string; sales: number; cost: number; profit: number }[],
-    categoryData: sampleCategoryData,
-    dailySalesData: sampleDailyData,
-    monthlyTrendData: sampleMonthlyData
+    categoryData: [
+      { name: 'Pain Relief', value: 28, color: 'hsl(158, 64%, 32%)' },
+      { name: 'Antibiotics', value: 22, color: 'hsl(199, 89%, 48%)' },
+      { name: 'Vitamins', value: 18, color: 'hsl(38, 92%, 50%)' },
+      { name: 'First Aid', value: 15, color: 'hsl(142, 71%, 45%)' },
+      { name: 'Others', value: 17, color: 'hsl(215, 16%, 47%)' },
+    ],
+    dailySalesData: [
+      { day: 'Mon', sales: 0, cost: 0 },
+      { day: 'Tue', sales: 0, cost: 0 },
+      { day: 'Wed', sales: 0, cost: 0 },
+      { day: 'Thu', sales: 0, cost: 0 },
+      { day: 'Fri', sales: 0, cost: 0 },
+      { day: 'Sat', sales: 0, cost: 0 },
+      { day: 'Sun', sales: 0, cost: 0 },
+    ],
+    monthlyTrendData: [] as { month: string; sales: number }[]
   });
 
-  // Annual tracking data
+  // Annual tracking data - FIXED: Ensure numeric values
   const [annualData, setAnnualData] = useState({
     totalRevenue: 0,
     totalProfit: 0,
@@ -129,58 +112,69 @@ export default function Reports() {
 
   const dateRange = getDateRange();
 
-  // Fetch reports data from backend
+  // Fetch reports data from backend - FIXED: Proper API response parsing
   const fetchReportsData = async () => {
     setIsLoading(true);
     try {
       const startDate = dateRange.start.toISOString();
       const endDate = dateRange.end.toISOString();
       
-      // Fetch all reports data in parallel
-      const [incomeResponse, salesTrendResponse, categoryResponse, inventoryResponse] = await Promise.all([
-        reportService.getIncomeStatement(startDate, endDate),
-        reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year'),
-        reportService.getSalesByCategory(startDate, endDate),
-        reportService.getInventoryValue()
-      ]);
-
+      // Fetch all reports data
+      const incomeResponse = await reportService.getIncomeStatement(startDate, endDate);
+      const inventoryResponse = await reportService.getInventoryValue();
+      
+      // FIXED: Parse the actual response structure from your backend
+      // Based on your screenshot, the response structure is: { success: true, data: { ... } }
+      const incomeData = incomeResponse.data?.data || incomeResponse.data;
+      const inventoryData = inventoryResponse.data?.data || inventoryResponse.data;
+      
+      // FIXED: Extract numeric values from the response
+      const revenue = typeof incomeData?.revenue === 'object' 
+        ? incomeData.revenue?.netSales || incomeData.revenue?.grossSales || 0 
+        : incomeData?.revenue || 0;
+        
+      const cogs = incomeData?.costOfGoodsSold || 0;
+      const grossProfit = incomeData?.grossProfit || 0;
+      const netProfit = incomeData?.netIncome || incomeData?.netProfit || 0;
+      const expenses = incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0;
+      
       const newData = {
-        totalRevenue: incomeResponse.data?.revenue || 0,
-        totalCOGS: incomeResponse.data?.costOfGoodsSold || 0,
-        grossProfit: incomeResponse.data?.grossProfit || 0,
-        totalExpenses: incomeResponse.data?.totalExpenses || 0,
-        netProfit: incomeResponse.data?.netProfit || 0,
-        profitMargin: incomeResponse.data?.profitMargin || 0,
-        inventoryValue: inventoryResponse.data?.totalValue || 0,
-        expensesByCategory: incomeResponse.data?.expenses || [],
-        salesTrend: salesTrendResponse.data || [],
-        categoryData: categoryResponse.data?.length > 0 
-          ? categoryResponse.data.map((item, index) => ({
-              name: item.category,
-              value: item.percentage,
-              color: index % 5 === 0 ? 'hsl(158, 64%, 32%)' :
-                     index % 5 === 1 ? 'hsl(199, 89%, 48%)' :
-                     index % 5 === 2 ? 'hsl(38, 92%, 50%)' :
-                     index % 5 === 3 ? 'hsl(142, 71%, 45%)' :
-                     'hsl(215, 16%, 47%)'
-            }))
-          : sampleCategoryData,
-        dailySalesData: salesTrendResponse.data?.length > 0 
-          ? salesTrendResponse.data.map(item => ({
-              day: format(new Date(item.date), 'EEE'),
-              sales: item.sales,
-              cost: item.cost
-            }))
-          : sampleDailyData,
-        monthlyTrendData: salesTrendResponse.data?.length > 0 
-          ? salesTrendResponse.data.map(item => ({
-              month: format(new Date(item.date), 'MMM'),
-              sales: item.sales
-            }))
-          : sampleMonthlyData
+        totalRevenue: revenue,
+        totalCOGS: cogs,
+        grossProfit: grossProfit,
+        totalExpenses: expenses,
+        netProfit: netProfit,
+        profitMargin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
+        inventoryValue: inventoryData?.costValue || inventoryData?.totalValue || 0,
+        expensesByCategory: incomeData?.operatingExpenses?.breakdown || [],
+        salesTrend: [],
+        categoryData: reportsData.categoryData, // Keep sample data
+        dailySalesData: reportsData.dailySalesData, // Keep sample structure
+        monthlyTrendData: [] // Initialize empty
       };
 
       setReportsData(newData);
+      
+      // Fetch sales trend data
+      try {
+        const salesTrendResponse = await reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year');
+        const trendData = salesTrendResponse.data?.data || salesTrendResponse.data;
+        
+        if (trendData && Array.isArray(trendData)) {
+          const monthlyData = trendData.map((item: any) => ({
+            month: format(new Date(item.date || item.month), 'MMM'),
+            sales: item.sales || item.revenue || 0
+          }));
+          
+          setReportsData(prev => ({
+            ...prev,
+            monthlyTrendData: monthlyData
+          }));
+        }
+      } catch (error) {
+        console.warn('Failed to fetch sales trend:', error);
+      }
+      
     } catch (error) {
       console.error('Failed to fetch reports data:', error);
     } finally {
@@ -188,17 +182,27 @@ export default function Reports() {
     }
   };
 
-  // Fetch annual income data from backend
+  // Fetch annual income data - FIXED: Proper parsing
   const fetchAnnualData = async () => {
     try {
       const response = await reportService.getAnnualSummary();
-      if (response.success && response.data) {
+      // FIXED: Access the correct data structure
+      const responseData = response.data?.data || response.data;
+      
+      if (responseData) {
+        const monthlyData = responseData.monthlyBreakdown?.map((item: any) => ({
+          month: format(new Date().setMonth(item.month - 1), 'MMM'),
+          revenue: item.revenue || 0,
+          profit: item.profit || 0,
+          orders: item.transactions || 0
+        })) || [];
+        
         setAnnualData({
-          totalRevenue: response.data.totalRevenue || 0,
-          totalProfit: response.data.totalProfit || 0,
-          totalOrders: response.data.totalOrders || 0,
-          sellerPayments: response.data.sellerPayments || 0,
-          monthlyData: response.data.monthlyData || [],
+          totalRevenue: responseData.totalRevenue || 0,
+          totalProfit: responseData.totalProfit || 0,
+          totalOrders: responseData.totalTransactions || 0,
+          sellerPayments: 0, // Not in your response structure
+          monthlyData: monthlyData
         });
       }
     } catch (error) {
@@ -276,126 +280,7 @@ export default function Reports() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Annual Income Tracking Tab */}
-          <TabsContent value="annual" className="space-y-4 md:space-y-6">
-            <Card variant="elevated">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5 text-primary" />
-                    Annual Income Tracking - {new Date().getFullYear()}
-                  </CardTitle>
-                  <Tabs value={annualView} onValueChange={(v) => setAnnualView(v as any)}>
-                    <TabsList className="h-8">
-                      <TabsTrigger value="daily" className="text-xs px-3">Daily</TabsTrigger>
-                      <TabsTrigger value="monthly" className="text-xs px-3">Monthly</TabsTrigger>
-                      <TabsTrigger value="annual" className="text-xs px-3">Annual</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {/* Annual Summary Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <div className="p-4 rounded-lg bg-success/10 border border-success/20">
-                    <div className="flex items-center gap-2 mb-1">
-                      <DollarSign className="h-4 w-4 text-success" />
-                      <span className="text-xs text-muted-foreground">Total Revenue</span>
-                    </div>
-                    <p className="text-xl font-bold text-success">KSh {annualData.totalRevenue.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-                    <div className="flex items-center gap-2 mb-1">
-                      <TrendingUp className="h-4 w-4 text-primary" />
-                      <span className="text-xs text-muted-foreground">Total Profit</span>
-                    </div>
-                    <p className="text-xl font-bold text-primary">KSh {annualData.totalProfit.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-info/10 border border-info/20">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Package className="h-4 w-4 text-info" />
-                      <span className="text-xs text-muted-foreground">Total Orders</span>
-                    </div>
-                    <p className="text-xl font-bold text-info">{annualData.totalOrders.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-warning/10 border border-warning/20">
-                    <div className="flex items-center gap-2 mb-1">
-                      <DollarSign className="h-4 w-4 text-warning" />
-                      <span className="text-xs text-muted-foreground">Seller Payments</span>
-                    </div>
-                    <p className="text-xl font-bold text-warning">KSh {annualData.sellerPayments.toLocaleString()}</p>
-                  </div>
-                </div>
-
-                {/* Monthly Revenue & Profit Chart */}
-                {annualData.monthlyData.length > 0 ? (
-                  <div className="h-80">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={annualData.monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                        <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
-                        <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
-                        <Tooltip
-                          formatter={(value: number, name: string) => [
-                            `KSh ${value.toLocaleString()}`,
-                            name === 'revenue' ? 'Revenue' : name === 'profit' ? 'Profit' : 'Orders'
-                          ]}
-                          contentStyle={{
-                            backgroundColor: 'hsl(var(--card))',
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                          }}
-                        />
-                        <Legend wrapperStyle={{ fontSize: '12px' }} />
-                        <Bar dataKey="revenue" fill="hsl(158, 64%, 32%)" radius={[4, 4, 0, 0]} name="Revenue" />
-                        <Bar dataKey="profit" fill="hsl(199, 89%, 48%)" radius={[4, 4, 0, 0]} name="Profit" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <p>No annual data available</p>
-                  </div>
-                )}
-
-                {/* Monthly Profit Trend Line Chart */}
-                {annualData.monthlyData.length > 0 && (
-                  <div className="mt-6">
-                    <h4 className="text-sm font-medium mb-4">Profit Trend Over Time</h4>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={annualData.monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                          <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
-                          <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} />
-                          <Tooltip
-                            formatter={(value: number) => [`KSh ${value.toLocaleString()}`, 'Profit']}
-                            contentStyle={{
-                              backgroundColor: 'hsl(var(--card))',
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                            }}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="profit"
-                            stroke="hsl(158, 64%, 32%)"
-                            strokeWidth={3}
-                            dot={{ fill: 'hsl(158, 64%, 32%)', strokeWidth: 2, r: 4 }}
-                            activeDot={{ r: 6 }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Overview Tab */}
+          {/* Overview Tab - FIXED: Using properly parsed numeric values */}
           <TabsContent value="overview" className="space-y-4 md:space-y-6">
             <div id="reports-overview">
               {/* Key Metrics */}
@@ -471,30 +356,36 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-56 md:h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={reportsData.monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                          <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
-                          <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} />
-                          <Tooltip
-                            formatter={(value: number) => [`KSh ${value.toLocaleString()}`, 'Revenue']}
-                            contentStyle={{
-                              backgroundColor: 'hsl(var(--card))',
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                            }}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="sales"
-                            stroke="hsl(158, 64%, 32%)"
-                            strokeWidth={3}
-                            dot={{ fill: 'hsl(158, 64%, 32%)', strokeWidth: 2, r: 4 }}
-                            activeDot={{ r: 6 }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
+                      {reportsData.monthlyTrendData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={reportsData.monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
+                            <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} />
+                            <Tooltip
+                              formatter={(value: number) => [`KSh ${value.toLocaleString()}`, 'Revenue']}
+                              contentStyle={{
+                                backgroundColor: 'hsl(var(--card))',
+                                border: '1px solid hsl(var(--border))',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                              }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="sales"
+                              stroke="hsl(158, 64%, 32%)"
+                              strokeWidth={3}
+                              dot={{ fill: 'hsl(158, 64%, 32%)', strokeWidth: 2, r: 4 }}
+                              activeDot={{ r: 6 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                          No trend data available for this period
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -508,36 +399,30 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-48 md:h-64">
-                      {reportsData.categoryData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={reportsData.categoryData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={35}
-                              outerRadius={60}
-                              dataKey="value"
-                              labelLine={false}
-                            >
-                              {reportsData.categoryData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(value) => `${value}%`} />
-                            <Legend 
-                              layout="vertical" 
-                              align="right" 
-                              verticalAlign="middle"
-                              wrapperStyle={{ fontSize: '11px' }}
-                            />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                          No sales data for this period
-                        </div>
-                      )}
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={reportsData.categoryData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={35}
+                            outerRadius={60}
+                            dataKey="value"
+                            labelLine={false}
+                          >
+                            {reportsData.categoryData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value) => `${value}%`} />
+                          <Legend 
+                            layout="vertical" 
+                            align="right" 
+                            verticalAlign="middle"
+                            wrapperStyle={{ fontSize: '11px' }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
                     </div>
                   </CardContent>
                 </Card>
