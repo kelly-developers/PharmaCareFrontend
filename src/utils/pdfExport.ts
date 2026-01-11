@@ -225,7 +225,7 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
         .header {
           display: flex;
           justify-content: space-between;
-          margin-bottom: 40px;
+          margin-bottom: 30px;
           padding-bottom: 20px;
           border-bottom: 3px solid #0066cc;
         }
@@ -234,29 +234,29 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
         }
         .pharmacy-info h1 {
           color: #0066cc;
-          font-size: 28px;
-          margin-bottom: 8px;
+          font-size: 24px;
+          margin-bottom: 5px;
         }
         .pharmacy-info p {
-          font-size: 13px;
+          font-size: 12px;
           color: #666;
-          margin: 3px 0;
+          margin: 2px 0;
         }
         .order-info {
           text-align: right;
         }
         .order-info h2 {
           color: #333;
-          font-size: 22px;
-          margin-bottom: 10px;
+          font-size: 20px;
+          margin-bottom: 8px;
         }
         .order-info p {
-          font-size: 13px;
+          font-size: 12px;
           color: #666;
-          margin: 3px 0;
+          margin: 2px 0;
         }
         .order-number {
-          font-size: 16px;
+          font-size: 14px;
           font-weight: bold;
           color: #0066cc;
         }
@@ -264,28 +264,29 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           display: flex;
           justify-content: space-between;
           margin-bottom: 30px;
+          gap: 20px;
         }
         .party-box {
           width: 48%;
-          padding: 20px;
+          padding: 15px;
           background: #f8f9fa;
-          border-radius: 8px;
+          border-radius: 6px;
           border: 1px solid #e9ecef;
         }
         .party-box h3 {
           color: #0066cc;
-          font-size: 14px;
+          font-size: 13px;
           text-transform: uppercase;
-          margin-bottom: 12px;
-          letter-spacing: 1px;
+          margin-bottom: 10px;
+          letter-spacing: 0.5px;
         }
         .party-box p {
-          font-size: 13px;
-          margin: 5px 0;
+          font-size: 12px;
+          margin: 4px 0;
           color: #444;
         }
         .party-box .name {
-          font-size: 16px;
+          font-size: 14px;
           font-weight: bold;
           color: #333;
         }
@@ -293,22 +294,23 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           width: 100%;
           border-collapse: collapse;
           margin-bottom: 30px;
+          font-size: 12px;
         }
         .items-table th {
           background: #0066cc;
           color: white;
-          padding: 12px 15px;
+          padding: 10px 12px;
           text-align: left;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
         }
         .items-table th:last-child {
           text-align: right;
         }
         .items-table td {
-          padding: 12px 15px;
+          padding: 10px 12px;
           border-bottom: 1px solid #e9ecef;
-          font-size: 13px;
+          font-size: 12px;
         }
         .items-table td:last-child {
           text-align: right;
@@ -316,45 +318,42 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
         .items-table tr:nth-child(even) {
           background: #f8f9fa;
         }
-        .items-table tr:hover {
-          background: #e9ecef;
-        }
         .summary {
           display: flex;
           justify-content: flex-end;
           margin-bottom: 40px;
         }
         .summary-box {
-          width: 300px;
-          padding: 20px;
+          width: 250px;
+          padding: 15px;
           background: #f8f9fa;
-          border-radius: 8px;
+          border-radius: 6px;
           border: 2px solid #0066cc;
         }
         .summary-row {
           display: flex;
           justify-content: space-between;
-          margin-bottom: 10px;
-          font-size: 14px;
+          margin-bottom: 8px;
+          font-size: 13px;
         }
         .summary-row.total {
-          padding-top: 10px;
+          padding-top: 8px;
           border-top: 2px solid #0066cc;
-          margin-top: 10px;
+          margin-top: 8px;
           margin-bottom: 0;
-          font-size: 18px;
+          font-size: 16px;
           font-weight: bold;
           color: #0066cc;
         }
         .footer {
-          margin-top: 60px;
+          margin-top: 50px;
           padding-top: 20px;
           border-top: 1px solid #e9ecef;
         }
         .signatures {
           display: flex;
           justify-content: space-between;
-          margin-top: 40px;
+          margin-top: 30px;
         }
         .signature-box {
           width: 45%;
@@ -362,25 +361,33 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
         }
         .signature-line {
           border-top: 1px solid #333;
-          margin-top: 60px;
-          padding-top: 10px;
-          font-size: 13px;
+          margin-top: 50px;
+          padding-top: 8px;
+          font-size: 12px;
           color: #666;
         }
         .notes {
-          margin-top: 30px;
-          padding: 15px;
+          margin-top: 25px;
+          padding: 12px;
           background: #fff3cd;
-          border-radius: 8px;
-          font-size: 13px;
+          border-radius: 6px;
+          font-size: 12px;
           color: #856404;
         }
         .notes h4 {
-          margin-bottom: 8px;
+          margin-bottom: 6px;
+          font-size: 13px;
+        }
+        .notes ul {
+          margin-left: 15px;
+          padding-left: 0;
+        }
+        .notes li {
+          margin-bottom: 3px;
         }
         @media print {
           body {
-            padding: 20px;
+            padding: 15px;
           }
           .no-print {
             display: none;
@@ -406,17 +413,11 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
 
       <div class="parties">
         <div class="party-box">
-          <h3>From (Pharmacy)</h3>
-          <p class="name">${pharmacy.name}</p>
-          <p>${pharmacy.address}</p>
-          <p><strong>Tel:</strong> ${pharmacy.phone}</p>
-          <p><strong>Email:</strong> ${pharmacy.email}</p>
-        </div>
-        <div class="party-box">
-          <h3>To (Supplier)</h3>
+          <h3>Supplier Information</h3>
           <p class="name">${supplier.name}</p>
           ${supplier.contactPerson ? `<p><strong>Contact:</strong> ${supplier.contactPerson}</p>` : ''}
-          <p>${supplier.address ? `${supplier.address}, ${supplier.city}` : supplier.city}</p>
+          ${supplier.address ? `<p>${supplier.address}</p>` : ''}
+          ${supplier.city ? `<p>${supplier.city}</p>` : ''}
           ${supplier.phone ? `<p><strong>Tel:</strong> ${supplier.phone}</p>` : ''}
           ${supplier.email ? `<p><strong>Email:</strong> ${supplier.email}</p>` : ''}
         </div>
@@ -481,7 +482,7 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
       </div>
 
       <div class="no-print" style="margin-top: 30px; text-align: center;">
-        <button onclick="window.print()" style="padding: 12px 30px; background: #0066cc; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
+        <button onclick="window.print()" style="padding: 10px 25px; background: #0066cc; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
           Print / Save as PDF
         </button>
       </div>
