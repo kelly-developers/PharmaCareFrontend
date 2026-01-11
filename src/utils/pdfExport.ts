@@ -1,3 +1,4 @@
+// utils/pdfExport.ts
 // PDF export utility using browser print
 export function exportToPDF(elementId: string, filename: string) {
   const element = document.getElementById(elementId);
@@ -228,6 +229,9 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           padding-bottom: 20px;
           border-bottom: 3px solid #0066cc;
         }
+        .pharmacy-info {
+          flex: 1;
+        }
         .pharmacy-info h1 {
           color: #0066cc;
           font-size: 28px;
@@ -298,9 +302,7 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           font-size: 13px;
           font-weight: 600;
         }
-        .items-table th:last-child,
-        .items-table th:nth-child(5),
-        .items-table th:nth-child(6) {
+        .items-table th:last-child {
           text-align: right;
         }
         .items-table td {
@@ -308,9 +310,7 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           border-bottom: 1px solid #e9ecef;
           font-size: 13px;
         }
-        .items-table td:last-child,
-        .items-table td:nth-child(5),
-        .items-table td:nth-child(6) {
+        .items-table td:last-child {
           text-align: right;
         }
         .items-table tr:nth-child(even) {
@@ -415,10 +415,10 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
         <div class="party-box">
           <h3>To (Supplier)</h3>
           <p class="name">${supplier.name}</p>
-          <p><strong>Contact:</strong> ${supplier.contactPerson}</p>
-          <p>${supplier.address}, ${supplier.city}</p>
-          <p><strong>Tel:</strong> ${supplier.phone}</p>
-          <p><strong>Email:</strong> ${supplier.email}</p>
+          ${supplier.contactPerson ? `<p><strong>Contact:</strong> ${supplier.contactPerson}</p>` : ''}
+          <p>${supplier.address ? `${supplier.address}, ${supplier.city}` : supplier.city}</p>
+          ${supplier.phone ? `<p><strong>Tel:</strong> ${supplier.phone}</p>` : ''}
+          ${supplier.email ? `<p><strong>Email:</strong> ${supplier.email}</p>` : ''}
         </div>
       </div>
 
@@ -427,10 +427,8 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
           <tr>
             <th>#</th>
             <th>Medicine/Item</th>
-            <th>Current Stock</th>
             <th>Order Quantity</th>
-            <th>Cost/Unit (KSh)</th>
-            <th>Total (KSh)</th>
+            <th>Total Amount (KSh)</th>
           </tr>
         </thead>
         <tbody>
@@ -438,9 +436,7 @@ export const generatePurchaseOrderPDF = (data: PurchaseOrderPDFData): void => {
             <tr>
               <td>${index + 1}</td>
               <td>${item.medicineName}</td>
-              <td>${item.currentStock.toLocaleString()}</td>
               <td>${item.orderQty.toLocaleString()}</td>
-              <td>${item.costPrice.toLocaleString()}</td>
               <td>${item.totalPrice.toLocaleString()}</td>
             </tr>
           `).join('')}
