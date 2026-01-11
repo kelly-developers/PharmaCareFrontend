@@ -28,12 +28,7 @@ export function IncomeStatement({
     ? format(dateRange.start, 'yyyy')
     : `${format(dateRange.start, 'MMM d')} - ${format(dateRange.end, 'MMM d, yyyy')}`;
 
-  // FIXED: Ensure all values are numbers
-  const safeRevenue = typeof revenue === 'number' ? revenue : 0;
-  const safeCogs = typeof cogs === 'number' ? cogs : 0;
-  const safeGrossProfit = typeof grossProfit === 'number' ? grossProfit : 0;
-  const safeTotalExpenses = typeof totalExpenses === 'number' ? totalExpenses : 0;
-  const safeNetProfit = typeof netProfit === 'number' ? netProfit : 0;
+  const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
   return (
     <Card variant="elevated" className="print:shadow-none">
@@ -50,11 +45,11 @@ export function IncomeStatement({
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Revenue</h4>
           <div className="flex justify-between py-1 border-b">
             <span>Sales Revenue</span>
-            <span className="font-mono">KSh {safeRevenue.toLocaleString()}</span>
+            <span className="font-mono">KSh {revenue.toLocaleString()}</span>
           </div>
           <div className="flex justify-between py-1 font-semibold bg-secondary/30 px-2 rounded">
             <span>Total Revenue</span>
-            <span className="font-mono">KSh {safeRevenue.toLocaleString()}</span>
+            <span className="font-mono">KSh {revenue.toLocaleString()}</span>
           </div>
         </div>
 
@@ -63,20 +58,25 @@ export function IncomeStatement({
           <h4 className="font-semibold text-muted-foreground uppercase text-xs tracking-wider mb-2">Cost of Goods Sold</h4>
           <div className="flex justify-between py-1 border-b">
             <span>Inventory Cost</span>
-            <span className="font-mono text-destructive">KSh {safeCogs.toLocaleString()}</span>
+            <span className="font-mono text-destructive">(KSh {cogs.toLocaleString()})</span>
           </div>
           <div className="flex justify-between py-1 font-semibold bg-secondary/30 px-2 rounded">
             <span>Total COGS</span>
-            <span className="font-mono text-destructive">KSh {safeCogs.toLocaleString()}</span>
+            <span className="font-mono text-destructive">(KSh {cogs.toLocaleString()})</span>
           </div>
         </div>
 
         {/* Gross Profit */}
         <div className="flex justify-between py-2 font-bold text-base border-t border-b bg-primary/10 px-2 rounded">
           <span>Gross Profit</span>
-          <span className={`font-mono ${safeGrossProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
-            KSh {safeGrossProfit.toLocaleString()}
-          </span>
+          <div className="text-right">
+            <span className={`font-mono block ${grossProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
+              KSh {grossProfit.toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {revenue > 0 ? `Margin: ${((grossProfit / revenue) * 100).toFixed(1)}%` : 'Margin: 0%'}
+            </span>
+          </div>
         </div>
 
         {/* Operating Expenses */}
@@ -86,7 +86,7 @@ export function IncomeStatement({
             expenses.map((exp, idx) => (
               <div key={idx} className="flex justify-between py-1 border-b">
                 <span className="capitalize">{exp.category}</span>
-                <span className="font-mono text-destructive">KSh {exp.amount.toLocaleString()}</span>
+                <span className="font-mono text-destructive">(KSh {exp.amount.toLocaleString()})</span>
               </div>
             ))
           ) : (
@@ -97,18 +97,27 @@ export function IncomeStatement({
           )}
           <div className="flex justify-between py-1 font-semibold bg-secondary/30 px-2 rounded">
             <span>Total Operating Expenses</span>
-            <span className="font-mono text-destructive">KSh {safeTotalExpenses.toLocaleString()}</span>
+            <span className="font-mono text-destructive">(KSh {totalExpenses.toLocaleString()})</span>
           </div>
         </div>
 
         {/* Net Profit */}
         <div className={`flex justify-between py-3 font-bold text-lg border-2 px-3 rounded-lg ${
-          safeNetProfit >= 0 ? 'border-success bg-success/10' : 'border-destructive bg-destructive/10'
+          netProfit >= 0 ? 'border-success bg-success/10' : 'border-destructive bg-destructive/10'
         }`}>
-          <span>Net Profit / (Loss)</span>
-          <span className={`font-mono ${safeNetProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
-            KSh {safeNetProfit.toLocaleString()}
-          </span>
+          <div>
+            <span>Net Profit / (Loss)</span>
+            {profitMargin !== 0 && (
+              <p className="text-xs font-normal mt-1">
+                {netProfit >= 0 ? 'Profit' : 'Loss'} Margin: {Math.abs(profitMargin).toFixed(1)}%
+              </p>
+            )}
+          </div>
+          <div className="text-right">
+            <span className={`font-mono block ${netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
+              KSh {netProfit.toLocaleString()}
+            </span>
+          </div>
         </div>
       </CardContent>
     </Card>
