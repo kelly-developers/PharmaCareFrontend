@@ -4,7 +4,6 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useSales } from '@/contexts/SalesContext';
@@ -20,19 +19,12 @@ import {
   ArrowRight,
   RefreshCw,
   Calendar,
+  CreditCard,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 import { reportService } from '@/services/reportService';
-import { medicineService } from '@/services/medicineService';
-
-interface InventoryValueData {
-  costValue: number;
-  retailValue: number;
-  totalUnits: number;
-  potentialProfit: number;
-}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -40,6 +32,7 @@ export default function Dashboard() {
   const { medicines, refreshMedicines } = useStock();
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
   
   // State for all dashboard data from backend
   const [dashboardData, setDashboardData] = useState({
@@ -59,28 +52,18 @@ export default function Dashboard() {
     pendingPrescriptions: 0,
   });
 
-  // New state for inventory value details
-  const [inventoryValue, setInventoryValue] = useState<InventoryValueData>({
-    costValue: 0,
-    retailValue: 0,
-    totalUnits: 0,
-    potentialProfit: 0,
-  });
-
-  // Loading states
-  const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
-  const [isLoadingInventory, setIsLoadingInventory] = useState(true);
 
   // Only admin and manager can see profits
   const canViewProfit = user?.role === 'admin' || user?.role === 'manager';
 
   // Fetch all dashboard data from backend
   const fetchDashboardData = async () => {
-    setIsLoadingDashboard(true);
     try {
       const response = await reportService.getDashboardStats();
       if (response.success && response.data) {
-        setDashboardData({
+        setDashboardData(prev => ({
+          ...prev,
+          ...response.data,
           todaySales: response.data.todaySales || 0,
           todayTransactions: response.data.todayTransactions || 0,
           todayProfit: response.data.todayProfit || 0,
@@ -91,69 +74,31 @@ export default function Dashboard() {
           totalStockItems: response.data.totalStockItems || 0,
           lowStockCount: response.data.lowStockCount || 0,
           expiringSoonCount: response.data.expiringCount || response.data.expiringSoonCount || 0,
-          outOfStockCount: response.data.outOfStockCount || 0,
-          todayExpenses: response.data.todayExpenses || 0,
           pendingOrders: response.data.pendingOrders || 0,
+          pendingExpenses: response.data.pendingExpenses || 0,
           pendingPrescriptions: response.data.pendingPrescriptions || 0,
-        });
+        }));
       }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
       toast.error('Failed to load dashboard data');
-    } finally {
-      setIsLoadingDashboard(false);
     }
   };
 
-  // Fetch inventory value from medicine stats
-  const fetchInventoryValue = async () => {
-    setIsLoadingInventory(true);
-    try {
-      // Try to get medicine stats first
-      const statsResponse = await medicineService.getStats();
-      if (statsResponse.success && statsResponse.data) {
-        // If stats has totalValue, use it
-        const totalValue = statsResponse.data.totalValue || 0;
-        setInventoryValue(prev => ({
-          ...prev,
-          costValue: totalValue,
-          retailValue: dashboardData.stockValue, // Use stockValue from dashboard as retail value
-          totalUnits: statsResponse.data.totalMedicines || 0,
-          potentialProfit: dashboardData.stockValue - totalValue,
-        }));
-      } else {
-        // Fallback: try to get inventory value from reports
-        try {
-          const inventoryResponse = await reportService.getInventoryValue();
-          if (inventoryResponse.success && inventoryResponse.data) {
-            setInventoryValue(prev => ({
-              ...prev,
-              costValue: inventoryResponse.data.totalValue || 0,
-              retailValue: dashboardData.stockValue,
-              totalUnits: inventoryResponse.data.itemCount || 0,
-              potentialProfit: dashboardData.stockValue - (inventoryResponse.data.totalValue || 0),
-            }));
-          }
-        } catch (inventoryError) {
-          console.error('Failed to fetch inventory value:', inventoryError);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch medicine stats:', error);
-    } finally {
-      setIsLoadingInventory(false);
-    }
-  };
 
   // Fetch today's sales
-  const fetchTodaySalesData = async () => {
-    try {
+  useEffect(() => {
+    const fetchTodaySales = async () => {
       const sales = await getTodaySales();
       setTodaySales(sales);
-    } catch (error) {
-      console.error('Failed to fetch today sales:', error);
-    }
-  };
+    };
+    fetchTodaySales();
+  }, [getTodaySales]);
+
+  // Fetch dashboard data on component mount
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
   // Get real sales data
   const allSales = getAllSales();
@@ -176,16 +121,13 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 4);
 
-  // Handle refresh all data
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
       await Promise.all([
         fetchAllSales(),
         refreshMedicines(),
-        fetchDashboardData(),
-        fetchInventoryValue(),
-        fetchTodaySalesData()
+        fetchDashboardData()
       ]);
       toast.success('Dashboard data refreshed');
     } catch (error) {
@@ -205,36 +147,6 @@ export default function Dashboard() {
 
   const monthlyProfitTrend = calculateMonthlyProfitTrend();
   const isMonthlyProfitPositive = monthlyProfitTrend >= 0;
-
-  // Fetch all data on component mount
-  useEffect(() => {
-    const fetchAllData = async () => {
-      await fetchDashboardData();
-      await fetchInventoryValue();
-      await fetchTodaySalesData();
-    };
-    fetchAllData();
-  }, []);
-
-  // Update inventory value when dashboard data changes
-  useEffect(() => {
-    if (dashboardData.stockValue > 0 || dashboardData.totalStockItems > 0) {
-      setInventoryValue(prev => ({
-        ...prev,
-        retailValue: dashboardData.stockValue,
-        totalUnits: dashboardData.totalStockItems,
-        potentialProfit: dashboardData.stockValue - prev.costValue,
-      }));
-    }
-  }, [dashboardData.stockValue, dashboardData.totalStockItems]);
-
-  // Calculate profit margin
-  const calculateProfitMargin = () => {
-    if (inventoryValue.costValue === 0) return 0;
-    return (inventoryValue.potentialProfit / inventoryValue.costValue) * 100;
-  };
-
-  const profitMargin = calculateProfitMargin();
 
   return (
     <MainLayout>
@@ -277,7 +189,6 @@ export default function Dashboard() {
             icon={<DollarSign className="h-6 w-6" />}
             trend={{ value: todaySales.length > 0 ? 12 : 0, isPositive: true }}
             iconClassName="bg-success/10 text-success"
-            isLoading={isLoadingDashboard}
           />
           <StatCard
             title="Stock Value"
@@ -286,24 +197,14 @@ export default function Dashboard() {
             trend={{ value: 0, isPositive: true }}
             iconClassName="bg-info/10 text-info"
             subtitle="At selling price"
-            isLoading={isLoadingDashboard}
           />
           <StatCard
             title="Inventory Value"
-            value={isLoadingInventory ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              `KSh ${inventoryValue.costValue.toLocaleString()}`
-            )}
+            value={`KSh ${dashboardData.inventoryValue.toLocaleString()}`}
             icon={<Package className="h-6 w-6" />}
             trend={{ value: 0, isPositive: true }}
             iconClassName="bg-warning/10 text-warning"
-            subtitle={isLoadingInventory ? (
-              <Skeleton className="h-4 w-16 mt-1" />
-            ) : (
-              `${inventoryValue.totalUnits} items`
-            )}
-            isLoading={isLoadingInventory}
+            subtitle={`${dashboardData.totalStockItems} items`}
           />
           {canViewProfit && (
             <StatCard
@@ -316,69 +217,9 @@ export default function Dashboard() {
               }}
               iconClassName="bg-primary/10 text-primary"
               subtitle="This month"
-              isLoading={isLoadingDashboard}
             />
           )}
         </div>
-
-        {/* Inventory Value Details Card */}
-        <Card variant="elevated" className="bg-warning/5 border-warning/20">
-          <CardContent className="pt-6">
-            {isLoadingInventory ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="w-12 h-12 rounded-full" />
-                    <div>
-                      <Skeleton className="h-4 w-32 mb-2" />
-                      <Skeleton className="h-8 w-40" />
-                    </div>
-                  </div>
-                  <Skeleton className="h-8 w-20" />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {[...Array(3)].map((_, i) => (
-                    <Skeleton key={i} className="h-20 rounded-lg" />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center">
-                      <Package className="h-6 w-6 text-warning" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Inventory Value (Cost)</p>
-                      <p className="text-2xl font-bold">KSh {inventoryValue.costValue.toLocaleString()}</p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="text-sm">
-                    {inventoryValue.totalUnits} units
-                  </Badge>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-3 rounded-lg bg-background">
-                    <p className="text-xs text-muted-foreground">Retail Value</p>
-                    <p className="text-lg font-semibold">KSh {inventoryValue.retailValue.toLocaleString()}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-background">
-                    <p className="text-xs text-muted-foreground">Potential Profit</p>
-                    <p className="text-lg font-semibold text-success">KSh {inventoryValue.potentialProfit.toLocaleString()}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-background">
-                    <p className="text-xs text-muted-foreground">Profit Margin</p>
-                    <p className="text-lg font-semibold">
-                      {profitMargin.toFixed(1)}%
-                    </p>
-                  </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Alerts Summary */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -416,6 +257,8 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Quick link to detailed reports for Admin/Manager */}
 
         {/* Quick Profit Overview for Admins/Managers */}
         {canViewProfit && (
