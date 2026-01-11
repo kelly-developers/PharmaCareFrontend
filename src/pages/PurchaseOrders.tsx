@@ -1,15 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { PurchaseOrder, PurchaseOrderItem, Supplier, Medicine } from '@/types/pharmacy';
 import { useToast } from '@/hooks/use-toast';
 import { purchaseOrderService } from '@/services/purchaseOrderService';
 import { supplierService } from '@/services/supplierService';
 import { medicineService } from '@/services/medicineService';
+import { generatePurchaseOrderPDF, PharmacyInfo, SupplierInfo, OrderItem } from '@/utils/pdfExport';
 import {
   Dialog,
   DialogContent,
@@ -45,27 +47,73 @@ import {
   Loader2,
   RefreshCw,
   Package,
+  AlertTriangle,
+  Printer,
+  ShoppingCart,
 } from 'lucide-react';
 import { format } from 'date-fns';
+
+interface LowStockItem {
+  medicineId: string;
+  medicineName: string;
+  currentStock: number;
+  reorderLevel: number;
+  suggestedQty: number;
+  costPrice: number;
+  orderQty: number;
+  totalPrice: number;
+  selected: boolean;
+}
+
+// Default pharmacy info - in real app this would come from settings/context
+const DEFAULT_PHARMACY: PharmacyInfo = {
+  name: 'PharmaCare Kenya',
+  licenseNo: 'PPB-2024-12345',
+  phone: '+254 722 123 456',
+  email: 'info@pharmacare.co.ke',
+  address: 'Kenyatta Avenue, CBD, Nairobi',
+};
 
 export default function PurchaseOrders() {
   const [showNewOrder, setShowNewOrder] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<string>('');
-  const [orderItems, setOrderItems] = useState<PurchaseOrderItem[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
+  // Calculate low stock items from medicines
+  const calculateLowStockItems = useCallback((meds: Medicine[]): LowStockItem[] => {
+    return meds
+      .filter(med => med.stockQuantity <= med.reorderLevel && med.isActive !== false)
+      .map(med => {
+        // Suggested quantity: enough to reach 3x reorder level
+        const suggestedQty = Math.max(50, (med.reorderLevel * 3) - med.stockQuantity);
+        return {
+          medicineId: med.id,
+          medicineName: med.name,
+          currentStock: med.stockQuantity,
+          reorderLevel: med.reorderLevel,
+          suggestedQty,
+          costPrice: med.costPrice || 0,
+          orderQty: suggestedQty,
+          totalPrice: suggestedQty * (med.costPrice || 0),
+          selected: true,
+        };
+      })
+      .sort((a, b) => (a.currentStock / a.reorderLevel) - (b.currentStock / b.reorderLevel));
+  }, []);
+
   // Fetch data from backend
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [ordersRes, suppliersRes, medicinesRes] = await Promise.all([
-        purchaseOrderService.getAll(),
-        supplierService.getActive(),
+        purchaseOrderService.getAll(1, 1000),
+        supplierService.getAll(1, 1000),
         medicineService.getAll(),
       ]);
 
@@ -81,18 +129,30 @@ export default function PurchaseOrders() {
       }
 
       if (suppliersRes.success && suppliersRes.data) {
-        setSuppliers(Array.isArray(suppliersRes.data) ? suppliersRes.data : []);
+        const data = suppliersRes.data;
+        let suppliersList: Supplier[] = [];
+        if (Array.isArray(data)) {
+          suppliersList = data;
+        } else if ((data as any).content) {
+          suppliersList = (data as any).content;
+        } else if ((data as any).data) {
+          suppliersList = (data as any).data;
+        } else if ((data as any).suppliers) {
+          suppliersList = (data as any).suppliers;
+        }
+        setSuppliers(suppliersList);
       }
 
       if (medicinesRes.success && medicinesRes.data) {
         const medData = medicinesRes.data;
+        let medsList: Medicine[] = [];
         if (Array.isArray(medData)) {
-          setMedicines(medData);
+          medsList = medData;
         } else if ((medData as any).content) {
-          setMedicines((medData as any).content);
-        } else {
-          setMedicines([]);
+          medsList = (medData as any).content;
         }
+        setMedicines(medsList);
+        setLowStockItems(calculateLowStockItems(medsList));
       }
     } catch (error) {
       console.error('Failed to fetch data:', error);
@@ -104,53 +164,119 @@ export default function PurchaseOrders() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast, calculateLowStockItems]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
-  const addItemToOrder = (medicineId: string) => {
-    const medicine = medicines.find((m) => m.id === medicineId);
-    if (!medicine) return;
+  // Toggle item selection
+  const toggleItemSelection = (medicineId: string) => {
+    setLowStockItems(prev => 
+      prev.map(item => 
+        item.medicineId === medicineId 
+          ? { ...item, selected: !item.selected }
+          : item
+      )
+    );
+  };
 
-    setOrderItems((prev) => {
-      const exists = prev.find((item) => item.medicineId === medicineId);
-      if (exists) return prev;
+  // Update item quantity
+  const updateItemQuantity = (medicineId: string, quantity: number) => {
+    setLowStockItems(prev =>
+      prev.map(item =>
+        item.medicineId === medicineId
+          ? { ...item, orderQty: quantity, totalPrice: quantity * item.costPrice }
+          : item
+      )
+    );
+  };
 
-      return [
-        ...prev,
-        {
-          medicineId,
-          medicineName: medicine.name,
-          quantity: 100,
-          unitPrice: medicine.costPrice,
-          totalPrice: 100 * medicine.costPrice,
-        },
-      ];
+  // Update item cost price
+  const updateItemCostPrice = (medicineId: string, costPrice: number) => {
+    setLowStockItems(prev =>
+      prev.map(item =>
+        item.medicineId === medicineId
+          ? { ...item, costPrice, totalPrice: item.orderQty * costPrice }
+          : item
+      )
+    );
+  };
+
+  // Select/deselect all items
+  const toggleSelectAll = (selected: boolean) => {
+    setLowStockItems(prev => prev.map(item => ({ ...item, selected })));
+  };
+
+  // Get selected items
+  const selectedItems = lowStockItems.filter(item => item.selected);
+  const totalAmount = selectedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  // Generate PDF
+  const handleGeneratePDF = () => {
+    if (!selectedSupplier) {
+      toast({
+        title: 'Select Supplier',
+        description: 'Please select a supplier before generating the order',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (selectedItems.length === 0) {
+      toast({
+        title: 'No Items Selected',
+        description: 'Please select at least one item to order',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const supplier = suppliers.find(s => s.id === selectedSupplier);
+    if (!supplier) return;
+
+    const orderNumber = `PO-${format(new Date(), 'yyyyMMdd')}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+    const supplierInfo: SupplierInfo = {
+      name: supplier.name,
+      contactPerson: supplier.contactPerson,
+      phone: supplier.phone,
+      email: supplier.email,
+      address: supplier.address,
+      city: supplier.city,
+    };
+
+    const orderItems: OrderItem[] = selectedItems.map(item => ({
+      medicineName: item.medicineName,
+      currentStock: item.currentStock,
+      reorderLevel: item.reorderLevel,
+      suggestedQty: item.suggestedQty,
+      orderQty: item.orderQty,
+      costPrice: item.costPrice,
+      totalPrice: item.totalPrice,
+    }));
+
+    generatePurchaseOrderPDF({
+      orderNumber,
+      orderDate: format(new Date(), 'MMMM dd, yyyy'),
+      pharmacy: DEFAULT_PHARMACY,
+      supplier: supplierInfo,
+      items: orderItems,
+      totalAmount,
+    });
+
+    toast({
+      title: 'PDF Generated',
+      description: 'Purchase order PDF has been generated. Use print dialog to save as PDF.',
     });
   };
 
-  const updateItemQuantity = (index: number, quantity: number) => {
-    setOrderItems((prev) => {
-      const updated = [...prev];
-      updated[index].quantity = quantity;
-      updated[index].totalPrice = quantity * updated[index].unitPrice;
-      return updated;
-    });
-  };
-
-  const removeItem = (index: number) => {
-    setOrderItems((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const totalAmount = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
-
+  // Create and save order to backend
   const handleCreateOrder = async () => {
-    if (!selectedSupplier || orderItems.length === 0) {
+    if (!selectedSupplier || selectedItems.length === 0) {
       toast({
         title: 'Error',
-        description: 'Please select a supplier and add items',
+        description: 'Please select a supplier and at least one item',
         variant: 'destructive',
       });
       return;
@@ -158,22 +284,29 @@ export default function PurchaseOrders() {
 
     setIsSaving(true);
     try {
-      const supplier = suppliers.find((s) => s.id === selectedSupplier);
+      const supplier = suppliers.find(s => s.id === selectedSupplier);
+      const orderItems: PurchaseOrderItem[] = selectedItems.map(item => ({
+        medicineId: item.medicineId,
+        medicineName: item.medicineName,
+        quantity: item.orderQty,
+        unitPrice: item.costPrice,
+        totalPrice: item.totalPrice,
+      }));
+
       const response = await purchaseOrderService.create({
         supplierId: selectedSupplier,
         supplierName: supplier?.name || '',
         items: orderItems,
         totalAmount,
-        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
+        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       });
 
-      if (response.success && response.data) {
+      if (response.success) {
         toast({
-          title: 'Purchase Order Created',
-          description: `Order for ${supplier?.name} - Total: KSh ${totalAmount.toLocaleString()}`,
+          title: 'Order Created',
+          description: `Purchase order for ${supplier?.name} has been saved`,
         });
         setShowNewOrder(false);
-        setOrderItems([]);
         setSelectedSupplier('');
         fetchData();
       } else {
@@ -282,117 +415,205 @@ export default function PurchaseOrders() {
                   New Order
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+              <DialogContent className="max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
                 <DialogHeader>
-                  <DialogTitle>Create Purchase Order</DialogTitle>
+                  <DialogTitle className="flex items-center gap-2">
+                    <ShoppingCart className="h-5 w-5" />
+                    Create Purchase Order - Low Stock Items
+                  </DialogTitle>
                 </DialogHeader>
+                
                 <div className="flex-1 overflow-auto space-y-4 py-4">
                   {/* Supplier Selection */}
-                  <div className="space-y-2">
-                    <Label>Select Supplier</Label>
-                    <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a supplier" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {suppliers.map((sup) => (
-                          <SelectItem key={sup.id} value={sup.id}>
-                            {sup.name} - {sup.city}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card className="p-4">
+                      <h3 className="font-semibold mb-3 flex items-center gap-2">
+                        <Package className="h-4 w-4" />
+                        Select Supplier
+                      </h3>
+                      <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose a supplier" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {suppliers.map((sup) => (
+                            <SelectItem key={sup.id} value={sup.id}>
+                              {sup.name} - {sup.city}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      
+                      {selectedSupplier && (() => {
+                        const supplier = suppliers.find(s => s.id === selectedSupplier);
+                        return supplier && (
+                          <div className="mt-3 p-3 bg-muted rounded-lg text-sm space-y-1">
+                            <p className="font-medium">{supplier.name}</p>
+                            <p className="text-muted-foreground">Contact: {supplier.contactPerson}</p>
+                            <p className="text-muted-foreground">Tel: {supplier.phone}</p>
+                            <p className="text-muted-foreground">Email: {supplier.email}</p>
+                            <p className="text-muted-foreground">{supplier.address}, {supplier.city}</p>
+                          </div>
+                        );
+                      })()}
+                    </Card>
+                    
+                    <Card className="p-4">
+                      <h3 className="font-semibold mb-3">Pharmacy Details</h3>
+                      <div className="p-3 bg-muted rounded-lg text-sm space-y-1">
+                        <p className="font-medium">{DEFAULT_PHARMACY.name}</p>
+                        <p className="text-muted-foreground">License: {DEFAULT_PHARMACY.licenseNo}</p>
+                        <p className="text-muted-foreground">Tel: {DEFAULT_PHARMACY.phone}</p>
+                        <p className="text-muted-foreground">Email: {DEFAULT_PHARMACY.email}</p>
+                        <p className="text-muted-foreground">{DEFAULT_PHARMACY.address}</p>
+                      </div>
+                    </Card>
                   </div>
 
-                  {/* Medicine Selection */}
-                  <div className="space-y-2">
-                    <Label>Add Medicines</Label>
-                    <Select onValueChange={addItemToOrder}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select medicine to add" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {medicines.map((med) => (
-                          <SelectItem key={med.id} value={med.id}>
-                            {med.name} - KSh {med.costPrice}/unit
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {/* Low Stock Items Alert */}
+                  {lowStockItems.length > 0 && (
+                    <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                      <span className="text-amber-800 dark:text-amber-200 font-medium">
+                        {lowStockItems.length} items are below reorder level
+                      </span>
+                    </div>
+                  )}
 
-                  {/* Order Items */}
-                  {orderItems.length > 0 && (
+                  {/* Low Stock Items Table */}
+                  {lowStockItems.length > 0 ? (
                     <div className="border rounded-lg overflow-hidden">
+                      <div className="p-3 bg-muted flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Checkbox 
+                            checked={lowStockItems.every(item => item.selected)}
+                            onCheckedChange={(checked) => toggleSelectAll(!!checked)}
+                          />
+                          <span className="text-sm font-medium">Select All ({lowStockItems.length} items)</span>
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {selectedItems.length} selected
+                        </span>
+                      </div>
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Medicine</TableHead>
-                            <TableHead className="w-32">Quantity</TableHead>
-                            <TableHead className="text-right">Unit Price</TableHead>
-                            <TableHead className="text-right">Total</TableHead>
                             <TableHead className="w-12"></TableHead>
+                            <TableHead>Medicine</TableHead>
+                            <TableHead className="text-center">Current Stock</TableHead>
+                            <TableHead className="text-center">Reorder Level</TableHead>
+                            <TableHead className="text-center">Suggested Qty</TableHead>
+                            <TableHead className="w-28">Order Qty</TableHead>
+                            <TableHead className="w-32">Cost/Unit (KSh)</TableHead>
+                            <TableHead className="text-right">Total (KSh)</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {orderItems.map((item, index) => (
-                            <TableRow key={item.medicineId}>
-                              <TableCell>{item.medicineName}</TableCell>
+                          {lowStockItems.map((item) => (
+                            <TableRow 
+                              key={item.medicineId}
+                              className={item.selected ? 'bg-primary/5' : 'opacity-50'}
+                            >
+                              <TableCell>
+                                <Checkbox
+                                  checked={item.selected}
+                                  onCheckedChange={() => toggleItemSelection(item.medicineId)}
+                                />
+                              </TableCell>
+                              <TableCell className="font-medium">{item.medicineName}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant={item.currentStock === 0 ? 'destructive' : 'warning'}>
+                                  {item.currentStock}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-center">{item.reorderLevel}</TableCell>
+                              <TableCell className="text-center text-muted-foreground">
+                                {item.suggestedQty}
+                              </TableCell>
                               <TableCell>
                                 <Input
                                   type="number"
-                                  value={item.quantity}
-                                  onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 0)}
-                                  className="w-24"
+                                  min="1"
+                                  value={item.orderQty}
+                                  onChange={(e) => updateItemQuantity(item.medicineId, parseInt(e.target.value) || 0)}
+                                  className="w-24 h-8"
+                                  disabled={!item.selected}
                                 />
                               </TableCell>
-                              <TableCell className="text-right">KSh {item.unitPrice}</TableCell>
-                              <TableCell className="text-right font-medium">
-                                KSh {item.totalPrice.toLocaleString()}
-                              </TableCell>
                               <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  onClick={() => removeItem(index)}
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={item.costPrice}
+                                  onChange={(e) => updateItemCostPrice(item.medicineId, parseFloat(e.target.value) || 0)}
+                                  className="w-28 h-8"
+                                  disabled={!item.selected}
+                                />
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {item.selected ? item.totalPrice.toLocaleString() : '-'}
                               </TableCell>
                             </TableRow>
                           ))}
-                          <TableRow>
-                            <TableCell colSpan={3} className="text-right font-bold">
-                              Total Amount:
-                            </TableCell>
-                            <TableCell className="text-right font-bold text-primary">
-                              KSh {totalAmount.toLocaleString()}
-                            </TableCell>
-                            <TableCell></TableCell>
-                          </TableRow>
                         </TableBody>
                       </Table>
                     </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
+                      <p className="text-lg font-medium text-muted-foreground">All items are well stocked!</p>
+                      <p className="text-sm text-muted-foreground">No items are below reorder level</p>
+                    </div>
+                  )}
+
+                  {/* Order Summary */}
+                  {selectedItems.length > 0 && (
+                    <Card className="p-4 bg-primary/5 border-primary/20">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <p className="text-sm text-muted-foreground">Order Summary</p>
+                          <div className="flex items-baseline gap-4">
+                            <span className="text-sm">{selectedItems.length} items</span>
+                            <span className="text-sm">{selectedItems.reduce((sum, i) => sum + i.orderQty, 0).toLocaleString()} units</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">Total Amount</p>
+                          <p className="text-2xl font-bold text-primary">KSh {totalAmount.toLocaleString()}</p>
+                        </div>
+                      </div>
+                    </Card>
                   )}
                 </div>
-                <div className="flex justify-end gap-2 pt-4 border-t">
+
+                {/* Footer Actions */}
+                <div className="flex flex-col sm:flex-row justify-end gap-2 pt-4 border-t">
                   <Button variant="outline" onClick={() => setShowNewOrder(false)}>
                     Cancel
                   </Button>
                   <Button
+                    variant="outline"
+                    disabled={!selectedSupplier || selectedItems.length === 0}
+                    onClick={handleGeneratePDF}
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Generate PDF
+                  </Button>
+                  <Button
                     variant="hero"
-                    disabled={!selectedSupplier || orderItems.length === 0 || isSaving}
+                    disabled={!selectedSupplier || selectedItems.length === 0 || isSaving}
                     onClick={handleCreateOrder}
                   >
                     {isSaving ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Creating...
+                        Saving...
                       </>
                     ) : (
                       <>
                         <Download className="h-4 w-4 mr-2" />
-                        Create Order
+                        Save Order
                       </>
                     )}
                   </Button>
@@ -401,6 +622,33 @@ export default function PurchaseOrders() {
             </Dialog>
           </div>
         </div>
+
+        {/* Low Stock Alert Card */}
+        {lowStockItems.length > 0 && (
+          <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
+                    <AlertTriangle className="h-5 w-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-amber-800 dark:text-amber-200">
+                      {lowStockItems.length} items need reordering
+                    </p>
+                    <p className="text-sm text-amber-700 dark:text-amber-300">
+                      These items are at or below their reorder levels
+                    </p>
+                  </div>
+                </div>
+                <Button variant="hero" size="sm" onClick={() => setShowNewOrder(true)}>
+                  <ShoppingCart className="h-4 w-4 mr-2" />
+                  Create Order
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Orders List */}
         <Card>
@@ -468,7 +716,12 @@ export default function PurchaseOrders() {
                                 Approve
                               </Button>
                             )}
-                            {order.status === 'received' && null}
+                            {(order.status as string) === 'approved' && (
+                              <Button variant="outline" size="sm" onClick={() => handleReceiveOrder(order.id)}>
+                                <Package className="h-3 w-3 mr-1" />
+                                Receive
+                              </Button>
+                            )}
                             {order.status === 'draft' && (
                               <Button 
                                 variant="ghost"

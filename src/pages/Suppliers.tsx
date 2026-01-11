@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supplierService } from '@/services/supplierService';
 import { Supplier } from '@/types/pharmacy';
@@ -18,6 +17,7 @@ import {
   FileText,
   MoreVertical,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import {
   Dialog,
@@ -51,22 +51,32 @@ export default function Suppliers() {
   });
 
   // Fetch suppliers from backend
-  const fetchSuppliers = async () => {
+  const fetchSuppliers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await supplierService.getAll();
+      const response = await supplierService.getAll(1, 1000); // Get all suppliers without pagination limit
+      console.log('Suppliers API response:', response);
+      
       if (response.success && response.data) {
-        // Handle various response formats
         const data = response.data;
+        let suppliersList: Supplier[] = [];
+        
+        // Handle various response formats from API
         if (Array.isArray(data)) {
-          setSuppliers(data);
-        } else if ((data as any).content && Array.isArray((data as any).content)) {
-          setSuppliers((data as any).content);
-        } else if ((data as any).data && Array.isArray((data as any).data)) {
-          setSuppliers((data as any).data);
-        } else {
-          setSuppliers([]);
+          suppliersList = data;
+        } else if (data.content && Array.isArray(data.content)) {
+          suppliersList = data.content;
+        } else if (data.data && Array.isArray(data.data)) {
+          suppliersList = data.data;
+        } else if (data.suppliers && Array.isArray(data.suppliers)) {
+          suppliersList = data.suppliers;
         }
+        
+        console.log('Processed suppliers:', suppliersList);
+        setSuppliers(suppliersList);
+      } else {
+        console.error('Failed to fetch suppliers:', response.error);
+        setSuppliers([]);
       }
     } catch (error) {
       console.error('Failed to fetch suppliers:', error);
@@ -75,19 +85,20 @@ export default function Suppliers() {
         description: 'Failed to load suppliers',
         variant: 'destructive',
       });
+      setSuppliers([]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     fetchSuppliers();
-  }, []);
+  }, [fetchSuppliers]);
 
   const filteredSuppliers = suppliers.filter(
     (sup) =>
-      sup.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      sup.contactPerson.toLowerCase().includes(searchQuery.toLowerCase())
+      sup.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      sup.contactPerson?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleAddSupplier = async () => {
@@ -103,9 +114,9 @@ export default function Suppliers() {
     setIsSaving(true);
     try {
       const response = await supplierService.create(newSupplier);
+      console.log('Create supplier response:', response);
       
-      if (response.success && response.data) {
-        setSuppliers(prev => [...prev, response.data!]);
+      if (response.success) {
         setShowAddDialog(false);
         setNewSupplier({
           name: '',
@@ -119,6 +130,8 @@ export default function Suppliers() {
           title: 'Supplier Added',
           description: `${newSupplier.name} has been added successfully`,
         });
+        // Refetch all suppliers to ensure data consistency
+        await fetchSuppliers();
       } else {
         toast({
           title: 'Error',
@@ -142,11 +155,12 @@ export default function Suppliers() {
     try {
       const response = await supplierService.delete(id);
       if (response.success) {
-        setSuppliers(prev => prev.filter(s => s.id !== id));
         toast({
           title: 'Supplier Deleted',
           description: 'The supplier has been removed',
         });
+        // Refetch to ensure data consistency
+        await fetchSuppliers();
       } else {
         toast({
           title: 'Error',
@@ -172,100 +186,106 @@ export default function Suppliers() {
             <h1 className="text-2xl lg:text-3xl font-bold font-display">Suppliers</h1>
             <p className="text-muted-foreground mt-1">Manage your medicine suppliers</p>
           </div>
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-            <DialogTrigger asChild>
-              <Button variant="hero">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Supplier
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Add New Supplier</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label>Supplier Name *</Label>
-                  <Input
-                    value={newSupplier.name}
-                    onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
-                    placeholder="e.g., PharmaCorp Ltd"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Contact Person *</Label>
-                  <Input
-                    value={newSupplier.contactPerson}
-                    onChange={(e) => setNewSupplier({ ...newSupplier, contactPerson: e.target.value })}
-                    placeholder="e.g., John Doe"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={fetchSuppliers} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+              <DialogTrigger asChild>
+                <Button variant="hero">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Supplier
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Add New Supplier</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
                   <div className="space-y-2">
-                    <Label>Phone *</Label>
+                    <Label>Supplier Name *</Label>
                     <Input
-                      value={newSupplier.phone}
-                      onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })}
-                      placeholder="e.g., +254 712 345 678"
+                      value={newSupplier.name}
+                      onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
+                      placeholder="e.g., PharmaCorp Ltd"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Email</Label>
+                    <Label>Contact Person *</Label>
                     <Input
-                      type="email"
-                      value={newSupplier.email}
-                      onChange={(e) => setNewSupplier({ ...newSupplier, email: e.target.value })}
-                      placeholder="e.g., contact@supplier.com"
+                      value={newSupplier.contactPerson}
+                      onChange={(e) => setNewSupplier({ ...newSupplier, contactPerson: e.target.value })}
+                      placeholder="e.g., John Doe"
                     />
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Phone *</Label>
+                      <Input
+                        value={newSupplier.phone}
+                        onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })}
+                        placeholder="e.g., +254 712 345 678"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Email</Label>
+                      <Input
+                        type="email"
+                        value={newSupplier.email}
+                        onChange={(e) => setNewSupplier({ ...newSupplier, email: e.target.value })}
+                        placeholder="e.g., contact@supplier.com"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Address</Label>
+                    <Input
+                      value={newSupplier.address}
+                      onChange={(e) => setNewSupplier({ ...newSupplier, address: e.target.value })}
+                      placeholder="e.g., 123 Main Street"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>City</Label>
+                    <Input
+                      value={newSupplier.city}
+                      onChange={(e) => setNewSupplier({ ...newSupplier, city: e.target.value })}
+                      placeholder="e.g., Nairobi"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-4">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setShowAddDialog(false)} 
+                      className="flex-1"
+                      disabled={isSaving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      variant="hero" 
+                      onClick={handleAddSupplier} 
+                      className="flex-1"
+                      disabled={isSaving}
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Supplier
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Address</Label>
-                  <Input
-                    value={newSupplier.address}
-                    onChange={(e) => setNewSupplier({ ...newSupplier, address: e.target.value })}
-                    placeholder="e.g., 123 Main Street"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>City</Label>
-                  <Input
-                    value={newSupplier.city}
-                    onChange={(e) => setNewSupplier({ ...newSupplier, city: e.target.value })}
-                    placeholder="e.g., Nairobi"
-                  />
-                </div>
-                <div className="flex gap-2 pt-4">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setShowAddDialog(false)} 
-                    className="flex-1"
-                    disabled={isSaving}
-                  >
-                    Cancel
-                  </Button>
-                  <Button 
-                    variant="hero" 
-                    onClick={handleAddSupplier} 
-                    className="flex-1"
-                    disabled={isSaving}
-                  >
-                    {isSaving ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Supplier
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {/* Search */}
@@ -327,15 +347,15 @@ export default function Suppliers() {
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-2 text-sm">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{supplier.phone}</span>
+                    <span>{supplier.phone || 'N/A'}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span className="truncate">{supplier.email}</span>
+                    <span className="truncate">{supplier.email || 'N/A'}</span>
                   </div>
                   <div className="flex items-start gap-2 text-sm">
                     <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <span>{supplier.address}, {supplier.city}</span>
+                    <span>{supplier.address || 'N/A'}{supplier.city ? `, ${supplier.city}` : ''}</span>
                   </div>
                   <div className="pt-3 flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1">
