@@ -63,22 +63,8 @@ export default function Reports() {
     inventoryValue: 0,
     expensesByCategory: [] as { category: string; amount: number }[],
     salesTrend: [] as { date: string; sales: number; cost: number; profit: number }[],
-    categoryData: [
-      { name: 'Pain Relief', value: 28, color: 'hsl(158, 64%, 32%)' },
-      { name: 'Antibiotics', value: 22, color: 'hsl(199, 89%, 48%)' },
-      { name: 'Vitamins', value: 18, color: 'hsl(38, 92%, 50%)' },
-      { name: 'First Aid', value: 15, color: 'hsl(142, 71%, 45%)' },
-      { name: 'Others', value: 17, color: 'hsl(215, 16%, 47%)' },
-    ],
-    dailySalesData: [
-      { day: 'Mon', sales: 0, cost: 0 },
-      { day: 'Tue', sales: 0, cost: 0 },
-      { day: 'Wed', sales: 0, cost: 0 },
-      { day: 'Thu', sales: 0, cost: 0 },
-      { day: 'Fri', sales: 0, cost: 0 },
-      { day: 'Sat', sales: 0, cost: 0 },
-      { day: 'Sun', sales: 0, cost: 0 },
-    ],
+    categoryData: [] as { name: string; value: number; color: string }[],
+    dailySalesData: [] as { day: string; sales: number; cost: number }[],
     monthlyTrendData: [] as { month: string; sales: number }[]
   });
 
@@ -140,23 +126,24 @@ export default function Reports() {
 
       // Parse sales by category data
       const categoryDataFromAPI = salesByCategoryResponse.data as any;
-      let categoryData = reportsData.categoryData; // Default
+      let categoryData: { name: string; value: number; color: string }[] = [];
       
-      if (categoryDataFromAPI && Array.isArray(categoryDataFromAPI)) {
-        const colors = [
-          'hsl(158, 64%, 32%)',
-          'hsl(199, 89%, 48%)',
-          'hsl(38, 92%, 50%)',
-          'hsl(142, 71%, 45%)',
-          'hsl(215, 16%, 47%)',
-          'hsl(280, 65%, 60%)',
-          'hsl(340, 82%, 52%)',
-        ];
+      const defaultColors = [
+        'hsl(158, 64%, 32%)',
+        'hsl(199, 89%, 48%)',
+        'hsl(38, 92%, 50%)',
+        'hsl(142, 71%, 45%)',
+        'hsl(215, 16%, 47%)',
+        'hsl(280, 65%, 60%)',
+        'hsl(340, 82%, 52%)',
+      ];
+      
+      if (categoryDataFromAPI && Array.isArray(categoryDataFromAPI) && categoryDataFromAPI.length > 0) {
         const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => sum + (c.total || c.value || 0), 0);
         categoryData = categoryDataFromAPI.slice(0, 7).map((cat: any, idx: number) => ({
           name: cat.category || cat.name || 'Other',
           value: totalCategorySales > 0 ? Math.round(((cat.total || cat.value || 0) / totalCategorySales) * 100) : 0,
-          color: colors[idx % colors.length],
+          color: defaultColors[idx % defaultColors.length],
         }));
       }
       
@@ -421,30 +408,36 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-48 md:h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={reportsData.categoryData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={35}
-                            outerRadius={60}
-                            dataKey="value"
-                            labelLine={false}
-                          >
-                            {reportsData.categoryData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value) => `${value}%`} />
-                          <Legend 
-                            layout="vertical" 
-                            align="right" 
-                            verticalAlign="middle"
-                            wrapperStyle={{ fontSize: '11px' }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      {reportsData.categoryData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={reportsData.categoryData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={35}
+                              outerRadius={60}
+                              dataKey="value"
+                              labelLine={false}
+                            >
+                              {reportsData.categoryData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => `${value}%`} />
+                            <Legend 
+                              layout="vertical" 
+                              align="right" 
+                              verticalAlign="middle"
+                              wrapperStyle={{ fontSize: '11px' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                          No category data available for this period
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { useSales } from '@/contexts/SalesContext';
-import { useStock } from '@/contexts/StockContext';
 import { Sale } from '@/types/pharmacy';
 import {
   Table,
@@ -36,7 +35,6 @@ import {
   Download,
   Eye,
   Users,
-  Package,
 } from 'lucide-react';
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter } from 'date-fns';
 
@@ -46,12 +44,7 @@ export default function Sales() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [showSaleDialog, setShowSaleDialog] = useState(false);
   const { getAllSales, fetchAllSales, isLoading } = useSales();
-  const { medicines } = useStock();
 
-  // Calculate inventory value
-  const inventoryValue = medicines.reduce((sum, med) => {
-    return sum + (med.costPrice * (med.stockQuantity || 0));
-  }, 0);
 
   // Fetch sales on mount
   useEffect(() => {
@@ -209,7 +202,7 @@ export default function Sales() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard
             title={`${getPeriodLabel()} Total Sales`}
             value={`KSh ${totalSales.toLocaleString()}`}
@@ -227,12 +220,6 @@ export default function Sales() {
             value={`KSh ${avgTransaction.toLocaleString()}`}
             icon={<TrendingUp className="h-6 w-6" />}
             iconClassName="bg-primary/10 text-primary"
-          />
-          <StatCard
-            title="Inventory Value"
-            value={`KSh ${inventoryValue.toLocaleString()}`}
-            icon={<Package className="h-6 w-6" />}
-            iconClassName="bg-warning/10 text-warning"
           />
         </div>
 

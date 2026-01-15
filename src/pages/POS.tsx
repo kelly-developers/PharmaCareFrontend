@@ -580,11 +580,6 @@ const handleCheckout = async () => {
     }, 500);
   };
 
-  // Calculate inventory value from medicines
-  const inventoryValue = medicines.reduce((sum, med) => {
-    return sum + (med.costPrice * (med.stockQuantity || 0));
-  }, 0);
-
   return (
     <MainLayout>
       <div className="h-[calc(100vh-6rem)] flex flex-col gap-3 p-2">
@@ -595,10 +590,6 @@ const handleCheckout = async () => {
             <p className="text-xs lg:text-sm text-muted-foreground">Fast and efficient checkout</p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="flex items-center gap-1 text-xs">
-              <Package className="h-3 w-3" />
-              Inventory: KSh {inventoryValue.toLocaleString()}
-            </Badge>
             <Badge variant="outline" className="flex items-center gap-1 text-xs">
               <Clock className="h-3 w-3" />
               {format(new Date(), 'HH:mm')}

@@ -82,6 +82,7 @@ export default function PurchaseOrders() {
   const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [viewingOrder, setViewingOrder] = useState<PurchaseOrder | null>(null);
   const { toast } = useToast();
 
   const calculateLowStockItems = useCallback((meds: Medicine[]): LowStockItem[] => {
@@ -897,7 +898,11 @@ export default function PurchaseOrders() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex gap-1 justify-end">
-                            <Button variant="ghost" size="sm">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => setViewingOrder(order)}
+                            >
                               <FileText className="h-4 w-4 mr-1" />
                               View
                             </Button>
@@ -939,6 +944,130 @@ export default function PurchaseOrders() {
             )}
           </CardContent>
         </Card>
+
+        {/* View Order Dialog */}
+        <Dialog open={!!viewingOrder} onOpenChange={(open) => !open && setViewingOrder(null)}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Purchase Order Details
+              </DialogTitle>
+            </DialogHeader>
+            
+            {viewingOrder && (
+              <div className="space-y-4 py-4">
+                {/* Order Info */}
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Order Number</p>
+                    <p className="font-mono font-medium">{viewingOrder.orderNumber || viewingOrder.id}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Status</p>
+                    {getStatusBadge(viewingOrder.status)}
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Supplier</p>
+                    <p className="font-medium">{viewingOrder.supplierName}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Date</p>
+                    <p className="font-medium">
+                      {viewingOrder.createdAt ? format(new Date(viewingOrder.createdAt), 'MMM dd, yyyy HH:mm') : '-'}
+                    </p>
+                  </div>
+                  {viewingOrder.expectedDate && (
+                    <div className="col-span-2">
+                      <p className="text-muted-foreground">Expected Delivery</p>
+                      <p className="font-medium">
+                        {format(new Date(viewingOrder.expectedDate), 'MMM dd, yyyy')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Items Table */}
+                <div>
+                  <h4 className="font-medium mb-2">Order Items</h4>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead className="text-center">Quantity</TableHead>
+                          <TableHead className="text-right">Unit Price</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {viewingOrder.items && viewingOrder.items.length > 0 ? (
+                          viewingOrder.items.map((item, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell>{item.medicineName || 'Unknown Item'}</TableCell>
+                              <TableCell className="text-center">{item.quantity}</TableCell>
+                              <TableCell className="text-right">KSh {(item.unitPrice || 0).toLocaleString()}</TableCell>
+                              <TableCell className="text-right font-medium">KSh {(item.totalPrice || 0).toLocaleString()}</TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
+                              No items in this order
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* Total */}
+                <div className="border-t pt-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-lg font-medium">Total Amount</span>
+                    <span className="text-2xl font-bold text-primary">
+                      KSh {(viewingOrder.totalAmount || 0).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button variant="outline" onClick={() => setViewingOrder(null)} className="flex-1">
+                    Close
+                  </Button>
+                  {viewingOrder.status === 'DRAFT' && (
+                    <Button 
+                      variant="hero" 
+                      className="flex-1"
+                      onClick={() => {
+                        handleSubmitOrder(viewingOrder.id);
+                        setViewingOrder(null);
+                      }}
+                    >
+                      <Send className="h-4 w-4 mr-2" />
+                      Submit Order
+                    </Button>
+                  )}
+                  {viewingOrder.status === 'APPROVED' && (
+                    <Button 
+                      variant="hero" 
+                      className="flex-1"
+                      onClick={() => {
+                        handleReceiveOrder(viewingOrder.id);
+                        setViewingOrder(null);
+                      }}
+                    >
+                      <Package className="h-4 w-4 mr-2" />
+                      Mark as Received
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );
