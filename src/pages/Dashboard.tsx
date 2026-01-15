@@ -321,9 +321,10 @@ export default function Dashboard() {
                   <p className="text-center text-muted-foreground py-8">No sales yet today</p>
                 ) : (
                   recentSales.map((sale) => (
-                    <div
+                    <Link
                       key={sale.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
+                      to={`/sales`}
+                      className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -341,7 +342,7 @@ export default function Dashboard() {
                           {formatDistanceToNow(new Date(sale.createdAt), { addSuffix: true })}
                         </p>
                       </div>
-                    </div>
+                    </Link>
                   ))
                 )}
               </div>

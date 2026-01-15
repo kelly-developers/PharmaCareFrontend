@@ -122,21 +122,43 @@ export default function Reports() {
       // Fetch all reports data
       const incomeResponse = await reportService.getIncomeStatement(startDate, endDate);
       const inventoryResponse = await reportService.getInventoryValue();
+      const salesByCategoryResponse = await reportService.getSalesByCategory(startDate, endDate);
       
       // FIXED: Parse the actual response structure from your backend
-      // Based on your screenshot, the response structure is: { success: true, data: { ... } }
-      const incomeData = incomeResponse.data?.data || incomeResponse.data;
-      const inventoryData = inventoryResponse.data?.data || inventoryResponse.data;
+      const incomeData = incomeResponse.data as any;
+      const inventoryData = inventoryResponse.data as any;
       
       // FIXED: Extract numeric values from the response
       const revenue = typeof incomeData?.revenue === 'object' 
-        ? incomeData.revenue?.netSales || incomeData.revenue?.grossSales || 0 
+        ? incomeData?.revenue?.netSales || incomeData?.revenue?.grossSales || 0 
         : incomeData?.revenue || 0;
         
       const cogs = incomeData?.costOfGoodsSold || 0;
       const grossProfit = incomeData?.grossProfit || 0;
       const netProfit = incomeData?.netIncome || incomeData?.netProfit || 0;
       const expenses = incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0;
+
+      // Parse sales by category data
+      const categoryDataFromAPI = salesByCategoryResponse.data as any;
+      let categoryData = reportsData.categoryData; // Default
+      
+      if (categoryDataFromAPI && Array.isArray(categoryDataFromAPI)) {
+        const colors = [
+          'hsl(158, 64%, 32%)',
+          'hsl(199, 89%, 48%)',
+          'hsl(38, 92%, 50%)',
+          'hsl(142, 71%, 45%)',
+          'hsl(215, 16%, 47%)',
+          'hsl(280, 65%, 60%)',
+          'hsl(340, 82%, 52%)',
+        ];
+        const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => sum + (c.total || c.value || 0), 0);
+        categoryData = categoryDataFromAPI.slice(0, 7).map((cat: any, idx: number) => ({
+          name: cat.category || cat.name || 'Other',
+          value: totalCategorySales > 0 ? Math.round(((cat.total || cat.value || 0) / totalCategorySales) * 100) : 0,
+          color: colors[idx % colors.length],
+        }));
+      }
       
       const newData = {
         totalRevenue: revenue,
@@ -148,7 +170,7 @@ export default function Reports() {
         inventoryValue: inventoryData?.costValue || inventoryData?.totalValue || 0,
         expensesByCategory: incomeData?.operatingExpenses?.breakdown || [],
         salesTrend: [],
-        categoryData: reportsData.categoryData, // Keep sample data
+        categoryData: categoryData,
         dailySalesData: reportsData.dailySalesData, // Keep sample structure
         monthlyTrendData: [] // Initialize empty
       };
@@ -158,7 +180,7 @@ export default function Reports() {
       // Fetch sales trend data
       try {
         const salesTrendResponse = await reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year');
-        const trendData = salesTrendResponse.data?.data || salesTrendResponse.data;
+        const trendData = salesTrendResponse.data;
         
         if (trendData && Array.isArray(trendData)) {
           const monthlyData = trendData.map((item: any) => ({
@@ -187,21 +209,21 @@ export default function Reports() {
     try {
       const response = await reportService.getAnnualSummary();
       // FIXED: Access the correct data structure
-      const responseData = response.data?.data || response.data;
+      const responseData = response.data;
       
       if (responseData) {
-        const monthlyData = responseData.monthlyBreakdown?.map((item: any) => ({
-          month: format(new Date().setMonth(item.month - 1), 'MMM'),
+        const monthlyData = responseData.monthlyData?.map((item: any) => ({
+          month: item.month,
           revenue: item.revenue || 0,
           profit: item.profit || 0,
-          orders: item.transactions || 0
+          orders: item.orders || 0
         })) || [];
         
         setAnnualData({
           totalRevenue: responseData.totalRevenue || 0,
           totalProfit: responseData.totalProfit || 0,
-          totalOrders: responseData.totalTransactions || 0,
-          sellerPayments: 0, // Not in your response structure
+          totalOrders: responseData.totalOrders || 0,
+          sellerPayments: responseData.sellerPayments || 0,
           monthlyData: monthlyData
         });
       }

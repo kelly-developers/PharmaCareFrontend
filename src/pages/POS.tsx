@@ -580,6 +580,11 @@ const handleCheckout = async () => {
     }, 500);
   };
 
+  // Calculate inventory value from medicines
+  const inventoryValue = medicines.reduce((sum, med) => {
+    return sum + (med.costPrice * (med.stockQuantity || 0));
+  }, 0);
+
   return (
     <MainLayout>
       <div className="h-[calc(100vh-6rem)] flex flex-col gap-3 p-2">
@@ -590,6 +595,10 @@ const handleCheckout = async () => {
             <p className="text-xs lg:text-sm text-muted-foreground">Fast and efficient checkout</p>
           </div>
           <div className="flex items-center gap-2">
+            <Badge variant="outline" className="flex items-center gap-1 text-xs">
+              <Package className="h-3 w-3" />
+              Inventory: KSh {inventoryValue.toLocaleString()}
+            </Badge>
             <Badge variant="outline" className="flex items-center gap-1 text-xs">
               <Clock className="h-3 w-3" />
               {format(new Date(), 'HH:mm')}
@@ -655,8 +664,8 @@ const handleCheckout = async () => {
                 )}
               </div>
               {activeTab === 'products' && (
-                <ScrollArea className="w-full whitespace-nowrap">
-                  <div className="flex gap-1 pb-1">
+                <div className="overflow-x-auto pb-1">
+                  <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
                     <Button
                       variant={selectedCategory === null ? 'default' : 'ghost'}
                       size="sm"
@@ -665,7 +674,7 @@ const handleCheckout = async () => {
                     >
                       All ({medicines.filter(m => (m.stockQuantity || 0) > 0).length})
                     </Button>
-                    {categories.slice(0, 8).map((cat) => (
+                    {categories.map((cat) => (
                       <Button
                         key={cat}
                         variant={selectedCategory === cat ? 'default' : 'ghost'}
@@ -676,18 +685,8 @@ const handleCheckout = async () => {
                         {cat}
                       </Button>
                     ))}
-                    {categories.length > 8 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[10px] shrink-0"
-                        onClick={() => setSelectedCategory(null)}
-                      >
-                        +{categories.length - 8} more
-                      </Button>
-                    )}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </div>
 

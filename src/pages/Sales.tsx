@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { useSales } from '@/contexts/SalesContext';
+import { useStock } from '@/contexts/StockContext';
+import { Sale } from '@/types/pharmacy';
 import {
   Table,
   TableBody,
@@ -21,6 +23,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   DollarSign,
   TrendingUp,
   ShoppingCart,
@@ -28,13 +36,22 @@ import {
   Download,
   Eye,
   Users,
+  Package,
 } from 'lucide-react';
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter } from 'date-fns';
 
 export default function Sales() {
   const [period, setPeriod] = useState('today');
   const [cashierFilter, setCashierFilter] = useState('all');
-  const { getAllSales, fetchAllSales, isLoading, sales } = useSales();
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+  const [showSaleDialog, setShowSaleDialog] = useState(false);
+  const { getAllSales, fetchAllSales, isLoading } = useSales();
+  const { medicines } = useStock();
+
+  // Calculate inventory value
+  const inventoryValue = medicines.reduce((sum, med) => {
+    return sum + (med.costPrice * (med.stockQuantity || 0));
+  }, 0);
 
   // Fetch sales on mount
   useEffect(() => {
@@ -141,6 +158,11 @@ export default function Sales() {
     }
   };
 
+  const handleViewSale = (sale: Sale) => {
+    setSelectedSale(sale);
+    setShowSaleDialog(true);
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -187,7 +209,7 @@ export default function Sales() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <StatCard
             title={`${getPeriodLabel()} Total Sales`}
             value={`KSh ${totalSales.toLocaleString()}`}
@@ -205,6 +227,12 @@ export default function Sales() {
             value={`KSh ${avgTransaction.toLocaleString()}`}
             icon={<TrendingUp className="h-6 w-6" />}
             iconClassName="bg-primary/10 text-primary"
+          />
+          <StatCard
+            title="Inventory Value"
+            value={`KSh ${inventoryValue.toLocaleString()}`}
+            icon={<Package className="h-6 w-6" />}
+            iconClassName="bg-warning/10 text-warning"
           />
         </div>
 
@@ -332,7 +360,7 @@ export default function Sales() {
                           {format(new Date(sale.createdAt), 'MMM dd, yyyy HH:mm')}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" onClick={() => handleViewSale(sale)}>
                             <Eye className="h-4 w-4 mr-1" />
                             View
                           </Button>
@@ -346,6 +374,90 @@ export default function Sales() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Sale Details Dialog */}
+      <Dialog open={showSaleDialog} onOpenChange={setShowSaleDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Sale Details</DialogTitle>
+          </DialogHeader>
+          {selectedSale && (
+            <div className="space-y-4">
+              {/* Sale Info */}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Invoice ID</p>
+                  <p className="font-mono font-medium">{selectedSale.id}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Date & Time</p>
+                  <p className="font-medium">{format(new Date(selectedSale.createdAt), 'PPpp')}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Customer</p>
+                  <p className="font-medium">{selectedSale.customerName || 'Walk-in'}</p>
+                  {selectedSale.customerPhone && (
+                    <p className="text-xs text-muted-foreground">{selectedSale.customerPhone}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Cashier</p>
+                  <p className="font-medium">{selectedSale.cashierName}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Payment Method</p>
+                  {getPaymentBadge(selectedSale.paymentMethod)}
+                </div>
+              </div>
+
+              {/* Items */}
+              <div>
+                <h4 className="font-medium mb-2">Items</h4>
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead className="text-center">Qty</TableHead>
+                        <TableHead className="text-right">Unit Price</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedSale.items.map((item, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>{item.medicineName}</TableCell>
+                          <TableCell className="text-center">{item.quantity}</TableCell>
+                          <TableCell className="text-right">KSh {item.unitPrice.toLocaleString()}</TableCell>
+                          <TableCell className="text-right font-medium">KSh {item.totalPrice.toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Totals */}
+              <div className="border-t pt-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span>KSh {selectedSale.subtotal.toLocaleString()}</span>
+                </div>
+                {selectedSale.discount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span className="text-destructive">-KSh {selectedSale.discount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-lg">
+                  <span>Total</span>
+                  <span className="text-primary">KSh {selectedSale.total.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

@@ -162,7 +162,11 @@ export interface Supplier {
   phone: string;
   address: string;
   city: string;
+  country?: string;
+  notes?: string;
+  isActive?: boolean;
   createdAt: Date;
+  updatedAt?: Date;
 }
 
 export interface SaleItem {
@@ -194,10 +198,11 @@ export interface Sale {
 
 export interface PurchaseOrder {
   id: string;
+  orderNumber?: string;
   supplierId: string;
   supplierName: string;
   items: PurchaseOrderItem[];
-  status: 'draft' | 'sent' | 'received' | 'cancelled';
+  status: 'draft' | 'sent' | 'received' | 'cancelled' | 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'RECEIVED' | 'CANCELLED';
   totalAmount: number;
   createdAt: Date;
   expectedDate?: Date;

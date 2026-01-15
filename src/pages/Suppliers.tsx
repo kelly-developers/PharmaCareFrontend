@@ -104,7 +104,7 @@ export default function Suppliers() {
         }
         
         // Transform backend fields to frontend format
-        const transformedSuppliers = suppliersList.map(supplier => ({
+        const transformedSuppliers = suppliersList.map((supplier: any) => ({
           id: supplier.id,
           name: supplier.name,
           contactPerson: supplier.contact_person || supplier.contactPerson,
@@ -115,8 +115,8 @@ export default function Suppliers() {
           country: supplier.country,
           notes: supplier.notes,
           isActive: supplier.is_active !== false && supplier.active !== false,
-          createdAt: supplier.created_at,
-          updatedAt: supplier.updated_at
+          createdAt: supplier.created_at || supplier.createdAt,
+          updatedAt: supplier.updated_at || supplier.updatedAt
         }));
         
         console.log('Processed suppliers:', transformedSuppliers);

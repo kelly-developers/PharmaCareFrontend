@@ -24,7 +24,7 @@ export function StatCard({ title, value, subtitle, icon, trend, className, iconC
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground font-medium">{title}</p>
             <div className="flex items-baseline gap-2">
-              <p className="text-2xl lg:text-3xl font-bold font-display tracking-tight">{value}</p>
+              <p className="text-lg lg:text-xl font-bold font-display tracking-tight">{value}</p>
               {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
             </div>
             {trend && (

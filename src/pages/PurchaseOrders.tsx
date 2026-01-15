@@ -88,9 +88,10 @@ export default function PurchaseOrders() {
     console.log('📊 Calculating low stock items from:', meds.length, 'medicines');
     
     const lowStockMeds = meds.filter(med => {
-      const stockQuantity = med.stockQuantity || med.stock_quantity || 0;
-      const reorderLevel = med.reorderLevel || med.reorder_level || 10;
-      const isActive = med.isActive !== false && med.active !== false;
+      const m = med as any;
+      const stockQuantity = med.stockQuantity || m.stock_quantity || 0;
+      const reorderLevel = med.reorderLevel || m.reorder_level || 10;
+      const isActive = med.isActive !== false && m.active !== false;
       
       console.log('📦 Medicine:', med.name, {
         stockQuantity,
@@ -106,9 +107,10 @@ export default function PurchaseOrders() {
     
     return lowStockMeds
       .map(med => {
-        const currentStock = med.stockQuantity || med.stock_quantity || 0;
-        const reorderLevel = med.reorderLevel || med.reorder_level || 10;
-        const costPrice = med.costPrice || med.cost_price || 0;
+        const m = med as any;
+        const currentStock = med.stockQuantity || m.stock_quantity || 0;
+        const reorderLevel = med.reorderLevel || m.reorder_level || 10;
+        const costPrice = med.costPrice || m.cost_price || 0;
         
         // Suggested quantity: enough to reach 3x reorder level
         const suggestedQty = Math.max(50, (reorderLevel * 3) - currentStock);
@@ -159,7 +161,7 @@ export default function PurchaseOrders() {
         }
         
         // Transform backend snake_case to frontend camelCase
-        const transformedSuppliers = suppliersList.map(supplier => ({
+        const transformedSuppliers = suppliersList.map((supplier: any) => ({
           id: supplier.id,
           name: supplier.name,
           contactPerson: supplier.contact_person || supplier.contactPerson,
@@ -170,8 +172,8 @@ export default function PurchaseOrders() {
           country: supplier.country,
           notes: supplier.notes,
           isActive: supplier.is_active !== false && supplier.active !== false,
-          createdAt: supplier.created_at,
-          updatedAt: supplier.updated_at
+          createdAt: supplier.created_at || supplier.createdAt,
+          updatedAt: supplier.updated_at || supplier.updatedAt
         }));
         
         setSuppliers(transformedSuppliers);
@@ -184,7 +186,7 @@ export default function PurchaseOrders() {
       // Handle orders response
       if (ordersRes.success && ordersRes.data) {
         const data = ordersRes.data;
-        let ordersList: PurchaseOrder[] = [];
+        let ordersList: any[] = [];
         
         if (data.content && Array.isArray(data.content)) {
           ordersList = data.content;
@@ -197,19 +199,19 @@ export default function PurchaseOrders() {
         }
         
         // Transform orders if needed
-        const transformedOrders = ordersList.map(order => ({
+        const transformedOrders = ordersList.map((order: any) => ({
           id: order.id,
           orderNumber: order.order_number || order.orderNumber,
           supplierId: order.supplier_id || order.supplierId,
           supplierName: order.supplier_name || order.supplierName,
           items: order.items || [],
           totalAmount: order.total_amount || order.totalAmount || order.total || 0,
-          status: order.status,
+          status: (order.status || 'draft').toLowerCase(),
           createdAt: order.created_at || order.createdAt,
           expectedDate: order.expected_delivery_date || order.expectedDate
         }));
         
-        setOrders(transformedOrders);
+        setOrders(transformedOrders as any);
       } else {
         console.warn('❌ Orders response not successful:', ordersRes);
         setOrders([]);
