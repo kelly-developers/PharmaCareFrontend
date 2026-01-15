@@ -35,24 +35,39 @@ import {
   BarChart3,
   Wallet,
   ArrowDownUp,
+  Loader2,
 } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
-import { useSales } from '@/contexts/SalesContext';
-import { useExpenses } from '@/contexts/ExpensesContext';
-import { useStock } from '@/contexts/StockContext';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from 'date-fns';
+import { useState, useEffect } from 'react';
+import { 
+  format, 
+  startOfMonth, 
+  endOfMonth, 
+  startOfWeek, 
+  endOfWeek, 
+  startOfQuarter, 
+  endOfQuarter, 
+  startOfYear, 
+  endOfYear,
+  subDays,
+  subMonths,
+  parseISO,
+  isSameDay,
+  isSameMonth,
+  isSameYear
+} from 'date-fns';
 import { IncomeStatement } from '@/components/reports/IncomeStatement';
 import { BalanceSheet } from '@/components/reports/BalanceSheet';
 import { CashFlowStatement } from '@/components/reports/CashFlowStatement';
 import { exportToPDF } from '@/utils/pdfExport';
 import { reportService } from '@/services/reportService';
+import { salesService } from '@/services/salesService';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function Reports() {
   const [period, setPeriod] = useState('month');
   const [activeTab, setActiveTab] = useState('overview');
-  const [annualView, setAnnualView] = useState<'daily' | 'monthly' | 'annual'>('monthly');
   
-  // State for reports data - FIXED: Proper structure with numeric values
+  // State for reports data
   const [reportsData, setReportsData] = useState({
     totalRevenue: 0,
     totalCOGS: 0,
@@ -62,180 +77,308 @@ export default function Reports() {
     profitMargin: 0,
     inventoryValue: 0,
     expensesByCategory: [] as { category: string; amount: number }[],
-    salesTrend: [] as { date: string; sales: number; cost: number; profit: number }[],
-    categoryData: [
-      { name: 'Pain Relief', value: 28, color: 'hsl(158, 64%, 32%)' },
-      { name: 'Antibiotics', value: 22, color: 'hsl(199, 89%, 48%)' },
-      { name: 'Vitamins', value: 18, color: 'hsl(38, 92%, 50%)' },
-      { name: 'First Aid', value: 15, color: 'hsl(142, 71%, 45%)' },
-      { name: 'Others', value: 17, color: 'hsl(215, 16%, 47%)' },
-    ],
-    dailySalesData: [
-      { day: 'Mon', sales: 0, cost: 0 },
-      { day: 'Tue', sales: 0, cost: 0 },
-      { day: 'Wed', sales: 0, cost: 0 },
-      { day: 'Thu', sales: 0, cost: 0 },
-      { day: 'Fri', sales: 0, cost: 0 },
-      { day: 'Sat', sales: 0, cost: 0 },
-      { day: 'Sun', sales: 0, cost: 0 },
-    ],
-    monthlyTrendData: [] as { month: string; sales: number }[]
+    categoryData: [] as { name: string; value: number; color: string }[],
+    dailySalesData: [] as { day: string; date: Date; sales: number; cost: number; profit: number }[],
+    monthlyTrendData: [] as { month: string; date: Date; sales: number; profit: number }[]
   });
 
-  // Annual tracking data - FIXED: Ensure numeric values
-  const [annualData, setAnnualData] = useState({
-    totalRevenue: 0,
-    totalProfit: 0,
-    totalOrders: 0,
-    sellerPayments: 0,
-    monthlyData: [] as { month: string; revenue: number; profit: number; orders: number }[],
-  });
-
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [allSales, setAllSales] = useState<any[]>([]);
 
   // Get date range based on selected period
   const getDateRange = () => {
     const now = new Date();
     switch (period) {
       case 'week':
-        return { start: startOfWeek(now), end: endOfWeek(now) };
+        return { 
+          start: startOfWeek(now), 
+          end: endOfWeek(now),
+          display: 'This Week'
+        };
       case 'month':
-        return { start: startOfMonth(now), end: endOfMonth(now) };
+        return { 
+          start: startOfMonth(now), 
+          end: endOfMonth(now),
+          display: format(now, 'MMMM yyyy')
+        };
       case 'quarter':
-        return { start: startOfQuarter(now), end: endOfQuarter(now) };
+        return { 
+          start: startOfQuarter(now), 
+          end: endOfQuarter(now),
+          display: 'This Quarter'
+        };
       case 'year':
-        return { start: startOfYear(now), end: endOfYear(now) };
+        return { 
+          start: startOfYear(now), 
+          end: endOfYear(now),
+          display: 'This Year'
+        };
       default:
-        return { start: startOfMonth(now), end: endOfMonth(now) };
+        return { 
+          start: startOfMonth(now), 
+          end: endOfMonth(now),
+          display: format(now, 'MMMM yyyy')
+        };
     }
   };
 
   const dateRange = getDateRange();
 
-  // Fetch reports data from backend - FIXED: Proper API response parsing
+  // Fetch all sales data
+  const fetchAllSales = async () => {
+    try {
+      // Fetch sales for the last 6 months for trend data
+      const sixMonthsAgo = subMonths(new Date(), 6);
+      const response = await salesService.getAll({
+        startDate: format(sixMonthsAgo, 'yyyy-MM-dd'),
+        endDate: format(new Date(), 'yyyy-MM-dd')
+      });
+      
+      if (response.success && response.data) {
+        setAllSales(response.data);
+        return response.data;
+      }
+      return [];
+    } catch (error) {
+      console.error('Failed to fetch sales:', error);
+      return [];
+    }
+  };
+
+  // Process daily sales data for last 7 days
+  const processDailySalesData = (sales: any[]) => {
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const date = subDays(new Date(), 6 - i);
+      return {
+        day: format(date, 'EEE'),
+        date: date,
+        sales: 0,
+        cost: 0,
+        profit: 0
+      };
+    });
+
+    // Group sales by day
+    sales.forEach(sale => {
+      const saleDate = new Date(sale.createdAt);
+      const dayIndex = last7Days.findIndex(day => 
+        isSameDay(day.date, saleDate)
+      );
+      
+      if (dayIndex !== -1) {
+        last7Days[dayIndex].sales += sale.total || 0;
+        // Calculate cost from sale items
+        const cost = sale.items?.reduce((sum: number, item: any) => {
+          return sum + ((item.costPrice || 0) * (item.quantity || 0));
+        }, 0) || 0;
+        last7Days[dayIndex].cost += cost;
+        last7Days[dayIndex].profit += (sale.total || 0) - cost;
+      }
+    });
+
+    return last7Days;
+  };
+
+  // Process monthly trend data for last 6 months
+  const processMonthlyTrendData = (sales: any[]) => {
+    const last6Months = Array.from({ length: 6 }, (_, i) => {
+      const date = subMonths(new Date(), 5 - i);
+      return {
+        month: format(date, 'MMM'),
+        date: startOfMonth(date),
+        sales: 0,
+        profit: 0
+      };
+    });
+
+    // Group sales by month
+    sales.forEach(sale => {
+      const saleDate = new Date(sale.createdAt);
+      const monthIndex = last6Months.findIndex(month => 
+        isSameMonth(month.date, saleDate)
+      );
+      
+      if (monthIndex !== -1) {
+        last6Months[monthIndex].sales += sale.total || 0;
+        // Calculate profit
+        const cost = sale.items?.reduce((sum: number, item: any) => {
+          return sum + ((item.costPrice || 0) * (item.quantity || 0));
+        }, 0) || 0;
+        last6Months[monthIndex].profit += (sale.total || 0) - cost;
+      }
+    });
+
+    return last6Months;
+  };
+
+  // Process sales by category data
+  const processCategoryData = (sales: any[]) => {
+    const categoryMap = new Map<string, { sales: number; count: number }>();
+    
+    // Define colors for categories
+    const colors = [
+      'hsl(158, 64%, 32%)', // Green
+      'hsl(199, 89%, 48%)', // Blue
+      'hsl(38, 92%, 50%)',  // Orange
+      'hsl(142, 71%, 45%)', // Light Green
+      'hsl(215, 16%, 47%)', // Gray
+      'hsl(280, 65%, 60%)', // Purple
+      'hsl(340, 82%, 52%)', // Pink
+    ];
+
+    // Aggregate sales by category from medicine names
+    sales.forEach(sale => {
+      sale.items?.forEach((item: any) => {
+        // Extract category from medicine name or use default
+        let category = 'Other';
+        const medicineName = item.medicineName || '';
+        
+        if (medicineName.toLowerCase().includes('pain') || 
+            medicineName.toLowerCase().includes('paracetamol') ||
+            medicineName.toLowerCase().includes('ibuprofen')) {
+          category = 'Pain Relief';
+        } else if (medicineName.toLowerCase().includes('antibiotic') ||
+                  medicineName.toLowerCase().includes('amoxicillin') ||
+                  medicineName.toLowerCase().includes('ciprofloxacin')) {
+          category = 'Antibiotics';
+        } else if (medicineName.toLowerCase().includes('vitamin') ||
+                  medicineName.toLowerCase().includes('multivitamin')) {
+          category = 'Vitamins';
+        } else if (medicineName.toLowerCase().includes('first aid') ||
+                  medicineName.toLowerCase().includes('bandage') ||
+                  medicineName.toLowerCase().includes('gauze')) {
+          category = 'First Aid';
+        } else if (medicineName.toLowerCase().includes('cough') ||
+                  medicineName.toLowerCase().includes('cold')) {
+          category = 'Cough & Cold';
+        } else if (medicineName.toLowerCase().includes('antacid') ||
+                  medicineName.toLowerCase().includes('digestive')) {
+          category = 'Digestive';
+        }
+        
+        const current = categoryMap.get(category) || { sales: 0, count: 0 };
+        current.sales += item.totalPrice || 0;
+        current.count += 1;
+        categoryMap.set(category, current);
+      });
+    });
+
+    // Convert to array and calculate percentages
+    const categoriesArray = Array.from(categoryMap.entries()).map(([name, data]) => ({
+      name,
+      sales: data.sales,
+      count: data.count
+    }));
+
+    const totalSales = categoriesArray.reduce((sum, cat) => sum + cat.sales, 0);
+    
+    // Create category data for pie chart
+    const categoryData = categoriesArray
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 7) // Top 7 categories
+      .map((cat, index) => ({
+        name: cat.name,
+        value: totalSales > 0 ? Math.round((cat.sales / totalSales) * 100) : 0,
+        color: colors[index % colors.length],
+        sales: cat.sales
+      }));
+
+    return categoryData;
+  };
+
+  // Calculate totals for the selected period
+  const calculatePeriodTotals = (sales: any[]) => {
+    let totalRevenue = 0;
+    let totalCOGS = 0;
+    let totalProfit = 0;
+
+    sales.forEach(sale => {
+      const saleDate = new Date(sale.createdAt);
+      if (saleDate >= dateRange.start && saleDate <= dateRange.end) {
+        totalRevenue += sale.total || 0;
+        
+        // Calculate COGS from sale items
+        const saleCost = sale.items?.reduce((sum: number, item: any) => {
+          return sum + ((item.costPrice || 0) * (item.quantity || 0));
+        }, 0) || 0;
+        
+        totalCOGS += saleCost;
+        totalProfit += (sale.total || 0) - saleCost;
+      }
+    });
+
+    return {
+      totalRevenue,
+      totalCOGS,
+      grossProfit: totalProfit,
+      netProfit: totalProfit // For now, net profit is same as gross profit (before expenses)
+    };
+  };
+
+  // Fetch all reports data
   const fetchReportsData = async () => {
     setIsLoading(true);
     try {
-      const startDate = dateRange.start.toISOString();
-      const endDate = dateRange.end.toISOString();
+      // Fetch sales data first
+      const sales = await fetchAllSales();
       
-      // Fetch all reports data
-      const incomeResponse = await reportService.getIncomeStatement(startDate, endDate);
-      const inventoryResponse = await reportService.getInventoryValue();
-      const salesByCategoryResponse = await reportService.getSalesByCategory(startDate, endDate);
+      // Process all the data
+      const dailySalesData = processDailySalesData(sales);
+      const monthlyTrendData = processMonthlyTrendData(sales);
+      const categoryData = processCategoryData(sales);
+      const periodTotals = calculatePeriodTotals(sales);
       
-      // FIXED: Parse the actual response structure from your backend
+      // Fetch additional data from backend
+      const startDate = format(dateRange.start, 'yyyy-MM-dd');
+      const endDate = format(dateRange.end, 'yyyy-MM-dd');
+      
+      const [incomeResponse, inventoryResponse] = await Promise.all([
+        reportService.getIncomeStatement(startDate, endDate),
+        reportService.getInventoryValue()
+      ]);
+
       const incomeData = incomeResponse.data as any;
       const inventoryData = inventoryResponse.data as any;
-      
-      // FIXED: Extract numeric values from the response
-      const revenue = typeof incomeData?.revenue === 'object' 
-        ? incomeData?.revenue?.netSales || incomeData?.revenue?.grossSales || 0 
-        : incomeData?.revenue || 0;
-        
-      const cogs = incomeData?.costOfGoodsSold || 0;
-      const grossProfit = incomeData?.grossProfit || 0;
-      const netProfit = incomeData?.netIncome || incomeData?.netProfit || 0;
-      const expenses = incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0;
 
-      // Parse sales by category data
-      const categoryDataFromAPI = salesByCategoryResponse.data as any;
-      let categoryData = reportsData.categoryData; // Default
-      
-      if (categoryDataFromAPI && Array.isArray(categoryDataFromAPI)) {
-        const colors = [
-          'hsl(158, 64%, 32%)',
-          'hsl(199, 89%, 48%)',
-          'hsl(38, 92%, 50%)',
-          'hsl(142, 71%, 45%)',
-          'hsl(215, 16%, 47%)',
-          'hsl(280, 65%, 60%)',
-          'hsl(340, 82%, 52%)',
-        ];
-        const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => sum + (c.total || c.value || 0), 0);
-        categoryData = categoryDataFromAPI.slice(0, 7).map((cat: any, idx: number) => ({
-          name: cat.category || cat.name || 'Other',
-          value: totalCategorySales > 0 ? Math.round(((cat.total || cat.value || 0) / totalCategorySales) * 100) : 0,
-          color: colors[idx % colors.length],
-        }));
-      }
-      
-      const newData = {
-        totalRevenue: revenue,
-        totalCOGS: cogs,
-        grossProfit: grossProfit,
+      // Calculate expenses
+      const expenses = incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0;
+      const netProfit = periodTotals.grossProfit - expenses;
+
+      setReportsData({
+        totalRevenue: periodTotals.totalRevenue,
+        totalCOGS: periodTotals.totalCOGS,
+        grossProfit: periodTotals.grossProfit,
         totalExpenses: expenses,
         netProfit: netProfit,
-        profitMargin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
-        inventoryValue: inventoryData?.costValue || inventoryData?.totalValue || 0,
+        profitMargin: periodTotals.totalRevenue > 0 ? (netProfit / periodTotals.totalRevenue) * 100 : 0,
+        inventoryValue: inventoryData?.totalValue || inventoryData?.costValue || 0,
         expensesByCategory: incomeData?.operatingExpenses?.breakdown || [],
-        salesTrend: [],
         categoryData: categoryData,
-        dailySalesData: reportsData.dailySalesData, // Keep sample structure
-        monthlyTrendData: [] // Initialize empty
-      };
+        dailySalesData: dailySalesData,
+        monthlyTrendData: monthlyTrendData
+      });
 
-      setReportsData(newData);
-      
-      // Fetch sales trend data
-      try {
-        const salesTrendResponse = await reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year');
-        const trendData = salesTrendResponse.data;
-        
-        if (trendData && Array.isArray(trendData)) {
-          const monthlyData = trendData.map((item: any) => ({
-            month: format(new Date(item.date || item.month), 'MMM'),
-            sales: item.sales || item.revenue || 0
-          }));
-          
-          setReportsData(prev => ({
-            ...prev,
-            monthlyTrendData: monthlyData
-          }));
-        }
-      } catch (error) {
-        console.warn('Failed to fetch sales trend:', error);
-      }
-      
     } catch (error) {
       console.error('Failed to fetch reports data:', error);
+      // Use sample data as fallback
+      setReportsData({
+        ...reportsData,
+        categoryData: [
+          { name: 'Pain Relief', value: 35, color: 'hsl(158, 64%, 32%)' },
+          { name: 'Antibiotics', value: 25, color: 'hsl(199, 89%, 48%)' },
+          { name: 'Vitamins', value: 20, color: 'hsl(38, 92%, 50%)' },
+          { name: 'First Aid', value: 15, color: 'hsl(142, 71%, 45%)' },
+          { name: 'Others', value: 5, color: 'hsl(215, 16%, 47%)' },
+        ]
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch annual income data - FIXED: Proper parsing
-  const fetchAnnualData = async () => {
-    try {
-      const response = await reportService.getAnnualSummary();
-      // FIXED: Access the correct data structure
-      const responseData = response.data;
-      
-      if (responseData) {
-        const monthlyData = responseData.monthlyData?.map((item: any) => ({
-          month: item.month,
-          revenue: item.revenue || 0,
-          profit: item.profit || 0,
-          orders: item.orders || 0
-        })) || [];
-        
-        setAnnualData({
-          totalRevenue: responseData.totalRevenue || 0,
-          totalProfit: responseData.totalProfit || 0,
-          totalOrders: responseData.totalOrders || 0,
-          sellerPayments: responseData.sellerPayments || 0,
-          monthlyData: monthlyData
-        });
-      }
-    } catch (error) {
-      console.error('Failed to fetch annual data:', error);
-    }
-  };
-
-  // Fetch data when period or date range changes
+  // Fetch data when period changes
   useEffect(() => {
     fetchReportsData();
-    fetchAnnualData();
   }, [period]);
 
   const handleExportPDF = () => {
@@ -247,6 +390,25 @@ export default function Reports() {
     const filename = `${activeTab}-report-${format(new Date(), 'yyyy-MM-dd')}`;
     exportToPDF(contentId, filename);
   };
+
+  if (isLoading) {
+    return (
+      <MainLayout>
+        <div className="space-y-4 md:space-y-6">
+          <div className="flex flex-col gap-4">
+            <div>
+              <h1 className="text-xl md:text-2xl lg:text-3xl font-bold font-display">Reports & Analytics</h1>
+              <p className="text-muted-foreground text-sm mt-1">Financial statements and business insights</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-2">Loading reports data...</span>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -302,7 +464,7 @@ export default function Reports() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Overview Tab - FIXED: Using properly parsed numeric values */}
+          {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-4 md:space-y-6">
             <div id="reports-overview">
               {/* Key Metrics */}
@@ -345,25 +507,55 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-56 md:h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={reportsData.dailySalesData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                          <XAxis dataKey="day" className="text-xs" tick={{ fontSize: 11 }} />
-                          <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
-                          <Tooltip
-                            formatter={(value: number, name: string) => [`KSh ${value.toLocaleString()}`, name === 'sales' ? 'Sales' : 'Cost']}
-                            contentStyle={{
-                              backgroundColor: 'hsl(var(--card))',
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                            }}
-                          />
-                          <Legend wrapperStyle={{ fontSize: '12px' }} />
-                          <Bar dataKey="sales" fill="hsl(158, 64%, 32%)" radius={[4, 4, 0, 0]} name="Sales" />
-                          <Bar dataKey="cost" fill="hsl(38, 92%, 50%)" radius={[4, 4, 0, 0]} name="Cost" />
-                        </BarChart>
-                      </ResponsiveContainer>
+                      {reportsData.dailySalesData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart 
+                            data={reportsData.dailySalesData} 
+                            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis 
+                              dataKey="day" 
+                              className="text-xs" 
+                              tick={{ fontSize: 11 }} 
+                            />
+                            <YAxis 
+                              className="text-xs" 
+                              tick={{ fontSize: 11 }} 
+                              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} 
+                            />
+                            <Tooltip
+                              formatter={(value: number, name: string) => [
+                                `KSh ${value.toLocaleString()}`, 
+                                name === 'sales' ? 'Sales' : name === 'cost' ? 'Cost' : 'Profit'
+                              ]}
+                              contentStyle={{
+                                backgroundColor: 'hsl(var(--card))',
+                                border: '1px solid hsl(var(--border))',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                              }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: '12px' }} />
+                            <Bar 
+                              dataKey="sales" 
+                              fill="hsl(158, 64%, 32%)" 
+                              radius={[4, 4, 0, 0]} 
+                              name="Sales" 
+                            />
+                            <Bar 
+                              dataKey="cost" 
+                              fill="hsl(38, 92%, 50%)" 
+                              radius={[4, 4, 0, 0]} 
+                              name="Cost" 
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                          No sales data available for the last 7 days
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -380,10 +572,21 @@ export default function Reports() {
                     <div className="h-56 md:h-72">
                       {reportsData.monthlyTrendData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={reportsData.monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <LineChart 
+                            data={reportsData.monthlyTrendData} 
+                            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                          >
                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                            <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
-                            <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} />
+                            <XAxis 
+                              dataKey="month" 
+                              className="text-xs" 
+                              tick={{ fontSize: 11 }} 
+                            />
+                            <YAxis 
+                              className="text-xs" 
+                              tick={{ fontSize: 11 }} 
+                              tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} 
+                            />
                             <Tooltip
                               formatter={(value: number) => [`KSh ${value.toLocaleString()}`, 'Revenue']}
                               contentStyle={{
@@ -405,7 +608,7 @@ export default function Reports() {
                         </ResponsiveContainer>
                       ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                          No trend data available for this period
+                          No trend data available
                         </div>
                       )}
                     </div>
@@ -421,30 +624,40 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-48 md:h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={reportsData.categoryData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={35}
-                            outerRadius={60}
-                            dataKey="value"
-                            labelLine={false}
-                          >
-                            {reportsData.categoryData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value) => `${value}%`} />
-                          <Legend 
-                            layout="vertical" 
-                            align="right" 
-                            verticalAlign="middle"
-                            wrapperStyle={{ fontSize: '11px' }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      {reportsData.categoryData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={reportsData.categoryData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={35}
+                              outerRadius={60}
+                              paddingAngle={2}
+                              dataKey="value"
+                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                              labelLine={false}
+                            >
+                              {reportsData.categoryData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip 
+                              formatter={(value: number, name: string, props: any) => {
+                                const sales = props.payload.sales;
+                                return [
+                                  `${value}% (KSh ${sales?.toLocaleString() || 0})`,
+                                  props.payload.name
+                                ];
+                              }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                          No category data available
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
