@@ -35,59 +35,25 @@ import {
   BarChart3,
   Wallet,
   ArrowDownUp,
-  AlertCircle,
-  Loader2,
 } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfQuarter, endOfQuarter, startOfYear, endOfYear, subDays, subMonths } from 'date-fns';
+import { useSales } from '@/contexts/SalesContext';
+import { useExpenses } from '@/contexts/ExpensesContext';
+import { useStock } from '@/contexts/StockContext';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from 'date-fns';
 import { IncomeStatement } from '@/components/reports/IncomeStatement';
 import { BalanceSheet } from '@/components/reports/BalanceSheet';
 import { CashFlowStatement } from '@/components/reports/CashFlowStatement';
 import { exportToPDF } from '@/utils/pdfExport';
 import { reportService } from '@/services/reportService';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Skeleton } from '@/components/ui/skeleton';
-
-// Types for our local state
-interface SalesCategory {
-  name: string;
-  value: number;
-  color: string;
-}
-
-interface DailySalesData {
-  day: string;
-  sales: number;
-  cost: number;
-}
-
-interface MonthlyTrendData {
-  month: string;
-  sales: number;
-}
-
-interface ReportsData {
-  totalRevenue: number;
-  totalCOGS: number;
-  grossProfit: number;
-  totalExpenses: number;
-  netProfit: number;
-  profitMargin: number;
-  inventoryValue: number;
-  expensesByCategory: { category: string; amount: number }[];
-  salesTrend: { date: string; sales: number; cost: number; profit: number }[];
-  categoryData: SalesCategory[];
-  dailySalesData: DailySalesData[];
-  monthlyTrendData: MonthlyTrendData[];
-}
 
 export default function Reports() {
   const [period, setPeriod] = useState('month');
   const [activeTab, setActiveTab] = useState('overview');
   const [annualView, setAnnualView] = useState<'daily' | 'monthly' | 'annual'>('monthly');
   
-  // State for reports data
-  const [reportsData, setReportsData] = useState<ReportsData>({
+  // State for reports data - FIXED: Proper structure with numeric values
+  const [reportsData, setReportsData] = useState({
     totalRevenue: 0,
     totalCOGS: 0,
     grossProfit: 0,
@@ -95,14 +61,28 @@ export default function Reports() {
     netProfit: 0,
     profitMargin: 0,
     inventoryValue: 0,
-    expensesByCategory: [],
-    salesTrend: [],
-    categoryData: [],
-    dailySalesData: [],
-    monthlyTrendData: []
+    expensesByCategory: [] as { category: string; amount: number }[],
+    salesTrend: [] as { date: string; sales: number; cost: number; profit: number }[],
+    categoryData: [
+      { name: 'Pain Relief', value: 28, color: 'hsl(158, 64%, 32%)' },
+      { name: 'Antibiotics', value: 22, color: 'hsl(199, 89%, 48%)' },
+      { name: 'Vitamins', value: 18, color: 'hsl(38, 92%, 50%)' },
+      { name: 'First Aid', value: 15, color: 'hsl(142, 71%, 45%)' },
+      { name: 'Others', value: 17, color: 'hsl(215, 16%, 47%)' },
+    ],
+    dailySalesData: [
+      { day: 'Mon', sales: 0, cost: 0 },
+      { day: 'Tue', sales: 0, cost: 0 },
+      { day: 'Wed', sales: 0, cost: 0 },
+      { day: 'Thu', sales: 0, cost: 0 },
+      { day: 'Fri', sales: 0, cost: 0 },
+      { day: 'Sat', sales: 0, cost: 0 },
+      { day: 'Sun', sales: 0, cost: 0 },
+    ],
+    monthlyTrendData: [] as { month: string; sales: number }[]
   });
 
-  // Annual tracking data
+  // Annual tracking data - FIXED: Ensure numeric values
   const [annualData, setAnnualData] = useState({
     totalRevenue: 0,
     totalProfit: 0,
@@ -111,8 +91,7 @@ export default function Reports() {
     monthlyData: [] as { month: string; revenue: number; profit: number; orders: number }[],
   });
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Get date range based on selected period
   const getDateRange = () => {
@@ -133,199 +112,119 @@ export default function Reports() {
 
   const dateRange = getDateRange();
 
-  // Generate sample daily sales data for the last 7 days
-  const generateDailySalesData = () => {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const today = new Date();
-    const data = [];
-    
-    for (let i = 6; i >= 0; i--) {
-      const date = subDays(today, i);
-      const dayName = days[date.getDay()];
-      const sales = Math.floor(Math.random() * 50000) + 20000;
-      const cost = Math.floor(sales * 0.6);
-      
-      data.push({
-        day: dayName,
-        sales,
-        cost
-      });
-    }
-    
-    return data;
-  };
-
-  // Generate sample monthly trend data for the last 6 months
-  const generateMonthlyTrendData = () => {
-    const months = [];
-    const today = new Date();
-    
-    for (let i = 5; i >= 0; i--) {
-      const date = subMonths(today, i);
-      const monthName = format(date, 'MMM');
-      const sales = Math.floor(Math.random() * 500000) + 300000;
-      
-      months.push({
-        month: monthName,
-        sales
-      });
-    }
-    
-    return months;
-  };
-
-  // Fetch reports data from backend
+  // Fetch reports data from backend - FIXED: Proper API response parsing
   const fetchReportsData = async () => {
     setIsLoading(true);
-    setError(null);
     try {
-      const startDate = dateRange.start.toISOString().split('T')[0];
-      const endDate = dateRange.end.toISOString().split('T')[0];
+      const startDate = dateRange.start.toISOString();
+      const endDate = dateRange.end.toISOString();
       
-      // Fetch all reports data in parallel
-      const [
-        incomeResponse,
-        inventoryResponse,
-        salesByCategoryResponse,
-        salesTrendResponse
-      ] = await Promise.all([
-        reportService.getIncomeStatement(startDate, endDate),
-        reportService.getInventoryValue(),
-        reportService.getSalesByCategory(startDate, endDate).catch(() => ({ data: [] })),
-        reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year').catch(() => ({ data: [] }))
-      ]);
+      // Fetch all reports data
+      const incomeResponse = await reportService.getIncomeStatement(startDate, endDate);
+      const inventoryResponse = await reportService.getInventoryValue();
+      const salesByCategoryResponse = await reportService.getSalesByCategory(startDate, endDate);
       
-      // Process income statement data
-      const incomeData = incomeResponse.data;
-      const revenue = incomeData?.revenue || 0;
+      // FIXED: Parse the actual response structure from your backend
+      const incomeData = incomeResponse.data as any;
+      const inventoryData = inventoryResponse.data as any;
+      
+      // FIXED: Extract numeric values from the response
+      const revenue = typeof incomeData?.revenue === 'object' 
+        ? incomeData?.revenue?.netSales || incomeData?.revenue?.grossSales || 0 
+        : incomeData?.revenue || 0;
+        
       const cogs = incomeData?.costOfGoodsSold || 0;
       const grossProfit = incomeData?.grossProfit || 0;
-      const netProfit = incomeData?.netProfit || 0;
-      const totalExpenses = incomeData?.totalExpenses || 0;
-      const expensesByCategory = incomeData?.expenses || [];
+      const netProfit = incomeData?.netIncome || incomeData?.netProfit || 0;
+      const expenses = incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0;
+
+      // Parse sales by category data
+      const categoryDataFromAPI = salesByCategoryResponse.data as any;
+      let categoryData = reportsData.categoryData; // Default
       
-      // Process inventory data
-      const inventoryData = inventoryResponse.data;
-      const inventoryValue = inventoryData?.totalValue || 0;
+      if (categoryDataFromAPI && Array.isArray(categoryDataFromAPI)) {
+        const colors = [
+          'hsl(158, 64%, 32%)',
+          'hsl(199, 89%, 48%)',
+          'hsl(38, 92%, 50%)',
+          'hsl(142, 71%, 45%)',
+          'hsl(215, 16%, 47%)',
+          'hsl(280, 65%, 60%)',
+          'hsl(340, 82%, 52%)',
+        ];
+        const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => sum + (c.total || c.value || 0), 0);
+        categoryData = categoryDataFromAPI.slice(0, 7).map((cat: any, idx: number) => ({
+          name: cat.category || cat.name || 'Other',
+          value: totalCategorySales > 0 ? Math.round(((cat.total || cat.value || 0) / totalCategorySales) * 100) : 0,
+          color: colors[idx % colors.length],
+        }));
+      }
       
-      // Process sales by category data
-      const categoryDataFromAPI = salesByCategoryResponse.data || [];
-      const categoryData = processCategoryData(categoryDataFromAPI);
-      
-      // Process sales trend data
-      const trendDataFromAPI = salesTrendResponse.data || [];
-      const monthlyTrendData = processTrendData(trendDataFromAPI);
-      
-      // Generate sample data if API data is empty
-      const dailySalesData = generateDailySalesData();
-      
-      const newData: ReportsData = {
+      const newData = {
         totalRevenue: revenue,
         totalCOGS: cogs,
         grossProfit: grossProfit,
-        totalExpenses: totalExpenses,
+        totalExpenses: expenses,
         netProfit: netProfit,
         profitMargin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
-        inventoryValue: inventoryValue,
-        expensesByCategory: expensesByCategory,
+        inventoryValue: inventoryData?.costValue || inventoryData?.totalValue || 0,
+        expensesByCategory: incomeData?.operatingExpenses?.breakdown || [],
         salesTrend: [],
         categoryData: categoryData,
-        dailySalesData: dailySalesData,
-        monthlyTrendData: monthlyTrendData.length > 0 ? monthlyTrendData : generateMonthlyTrendData()
+        dailySalesData: reportsData.dailySalesData, // Keep sample structure
+        monthlyTrendData: [] // Initialize empty
       };
 
       setReportsData(newData);
       
+      // Fetch sales trend data
+      try {
+        const salesTrendResponse = await reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year');
+        const trendData = salesTrendResponse.data;
+        
+        if (trendData && Array.isArray(trendData)) {
+          const monthlyData = trendData.map((item: any) => ({
+            month: format(new Date(item.date || item.month), 'MMM'),
+            sales: item.sales || item.revenue || 0
+          }));
+          
+          setReportsData(prev => ({
+            ...prev,
+            monthlyTrendData: monthlyData
+          }));
+        }
+      } catch (error) {
+        console.warn('Failed to fetch sales trend:', error);
+      }
+      
     } catch (error) {
       console.error('Failed to fetch reports data:', error);
-      setError('Failed to load reports data. Please try again.');
-      
-      // Generate sample data for demonstration
-      const sampleData: ReportsData = {
-        totalRevenue: 1250000,
-        totalCOGS: 750000,
-        grossProfit: 500000,
-        totalExpenses: 200000,
-        netProfit: 300000,
-        profitMargin: 24,
-        inventoryValue: 850000,
-        expensesByCategory: [
-          { category: 'Rent', amount: 50000 },
-          { category: 'Salaries', amount: 80000 },
-          { category: 'Utilities', amount: 20000 },
-          { category: 'Marketing', amount: 15000 },
-          { category: 'Other', amount: 35000 }
-        ],
-        salesTrend: [],
-        categoryData: processCategoryData([]),
-        dailySalesData: generateDailySalesData(),
-        monthlyTrendData: generateMonthlyTrendData()
-      };
-      
-      setReportsData(sampleData);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Process category data from API
-  const processCategoryData = (apiData: any[]): SalesCategory[] => {
-    const colors = [
-      'hsl(158, 64%, 32%)', // Pain Relief
-      'hsl(199, 89%, 48%)', // Antibiotics
-      'hsl(38, 92%, 50%)',  // Vitamins
-      'hsl(142, 71%, 45%)', // First Aid
-      'hsl(280, 65%, 60%)', // Dermatology
-      'hsl(340, 82%, 52%)', // Respiratory
-      'hsl(215, 16%, 47%)', // Others
-    ];
-    
-    // If we have real data from API
-    if (Array.isArray(apiData) && apiData.length > 0) {
-      const total = apiData.reduce((sum, item) => sum + (item.total || 0), 0);
-      
-      return apiData.map((item, index) => ({
-        name: item.category || item.name || `Category ${index + 1}`,
-        value: total > 0 ? Math.round(((item.total || 0) / total) * 100) : 0,
-        color: colors[index % colors.length]
-      }));
-    }
-    
-    // Sample data for demonstration
-    return [
-      { name: 'Pain Relief', value: 28, color: colors[0] },
-      { name: 'Antibiotics', value: 22, color: colors[1] },
-      { name: 'Vitamins', value: 18, color: colors[2] },
-      { name: 'First Aid', value: 15, color: colors[3] },
-      { name: 'Dermatology', value: 12, color: colors[4] },
-      { name: 'Others', value: 5, color: colors[5] }
-    ];
-  };
-
-  // Process trend data from API
-  const processTrendData = (apiData: any[]): MonthlyTrendData[] => {
-    if (Array.isArray(apiData) && apiData.length > 0) {
-      return apiData.slice(0, 6).map(item => ({
-        month: format(new Date(item.date || item.month), 'MMM'),
-        sales: item.sales || item.revenue || 0
-      }));
-    }
-    return [];
-  };
-
-  // Fetch annual data
+  // Fetch annual income data - FIXED: Proper parsing
   const fetchAnnualData = async () => {
     try {
       const response = await reportService.getAnnualSummary();
+      // FIXED: Access the correct data structure
       const responseData = response.data;
       
       if (responseData) {
+        const monthlyData = responseData.monthlyData?.map((item: any) => ({
+          month: item.month,
+          revenue: item.revenue || 0,
+          profit: item.profit || 0,
+          orders: item.orders || 0
+        })) || [];
+        
         setAnnualData({
           totalRevenue: responseData.totalRevenue || 0,
           totalProfit: responseData.totalProfit || 0,
           totalOrders: responseData.totalOrders || 0,
           sellerPayments: responseData.sellerPayments || 0,
-          monthlyData: responseData.monthlyData || []
+          monthlyData: monthlyData
         });
       }
     } catch (error) {
@@ -333,13 +232,11 @@ export default function Reports() {
     }
   };
 
-  // Fetch data when period or active tab changes
+  // Fetch data when period or date range changes
   useEffect(() => {
     fetchReportsData();
-    if (activeTab === 'annual') {
-      fetchAnnualData();
-    }
-  }, [period, activeTab]);
+    fetchAnnualData();
+  }, [period]);
 
   const handleExportPDF = () => {
     const contentId = activeTab === 'income' ? 'income-statement' 
@@ -351,35 +248,6 @@ export default function Reports() {
     exportToPDF(contentId, filename);
   };
 
-  // Loading skeleton
-  if (isLoading && activeTab === 'overview') {
-    return (
-      <MainLayout>
-        <div className="space-y-6">
-          <div className="flex flex-col gap-4">
-            <div>
-              <Skeleton className="h-8 w-64" />
-              <Skeleton className="h-4 w-48 mt-2" />
-            </div>
-            <div className="flex gap-2">
-              <Skeleton className="h-10 w-40" />
-              <Skeleton className="h-10 w-32" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <Skeleton key={i} className="h-32 rounded-lg" />
-            ))}
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Skeleton className="h-80 rounded-lg" />
-            <Skeleton className="h-80 rounded-lg" />
-          </div>
-        </div>
-      </MainLayout>
-    );
-  }
-
   return (
     <MainLayout>
       <div className="space-y-4 md:space-y-6">
@@ -389,14 +257,6 @@ export default function Reports() {
             <h1 className="text-xl md:text-2xl lg:text-3xl font-bold font-display">Reports & Analytics</h1>
             <p className="text-muted-foreground text-sm mt-1">Financial statements and business insights</p>
           </div>
-          
-          {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          
           <div className="flex flex-wrap gap-2">
             <Select value={period} onValueChange={setPeriod}>
               <SelectTrigger className="w-full sm:w-40">
@@ -410,16 +270,8 @@ export default function Reports() {
                 <SelectItem value="year">This Year</SelectItem>
               </SelectContent>
             </Select>
-            <Button 
-              variant="outline" 
-              onClick={handleExportPDF}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
+            <Button variant="outline" onClick={handleExportPDF}>
+              <Download className="h-4 w-4 mr-2" />
               Export PDF
             </Button>
           </div>
@@ -450,7 +302,7 @@ export default function Reports() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Overview Tab */}
+          {/* Overview Tab - FIXED: Using properly parsed numeric values */}
           <TabsContent value="overview" className="space-y-4 md:space-y-6">
             <div id="reports-overview">
               {/* Key Metrics */}
@@ -460,28 +312,24 @@ export default function Reports() {
                   value={`KSh ${reportsData.totalRevenue.toLocaleString()}`}
                   icon={<DollarSign className="h-5 w-5 md:h-6 md:w-6" />}
                   iconClassName="bg-success/10 text-success"
-                  isLoading={isLoading}
                 />
                 <StatCard
                   title="Cost of Goods"
                   value={`KSh ${reportsData.totalCOGS.toLocaleString()}`}
                   icon={<Package className="h-5 w-5 md:h-6 md:w-6" />}
                   iconClassName="bg-warning/10 text-warning"
-                  isLoading={isLoading}
                 />
                 <StatCard
                   title="Gross Profit"
                   value={`KSh ${reportsData.grossProfit.toLocaleString()}`}
                   icon={<TrendingUp className="h-5 w-5 md:h-6 md:w-6" />}
                   iconClassName="bg-primary/10 text-primary"
-                  isLoading={isLoading}
                 />
                 <StatCard
                   title="Net Profit"
                   value={`KSh ${reportsData.netProfit.toLocaleString()}`}
                   icon={<TrendingUp className="h-5 w-5 md:h-6 md:w-6" />}
                   iconClassName={reportsData.netProfit >= 0 ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}
-                  isLoading={isLoading}
                 />
               </div>
 
@@ -497,55 +345,25 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-56 md:h-72">
-                      {reportsData.dailySalesData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart 
-                            data={reportsData.dailySalesData} 
-                            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                          >
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                            <XAxis 
-                              dataKey="day" 
-                              className="text-xs" 
-                              tick={{ fontSize: 11 }} 
-                            />
-                            <YAxis 
-                              className="text-xs" 
-                              tick={{ fontSize: 11 }} 
-                              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} 
-                            />
-                            <Tooltip
-                              formatter={(value: number, name: string) => [
-                                `KSh ${value.toLocaleString()}`,
-                                name === 'sales' ? 'Sales' : 'Cost'
-                              ]}
-                              contentStyle={{
-                                backgroundColor: 'hsl(var(--card))',
-                                border: '1px solid hsl(var(--border))',
-                                borderRadius: '8px',
-                                fontSize: '12px',
-                              }}
-                            />
-                            <Legend wrapperStyle={{ fontSize: '12px' }} />
-                            <Bar 
-                              dataKey="sales" 
-                              fill="hsl(158, 64%, 32%)" 
-                              radius={[4, 4, 0, 0]} 
-                              name="Sales" 
-                            />
-                            <Bar 
-                              dataKey="cost" 
-                              fill="hsl(38, 92%, 50%)" 
-                              radius={[4, 4, 0, 0]} 
-                              name="Cost" 
-                            />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <p className="text-muted-foreground">No sales data available</p>
-                        </div>
-                      )}
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={reportsData.dailySalesData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                          <XAxis dataKey="day" className="text-xs" tick={{ fontSize: 11 }} />
+                          <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                          <Tooltip
+                            formatter={(value: number, name: string) => [`KSh ${value.toLocaleString()}`, name === 'sales' ? 'Sales' : 'Cost']}
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--card))',
+                              border: '1px solid hsl(var(--border))',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                            }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: '12px' }} />
+                          <Bar dataKey="sales" fill="hsl(158, 64%, 32%)" radius={[4, 4, 0, 0]} name="Sales" />
+                          <Bar dataKey="cost" fill="hsl(38, 92%, 50%)" radius={[4, 4, 0, 0]} name="Cost" />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
                   </CardContent>
                 </Card>
@@ -562,21 +380,10 @@ export default function Reports() {
                     <div className="h-56 md:h-72">
                       {reportsData.monthlyTrendData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart 
-                            data={reportsData.monthlyTrendData} 
-                            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                          >
+                          <LineChart data={reportsData.monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                            <XAxis 
-                              dataKey="month" 
-                              className="text-xs" 
-                              tick={{ fontSize: 11 }} 
-                            />
-                            <YAxis 
-                              className="text-xs" 
-                              tick={{ fontSize: 11 }} 
-                              tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} 
-                            />
+                            <XAxis dataKey="month" className="text-xs" tick={{ fontSize: 11 }} />
+                            <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}K`} />
                             <Tooltip
                               formatter={(value: number) => [`KSh ${value.toLocaleString()}`, 'Revenue']}
                               contentStyle={{
@@ -597,8 +404,8 @@ export default function Reports() {
                           </LineChart>
                         </ResponsiveContainer>
                       ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <p className="text-muted-foreground">No trend data available</p>
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                          No trend data available for this period
                         </div>
                       )}
                     </div>
@@ -608,61 +415,40 @@ export default function Reports() {
 
               {/* Category & Summary */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-                {/* Sales by Category */}
                 <Card variant="elevated">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base md:text-lg">Sales by Category</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="h-48 md:h-64">
-                      {reportsData.categoryData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={reportsData.categoryData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={35}
-                              outerRadius={60}
-                              paddingAngle={2}
-                              dataKey="value"
-                              label={(entry) => `${entry.name}: ${entry.value}%`}
-                              labelLine={false}
-                            >
-                              {reportsData.categoryData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip 
-                              formatter={(value) => [`${value}%`, 'Percentage']}
-                              contentStyle={{
-                                backgroundColor: 'hsl(var(--card))',
-                                border: '1px solid hsl(var(--border))',
-                                borderRadius: '8px',
-                                fontSize: '12px',
-                              }}
-                            />
-                            <Legend 
-                              layout="vertical" 
-                              align="right" 
-                              verticalAlign="middle"
-                              wrapperStyle={{ fontSize: '11px' }}
-                              formatter={(value, entry) => (
-                                <span className="text-xs">{value}</span>
-                              )}
-                            />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <p className="text-muted-foreground">No category data available</p>
-                        </div>
-                      )}
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={reportsData.categoryData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={35}
+                            outerRadius={60}
+                            dataKey="value"
+                            labelLine={false}
+                          >
+                            {reportsData.categoryData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value) => `${value}%`} />
+                          <Legend 
+                            layout="vertical" 
+                            align="right" 
+                            verticalAlign="middle"
+                            wrapperStyle={{ fontSize: '11px' }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Period Summary */}
                 <Card variant="elevated" className="lg:col-span-2">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base md:text-lg">
@@ -676,7 +462,7 @@ export default function Reports() {
                         <p className="text-lg md:text-2xl font-bold">KSh {reportsData.inventoryValue.toLocaleString()}</p>
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-secondary/50">
-                        <p className="text-xs md:text-sm text-muted-foreground">Total Revenue</p>
+                        <p className="text-xs md:text-sm text-muted-foreground">Total Sales</p>
                         <p className="text-lg md:text-2xl font-bold">KSh {reportsData.totalRevenue.toLocaleString()}</p>
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-secondary/50">
@@ -685,7 +471,7 @@ export default function Reports() {
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-secondary/50">
                         <p className="text-xs md:text-sm text-muted-foreground">Total Expenses</p>
-                        <p className="text-lg md-text-2xl font-bold">KSh {reportsData.totalExpenses.toLocaleString()}</p>
+                        <p className="text-lg md:text-2xl font-bold">KSh {reportsData.totalExpenses.toLocaleString()}</p>
                       </div>
                       <div className="p-3 md:p-4 rounded-lg bg-success/10 border border-success/20">
                         <p className="text-xs md:text-sm text-success">Gross Profit</p>
@@ -700,36 +486,6 @@ export default function Reports() {
                 </Card>
               </div>
             </div>
-          </TabsContent>
-
-          {/* Annual Tab */}
-          <TabsContent value="annual" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Annual Performance</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  {annualData.monthlyData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={annualData.monthlyData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="month" />
-                        <YAxis />
-                        <Tooltip formatter={(value) => [`KSh ${value?.toLocaleString()}`, 'Value']} />
-                        <Legend />
-                        <Line type="monotone" dataKey="revenue" stroke="#8884d8" name="Revenue" />
-                        <Line type="monotone" dataKey="profit" stroke="#82ca9d" name="Profit" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <p className="text-muted-foreground">No annual data available</p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* Income Statement Tab */}
@@ -754,13 +510,13 @@ export default function Reports() {
               <BalanceSheet
                 asOfDate={new Date()}
                 cashBalance={reportsData.netProfit}
-                accountsReceivable={reportsData.totalRevenue * 0.1} // 10% of revenue as accounts receivable
+                accountsReceivable={0}
                 inventoryValue={reportsData.inventoryValue}
-                totalAssets={reportsData.inventoryValue + reportsData.netProfit + (reportsData.totalRevenue * 0.1)}
-                accountsPayable={reportsData.totalExpenses * 0.2} // 20% of expenses as accounts payable
-                totalLiabilities={reportsData.totalExpenses * 0.2}
+                totalAssets={reportsData.inventoryValue + reportsData.netProfit}
+                accountsPayable={0}
+                totalLiabilities={0}
                 retainedEarnings={reportsData.netProfit}
-                totalEquity={reportsData.netProfit}
+                totalEquity={reportsData.inventoryValue + reportsData.netProfit}
               />
             </div>
           </TabsContent>
