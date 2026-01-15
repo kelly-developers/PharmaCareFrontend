@@ -45,7 +45,7 @@ export const userService = {
     const queryParams = new URLSearchParams();
     queryParams.append('page', page.toString());
     queryParams.append('limit', limit.toString());
-    if (search) queryParams.append('search', encodeURIComponent(search));
+    if (search) queryParams.append('search', search);
     if (role) queryParams.append('role', role);
     
     return api.get<PaginatedResponse<User>>(`/users?${queryParams.toString()}`);
@@ -58,12 +58,22 @@ export const userService = {
 
   // Create user
   async create(user: CreateUserRequest): Promise<ApiResponse<User>> {
-    return api.post<User>('/users', user);
+    // Backend expects role in uppercase
+    const userData = {
+      ...user,
+      role: user.role.toUpperCase() as UserRole
+    };
+    return api.post<User>('/users', userData);
   },
 
   // Update user
   async update(id: string, updates: UpdateUserRequest): Promise<ApiResponse<User>> {
-    return api.put<User>(`/users/${id}`, updates);
+    // Convert role to uppercase if provided
+    const updateData = {
+      ...updates,
+      ...(updates.role && { role: updates.role.toUpperCase() })
+    };
+    return api.put<User>(`/users/${id}`, updateData);
   },
 
   // Delete/deactivate user
