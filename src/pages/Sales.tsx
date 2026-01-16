@@ -5,7 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { useSales } from '@/contexts/SalesContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Sale } from '@/types/pharmacy';
+import { salesService } from '@/services/salesService';
+import { toast } from 'sonner';
 import {
   Table,
   TableBody,
@@ -28,6 +31,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   DollarSign,
   TrendingUp,
   ShoppingCart,
@@ -35,6 +48,7 @@ import {
   Download,
   Eye,
   Users,
+  Trash2,
 } from 'lucide-react';
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter } from 'date-fns';
 
@@ -43,7 +57,12 @@ export default function Sales() {
   const [cashierFilter, setCashierFilter] = useState('all');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [showSaleDialog, setShowSaleDialog] = useState(false);
+  const [saleToDelete, setSaleToDelete] = useState<Sale | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { getAllSales, fetchAllSales, isLoading } = useSales();
+  const { user, hasRole } = useAuth();
+  
+  const isAdmin = hasRole(['admin']);
 
 
   // Fetch sales on mount
@@ -154,6 +173,27 @@ export default function Sales() {
   const handleViewSale = (sale: Sale) => {
     setSelectedSale(sale);
     setShowSaleDialog(true);
+  };
+
+  const handleDeleteSale = async () => {
+    if (!saleToDelete || !isAdmin) return;
+    
+    setIsDeleting(true);
+    try {
+      const response = await salesService.delete(saleToDelete.id);
+      if (response.success) {
+        toast.success('Sale deleted successfully');
+        await fetchAllSales(); // Refresh the sales list
+        setSaleToDelete(null);
+      } else {
+        toast.error(response.error || 'Failed to delete sale');
+      }
+    } catch (error) {
+      console.error('Error deleting sale:', error);
+      toast.error('Failed to delete sale');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -347,10 +387,22 @@ export default function Sales() {
                           {format(new Date(sale.createdAt), 'MMM dd, yyyy HH:mm')}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => handleViewSale(sale)}>
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => handleViewSale(sale)}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                            {isAdmin && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => setSaleToDelete(sale)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -445,6 +497,36 @@ export default function Sales() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog - Admin Only */}
+      <AlertDialog open={!!saleToDelete} onOpenChange={(open) => !open && setSaleToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Sale</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this sale? This action cannot be undone.
+              {saleToDelete && (
+                <div className="mt-2 p-3 bg-muted rounded-lg text-sm">
+                  <p><strong>Invoice:</strong> {saleToDelete.id.substring(0, 12)}...</p>
+                  <p><strong>Amount:</strong> KSh {saleToDelete.total.toLocaleString()}</p>
+                  <p><strong>Customer:</strong> {saleToDelete.customerName || 'Walk-in'}</p>
+                  <p><strong>Date:</strong> {format(new Date(saleToDelete.createdAt), 'PPpp')}</p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteSale}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Sale'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 }

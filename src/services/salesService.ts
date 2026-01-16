@@ -79,6 +79,7 @@ const transformSale = (sale: any): Sale => {
 
 export const salesService = {
   // Get all sales (paginated)
+  // Get all sales - NO PAGINATION LIMIT
   async getAll(filters?: any): Promise<ApiResponse<any>> {
     try {
       const queryParams = new URLSearchParams();
@@ -86,8 +87,8 @@ export const salesService = {
       if (filters?.endDate) queryParams.append('endDate', filters.endDate);
       if (filters?.cashierId) queryParams.append('cashierId', filters.cashierId);
       if (filters?.paymentMethod) queryParams.append('paymentMethod', filters.paymentMethod);
-      if (filters?.page !== undefined) queryParams.append('page', filters.page.toString());
-      if (filters?.size !== undefined) queryParams.append('size', filters.size.toString());
+      // REMOVED pagination parameters - fetch ALL sales
+      // No page/size params = backend should return all records
       
       const query = queryParams.toString();
       const response = await api.get<any>(`/sales${query ? `?${query}` : ''}`);
@@ -316,10 +317,11 @@ export const salesService = {
     }
   },
 
-  // Get sales by cashier
-  async getByCashier(cashierId: string, page: number = 0, size: number = 20): Promise<ApiResponse<any>> {
+  // Get sales by cashier - NO PAGINATION LIMIT
+  async getByCashier(cashierId: string): Promise<ApiResponse<any>> {
     try {
-      const response = await api.get<any>(`/sales/cashier/${cashierId}?page=${page}&size=${size}`);
+      // REMOVED pagination parameters - fetch ALL sales for this cashier
+      const response = await api.get<any>(`/sales/cashier/${cashierId}`);
       
       if (response.success && response.data) {
         const data = response.data.data || response.data;

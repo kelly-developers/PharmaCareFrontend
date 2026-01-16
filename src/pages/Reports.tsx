@@ -98,23 +98,26 @@ export default function Reports() {
 
   const dateRange = getDateRange();
 
-  // Fetch reports data from backend - FIXED: Proper API response parsing
+  // Fetch reports data from backend - ALL REAL DATA
   const fetchReportsData = async () => {
     setIsLoading(true);
     try {
       const startDate = dateRange.start.toISOString();
       const endDate = dateRange.end.toISOString();
       
-      // Fetch all reports data
-      const incomeResponse = await reportService.getIncomeStatement(startDate, endDate);
-      const inventoryResponse = await reportService.getInventoryValue();
-      const salesByCategoryResponse = await reportService.getSalesByCategory(startDate, endDate);
+      // Fetch all reports data in parallel
+      const [incomeResponse, inventoryResponse, salesByCategoryResponse, salesTrendResponse] = await Promise.all([
+        reportService.getIncomeStatement(startDate, endDate),
+        reportService.getInventoryValue(),
+        reportService.getSalesByCategory(startDate, endDate),
+        reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year')
+      ]);
       
-      // FIXED: Parse the actual response structure from your backend
+      // Parse the actual response structure from your backend
       const incomeData = incomeResponse.data as any;
       const inventoryData = inventoryResponse.data as any;
       
-      // FIXED: Extract numeric values from the response
+      // Extract numeric values from the response
       const revenue = typeof incomeData?.revenue === 'object' 
         ? incomeData?.revenue?.netSales || incomeData?.revenue?.grossSales || 0 
         : incomeData?.revenue || 0;
@@ -124,7 +127,7 @@ export default function Reports() {
       const netProfit = incomeData?.netIncome || incomeData?.netProfit || 0;
       const expenses = incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0;
 
-      // Parse sales by category data
+      // Parse sales by category data - REAL DATA
       const categoryDataFromAPI = salesByCategoryResponse.data as any;
       let categoryData: { name: string; value: number; color: string }[] = [];
       
@@ -139,50 +142,51 @@ export default function Reports() {
       ];
       
       if (categoryDataFromAPI && Array.isArray(categoryDataFromAPI) && categoryDataFromAPI.length > 0) {
-        const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => sum + (c.total || c.value || 0), 0);
+        const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => sum + (parseFloat(c.total) || parseFloat(c.value) || 0), 0);
         categoryData = categoryDataFromAPI.slice(0, 7).map((cat: any, idx: number) => ({
           name: cat.category || cat.name || 'Other',
-          value: totalCategorySales > 0 ? Math.round(((cat.total || cat.value || 0) / totalCategorySales) * 100) : 0,
+          value: totalCategorySales > 0 ? Math.round(((parseFloat(cat.total) || parseFloat(cat.value) || 0) / totalCategorySales) * 100) : 0,
           color: defaultColors[idx % defaultColors.length],
+        }));
+      }
+
+      // Parse sales trend data - REAL DATA for daily chart
+      const trendData = salesTrendResponse.data as any;
+      let dailySalesData: { day: string; sales: number; cost: number }[] = [];
+      let monthlyTrendData: { month: string; sales: number }[] = [];
+      
+      if (trendData && Array.isArray(trendData) && trendData.length > 0) {
+        // For daily chart - use last 7 data points
+        dailySalesData = trendData.slice(-7).map((item: any) => ({
+          day: format(new Date(item.date || item.month || new Date()), 'EEE'),
+          sales: parseFloat(item.sales) || parseFloat(item.revenue) || 0,
+          cost: parseFloat(item.cost) || parseFloat(item.costOfGoods) || 0
+        }));
+        
+        // For monthly trend chart
+        monthlyTrendData = trendData.map((item: any) => ({
+          month: format(new Date(item.date || item.month || new Date()), 'MMM'),
+          sales: parseFloat(item.sales) || parseFloat(item.revenue) || 0
         }));
       }
       
       const newData = {
-        totalRevenue: revenue,
-        totalCOGS: cogs,
-        grossProfit: grossProfit,
-        totalExpenses: expenses,
-        netProfit: netProfit,
+        totalRevenue: parseFloat(revenue) || 0,
+        totalCOGS: parseFloat(cogs) || 0,
+        grossProfit: parseFloat(grossProfit) || 0,
+        totalExpenses: parseFloat(expenses) || 0,
+        netProfit: parseFloat(netProfit) || 0,
         profitMargin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
-        inventoryValue: inventoryData?.costValue || inventoryData?.totalValue || 0,
+        inventoryValue: parseFloat(inventoryData?.costValue) || parseFloat(inventoryData?.totalValue) || 0,
         expensesByCategory: incomeData?.operatingExpenses?.breakdown || [],
-        salesTrend: [],
+        salesTrend: trendData || [],
         categoryData: categoryData,
-        dailySalesData: reportsData.dailySalesData, // Keep sample structure
-        monthlyTrendData: [] // Initialize empty
+        dailySalesData: dailySalesData,
+        monthlyTrendData: monthlyTrendData
       };
 
+      console.log('📊 Reports data loaded:', newData);
       setReportsData(newData);
-      
-      // Fetch sales trend data
-      try {
-        const salesTrendResponse = await reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year');
-        const trendData = salesTrendResponse.data;
-        
-        if (trendData && Array.isArray(trendData)) {
-          const monthlyData = trendData.map((item: any) => ({
-            month: format(new Date(item.date || item.month), 'MMM'),
-            sales: item.sales || item.revenue || 0
-          }));
-          
-          setReportsData(prev => ({
-            ...prev,
-            monthlyTrendData: monthlyData
-          }));
-        }
-      } catch (error) {
-        console.warn('Failed to fetch sales trend:', error);
-      }
       
     } catch (error) {
       console.error('Failed to fetch reports data:', error);
@@ -332,25 +336,31 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="h-56 md:h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={reportsData.dailySalesData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                          <XAxis dataKey="day" className="text-xs" tick={{ fontSize: 11 }} />
-                          <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
-                          <Tooltip
-                            formatter={(value: number, name: string) => [`KSh ${value.toLocaleString()}`, name === 'sales' ? 'Sales' : 'Cost']}
-                            contentStyle={{
-                              backgroundColor: 'hsl(var(--card))',
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '8px',
-                              fontSize: '12px',
-                            }}
-                          />
-                          <Legend wrapperStyle={{ fontSize: '12px' }} />
-                          <Bar dataKey="sales" fill="hsl(158, 64%, 32%)" radius={[4, 4, 0, 0]} name="Sales" />
-                          <Bar dataKey="cost" fill="hsl(38, 92%, 50%)" radius={[4, 4, 0, 0]} name="Cost" />
-                        </BarChart>
-                      </ResponsiveContainer>
+                      {reportsData.dailySalesData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={reportsData.dailySalesData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis dataKey="day" className="text-xs" tick={{ fontSize: 11 }} />
+                            <YAxis className="text-xs" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
+                            <Tooltip
+                              formatter={(value: number, name: string) => [`KSh ${value.toLocaleString()}`, name === 'sales' ? 'Sales' : 'Cost']}
+                              contentStyle={{
+                                backgroundColor: 'hsl(var(--card))',
+                                border: '1px solid hsl(var(--border))',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                              }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: '12px' }} />
+                            <Bar dataKey="sales" fill="hsl(158, 64%, 32%)" radius={[4, 4, 0, 0]} name="Sales" />
+                            <Bar dataKey="cost" fill="hsl(38, 92%, 50%)" radius={[4, 4, 0, 0]} name="Cost" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                          {isLoading ? 'Loading sales data...' : 'No sales data available for this period'}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
