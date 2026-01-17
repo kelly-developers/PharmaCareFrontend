@@ -3,6 +3,7 @@ import { Expense, UserRole } from '@/types/pharmacy';
 
 interface CreateExpenseRequest {
   category: string;
+  title: string; // Backend requires title
   description: string;
   amount: number;
   date: string;

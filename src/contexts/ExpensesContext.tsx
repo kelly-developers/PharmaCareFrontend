@@ -76,11 +76,13 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
 
   const addExpense = async (expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense | null> => {
     try {
+      // Backend expects 'title' field, use description as title
       const response = await expenseService.create({
         category: expenseData.category,
+        title: expenseData.description, // Backend requires title
         description: expenseData.description,
         amount: expenseData.amount,
-        date: expenseData.date instanceof Date ? expenseData.date.toISOString() : expenseData.date,
+        date: expenseData.date instanceof Date ? expenseData.date.toISOString().split('T')[0] : expenseData.date,
         createdBy: expenseData.createdBy,
         createdByRole: expenseData.createdByRole || 'admin',
       });
@@ -89,13 +91,15 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
         const newExpense = {
           ...response.data,
           date: new Date(response.data.date),
-          createdAt: new Date(response.data.createdAt),
+          createdAt: response.data.createdAt ? new Date(response.data.createdAt) : new Date(),
         };
         setExpenses(prev => [newExpense, ...prev]);
+        await refreshExpenses(); // Refresh to get full data
         return newExpense;
       }
       return null;
-    } catch {
+    } catch (err) {
+      console.error('Failed to add expense:', err);
       return null;
     }
   };

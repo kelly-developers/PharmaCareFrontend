@@ -48,7 +48,53 @@ export const userService = {
     if (search) queryParams.append('search', search);
     if (role) queryParams.append('role', role);
     
-    return api.get<PaginatedResponse<User>>(`/users?${queryParams.toString()}`);
+    // Backend returns { success, data: [...users], pagination: {...} }
+    // We need to transform it to { success, data: { data: [...users], pagination: {...} } }
+    const response = await api.get<any>(`/users?${queryParams.toString()}`);
+    
+    if (response.success && response.data) {
+      // The api.ts already extracts data.data, so response.data is the users array
+      // But we also need pagination which is at the same level as data in backend response
+      // Let's make a direct fetch to get the full response
+      const token = sessionStorage.getItem('auth_token');
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://pharma-care-backend-hdyf.onrender.com/api';
+      
+      try {
+        const res = await fetch(`${API_BASE_URL}/users?${queryParams.toString()}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+        });
+        
+        const fullData = await res.json();
+        
+        if (fullData.success) {
+          return {
+            success: true,
+            data: {
+              data: fullData.data || [],
+              pagination: fullData.pagination || {
+                page: 1,
+                limit: 20,
+                total: 0,
+                pages: 1,
+                hasNext: false,
+                hasPrev: false,
+              },
+            },
+          };
+        }
+      } catch (err) {
+        console.error('Failed to fetch users:', err);
+      }
+    }
+    
+    return {
+      success: false,
+      error: response.error || 'Failed to fetch users',
+      data: { data: [], pagination: { page: 1, limit: 20, total: 0, pages: 1, hasNext: false, hasPrev: false } },
+    };
   },
 
   // Get user by ID
