@@ -73,23 +73,23 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="pharmacyName">Pharmacy Name</Label>
-                    <Input id="pharmacyName" defaultValue="PharmaCare Kenya" />
+                    <Input id="pharmacyName" defaultValue="SpotMed Chemist Kibra" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="licenseNo">License Number</Label>
-                    <Input id="licenseNo" defaultValue="PPB-2024-12345" />
+                    {/* <Input id="licenseNo" defaultValue="PPB-2024-12345" /> */}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" defaultValue="+254 722 123 456" />
+                    <Input id="phone" defaultValue="+254 727 55 0071" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" defaultValue="info@pharmacare.co.ke" />
+                    <Input id="email" type="email" defaultValue="kellynyachiro@gmail.com" />
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="address">Address</Label>
-                    <Input id="address" defaultValue="Kenyatta Avenue, CBD, Nairobi" />
+                    <Input id="address" defaultValue="Kibra, Machimoni, Nairobi" />
                   </div>
                 </div>
                 <div className="flex justify-end pt-4">
