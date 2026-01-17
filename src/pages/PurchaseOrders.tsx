@@ -138,8 +138,8 @@ export default function PurchaseOrders() {
       console.log('🔄 Fetching data for purchase orders...');
       
       const [ordersRes, suppliersRes, medicinesRes] = await Promise.all([
-        purchaseOrderService.getAll(0, 1000),
-        supplierService.getAll(0, 1000),
+        purchaseOrderService.getAll(),
+        supplierService.getAll(),
         medicineService.getAll(),
       ]);
 

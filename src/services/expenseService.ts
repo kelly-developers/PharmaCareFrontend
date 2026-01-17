@@ -44,15 +44,14 @@ interface PeriodTotal {
 }
 
 export const expenseService = {
-  // Get all expenses (paginated)
+  // Get all expenses (NO pagination - returns ALL expenses)
   async getAll(filters?: ExpenseFilters): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     if (filters?.category) queryParams.append('category', filters.category);
     if (filters?.startDate) queryParams.append('startDate', filters.startDate);
     if (filters?.endDate) queryParams.append('endDate', filters.endDate);
     if (filters?.createdBy) queryParams.append('createdBy', filters.createdBy);
-    if (filters?.page) queryParams.append('page', filters.page.toString());
-    if (filters?.limit) queryParams.append('limit', filters.limit.toString());
+    // NO page/limit params - backend returns all records
     
     const query = queryParams.toString();
     return api.get<any>(`/expenses${query ? `?${query}` : ''}`);

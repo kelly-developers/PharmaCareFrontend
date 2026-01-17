@@ -80,12 +80,11 @@ export default function Suppliers() {
     city: '',
   });
 
-  // FIXED: Fetch suppliers from backend with correct pagination
+  // FIXED: Fetch all suppliers from backend (no pagination)
   const fetchSuppliers = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Use page=0 (not 1) to match backend pagination
-      const response = await supplierService.getAll(0, 1000);
+      const response = await supplierService.getAll();
       console.log('Suppliers API response:', response);
       
       if (response.success && response.data) {

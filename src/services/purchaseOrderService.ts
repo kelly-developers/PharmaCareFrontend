@@ -25,13 +25,13 @@ interface PurchaseOrderStats {
 }
 
 export const purchaseOrderService = {
-  // Get all purchase orders (paginated)
-  async getAll(page: number = 0, limit: number = 1000, status?: string): Promise<ApiResponse<any>> {
+  // Get all purchase orders (NO pagination - returns ALL orders)
+  async getAll(status?: string): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
-    queryParams.append('page', page.toString());
-    queryParams.append('size', limit.toString());
+    // NO page/size params - backend returns all records
     if (status) queryParams.append('status', status);
-    return api.get<any>(`/purchase-orders?${queryParams.toString()}`);
+    const query = queryParams.toString();
+    return api.get<any>(`/purchase-orders${query ? `?${query}` : ''}`);
   },
 
   // Get purchase order by ID

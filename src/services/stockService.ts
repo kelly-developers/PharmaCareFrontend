@@ -47,18 +47,15 @@ interface NetMovementResult {
 }
 
 export const stockService = {
-  // Get stock movements (paginated)
+  // Get stock movements (NO pagination - returns ALL movements)
   async getMovements(params?: {
-    page?: number;
-    limit?: number;
     medicineId?: string;
     type?: string;
     startDate?: string;
     endDate?: string;
   }): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
-    if (params?.page) queryParams.append('page', params.page.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    // NO page/limit params - backend returns all records
     if (params?.medicineId) queryParams.append('medicineId', params.medicineId);
     if (params?.type) queryParams.append('type', params.type);
     if (params?.startDate) queryParams.append('startDate', params.startDate);

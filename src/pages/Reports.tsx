@@ -102,8 +102,10 @@ export default function Reports() {
   const fetchReportsData = async () => {
     setIsLoading(true);
     try {
-      const startDate = dateRange.start.toISOString();
-      const endDate = dateRange.end.toISOString();
+      const startDate = format(dateRange.start, 'yyyy-MM-dd');
+      const endDate = format(dateRange.end, 'yyyy-MM-dd');
+      
+      console.log('📊 Fetching reports for period:', startDate, 'to', endDate);
       
       // Fetch all reports data in parallel
       const [incomeResponse, inventoryResponse, salesByCategoryResponse, salesTrendResponse] = await Promise.all([
@@ -113,22 +115,27 @@ export default function Reports() {
         reportService.getSalesTrend(period as 'week' | 'month' | 'quarter' | 'year')
       ]);
       
+      console.log('📦 Income Response:', incomeResponse);
+      console.log('📦 Inventory Response:', inventoryResponse);
+      console.log('📦 Category Response:', salesByCategoryResponse);
+      console.log('📦 Trend Response:', salesTrendResponse);
+      
       // Parse the actual response structure from your backend
       const incomeData = incomeResponse.data as any;
       const inventoryData = inventoryResponse.data as any;
       
-      // Extract numeric values from the response
+      // Extract numeric values from the response - handle nested structures
       const revenue = typeof incomeData?.revenue === 'object' 
-        ? incomeData?.revenue?.netSales || incomeData?.revenue?.grossSales || 0 
-        : incomeData?.revenue || 0;
+        ? parseFloat(incomeData?.revenue?.netSales || incomeData?.revenue?.grossSales || 0) 
+        : parseFloat(incomeData?.revenue || 0);
         
-      const cogs = incomeData?.costOfGoodsSold || 0;
-      const grossProfit = incomeData?.grossProfit || 0;
-      const netProfit = incomeData?.netIncome || incomeData?.netProfit || 0;
-      const expenses = incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0;
+      const cogs = parseFloat(incomeData?.costOfGoodsSold || 0);
+      const grossProfit = parseFloat(incomeData?.grossProfit || 0);
+      const netProfit = parseFloat(incomeData?.netIncome || incomeData?.netProfit || 0);
+      const expenses = parseFloat(incomeData?.operatingExpenses?.total || incomeData?.totalExpenses || 0);
 
-      // Parse sales by category data - REAL DATA
-      const categoryDataFromAPI = salesByCategoryResponse.data as any;
+      // Parse sales by category data - REAL DATA from API
+      const categoryDataFromAPI = salesByCategoryResponse.data as any[];
       let categoryData: { name: string; value: number; color: string }[] = [];
       
       const defaultColors = [
@@ -142,40 +149,49 @@ export default function Reports() {
       ];
       
       if (categoryDataFromAPI && Array.isArray(categoryDataFromAPI) && categoryDataFromAPI.length > 0) {
-        const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => sum + (parseFloat(c.total) || parseFloat(c.value) || 0), 0);
-        categoryData = categoryDataFromAPI.slice(0, 7).map((cat: any, idx: number) => ({
-          name: cat.category || cat.name || 'Other',
-          value: totalCategorySales > 0 ? Math.round(((parseFloat(cat.total) || parseFloat(cat.value) || 0) / totalCategorySales) * 100) : 0,
-          color: defaultColors[idx % defaultColors.length],
-        }));
+        const totalCategorySales = categoryDataFromAPI.reduce((sum: number, c: any) => 
+          sum + (parseFloat(c.total) || parseFloat(c.value) || 0), 0);
+        
+        categoryData = categoryDataFromAPI.slice(0, 7).map((cat: any, idx: number) => {
+          const catValue = parseFloat(cat.total) || parseFloat(cat.value) || 0;
+          return {
+            name: cat.category || cat.name || 'Other',
+            value: totalCategorySales > 0 ? Math.round((catValue / totalCategorySales) * 100) : 0,
+            color: defaultColors[idx % defaultColors.length],
+          };
+        });
+        console.log('✅ Category data parsed:', categoryData);
       }
 
       // Parse sales trend data - REAL DATA for daily chart
-      const trendData = salesTrendResponse.data as any;
+      const trendData = salesTrendResponse.data as any[];
       let dailySalesData: { day: string; sales: number; cost: number }[] = [];
       let monthlyTrendData: { month: string; sales: number }[] = [];
       
       if (trendData && Array.isArray(trendData) && trendData.length > 0) {
-        // For daily chart - use last 7 data points
+        // For daily chart - use the data points
         dailySalesData = trendData.slice(-7).map((item: any) => ({
-          day: format(new Date(item.date || item.month || new Date()), 'EEE'),
+          day: item.date ? format(new Date(item.date), 'EEE') : 'N/A',
           sales: parseFloat(item.sales) || parseFloat(item.revenue) || 0,
-          cost: parseFloat(item.cost) || parseFloat(item.costOfGoods) || 0
+          cost: parseFloat(item.cost) || 0
         }));
         
         // For monthly trend chart
         monthlyTrendData = trendData.map((item: any) => ({
-          month: format(new Date(item.date || item.month || new Date()), 'MMM'),
+          month: item.date ? format(new Date(item.date), 'MMM dd') : 'N/A',
           sales: parseFloat(item.sales) || parseFloat(item.revenue) || 0
         }));
+        
+        console.log('✅ Daily sales data:', dailySalesData);
+        console.log('✅ Monthly trend data:', monthlyTrendData);
       }
       
       const newData = {
-        totalRevenue: parseFloat(revenue) || 0,
-        totalCOGS: parseFloat(cogs) || 0,
-        grossProfit: parseFloat(grossProfit) || 0,
-        totalExpenses: parseFloat(expenses) || 0,
-        netProfit: parseFloat(netProfit) || 0,
+        totalRevenue: revenue || 0,
+        totalCOGS: cogs || 0,
+        grossProfit: grossProfit || 0,
+        totalExpenses: expenses || 0,
+        netProfit: netProfit || 0,
         profitMargin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
         inventoryValue: parseFloat(inventoryData?.costValue) || parseFloat(inventoryData?.totalValue) || 0,
         expensesByCategory: incomeData?.operatingExpenses?.breakdown || [],

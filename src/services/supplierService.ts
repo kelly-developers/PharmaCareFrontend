@@ -19,9 +19,12 @@ interface SupplierStats {
 }
 
 export const supplierService = {
-  // Get all suppliers (paginated) - UPDATED to match backend
-  async getAll(page: number = 0, limit: number = 1000): Promise<ApiResponse<any>> {
-    return api.get<any>(`/suppliers?page=${page}&size=${limit}`);
+  // Get all suppliers (NO pagination - returns ALL suppliers)
+  async getAll(search?: string): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams();
+    if (search) queryParams.append('search', search);
+    const query = queryParams.toString();
+    return api.get<any>(`/suppliers${query ? `?${query}` : ''}`);
   },
 
   // Get supplier by ID
