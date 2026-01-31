@@ -1,25 +1,42 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building2, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Building2, Eye, EyeOff, Loader2, Shield, Store } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Switch } from '@/components/ui/switch';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login, isAuthenticated, isLoading, user } = useAuth();
+  const [isAdminPortal, setIsAdminPortal] = useState(false);
+  const { login, isAuthenticated, isLoading, user, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
+
+  // Check if admin portal mode from URL
+  useEffect(() => {
+    const portal = searchParams.get('portal');
+    if (portal === 'admin') {
+      setIsAdminPortal(true);
+    }
+  }, [searchParams]);
 
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && user && !isLoading) {
+      // Super admin goes to business management
+      if (isSuperAdmin) {
+        navigate('/businesses', { replace: true });
+        return;
+      }
+      
       const redirectPath = user.role === 'cashier' 
         ? '/pos' 
         : user.role === 'pharmacist' 
@@ -27,7 +44,7 @@ export default function Login() {
           : '/dashboard';
       navigate(redirectPath, { replace: true });
     }
-  }, [isAuthenticated, user, isLoading, navigate]);
+  }, [isAuthenticated, user, isLoading, isSuperAdmin, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +55,7 @@ export default function Login() {
       if (success) {
         toast({
           title: 'Welcome back!',
-          description: 'You have been logged in successfully.',
+          description: isAdminPortal ? 'Logged in to Admin Portal.' : 'You have been logged in successfully.',
         });
         // Navigation will happen via useEffect when isAuthenticated updates
       } else {
@@ -73,11 +90,21 @@ export default function Login() {
       <div className="w-full max-w-md animate-scale-in">
         <Card className="shadow-xl border-0">
           <CardHeader className="text-center pb-2">
-            <div className="mx-auto w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center shadow-glow mb-4">
-              <Building2 className="h-8 w-8 text-primary-foreground" />
+            <div className={`mx-auto w-16 h-16 rounded-2xl flex items-center justify-center shadow-glow mb-4 ${isAdminPortal ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'gradient-primary'}`}>
+              {isAdminPortal ? (
+                <Shield className="h-8 w-8 text-white" />
+              ) : (
+                <Building2 className="h-8 w-8 text-primary-foreground" />
+              )}
             </div>
-            <CardTitle className="text-2xl">Business Portal</CardTitle>
-            <CardDescription>Sign in to manage your business</CardDescription>
+            <CardTitle className="text-2xl">
+              {isAdminPortal ? 'Super Admin Portal' : 'Business Portal'}
+            </CardTitle>
+            <CardDescription>
+              {isAdminPortal 
+                ? 'Manage all businesses and system settings' 
+                : 'Sign in to manage your business'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -116,17 +143,53 @@ export default function Login() {
                   </Button>
                 </div>
               </div>
-              <Button type="submit" variant="hero" size="xl" className="w-full" disabled={isSubmitting}>
+              
+              {/* Portal Toggle */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+                <div className="flex items-center gap-2">
+                  {isAdminPortal ? (
+                    <Shield className="h-4 w-4 text-amber-500" />
+                  ) : (
+                    <Store className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {isAdminPortal ? 'Super Admin Mode' : 'Business Login'}
+                  </span>
+                </div>
+                <Switch
+                  checked={isAdminPortal}
+                  onCheckedChange={setIsAdminPortal}
+                  aria-label="Toggle admin portal"
+                />
+              </div>
+              
+              <Button 
+                type="submit" 
+                variant={isAdminPortal ? "default" : "hero"} 
+                size="xl" 
+                className={`w-full ${isAdminPortal ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white' : ''}`}
+                disabled={isSubmitting}
+              >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Signing in...
                   </>
                 ) : (
-                  'Sign In'
+                  <>
+                    {isAdminPortal && <Shield className="h-4 w-4 mr-2" />}
+                    {isAdminPortal ? 'Access Admin Portal' : 'Sign In'}
+                  </>
                 )}
               </Button>
             </form>
+            
+            {/* Hint text */}
+            <p className="text-xs text-center text-muted-foreground mt-4">
+              {isAdminPortal 
+                ? 'Use your super admin credentials to access the admin portal.' 
+                : 'Toggle the switch above for super admin access.'}
+            </p>
           </CardContent>
         </Card>
       </div>
