@@ -68,8 +68,8 @@ function ProtectedRoute({ children, allowedRoles, superAdminOnly = false }: {
     return <Navigate to="/login" replace />;
   }
 
-  // Super admin only routes
-  if (superAdminOnly && !isSuperAdmin) {
+  // Super admin only routes - also allow admin role for flexibility
+  if (superAdminOnly && !isSuperAdmin && user?.role !== 'admin') {
     return <Navigate to="/dashboard" replace />;
   }
   
