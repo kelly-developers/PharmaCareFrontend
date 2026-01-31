@@ -31,16 +31,16 @@ export default function Login() {
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && user && !isLoading) {
-      console.log('🔐 Auth redirect check - isSuperAdmin:', isSuperAdmin, 'role:', user.role, 'isAdminPortal:', isAdminPortal);
+      console.log('🔐 Auth redirect check - isSuperAdmin:', isSuperAdmin, 'role:', user.role);
       
-      // Super admin goes to business management (check both flag and role)
-      const isSuper = isSuperAdmin || user.role === 'admin' && isAdminPortal;
-      if (isSuper && isAdminPortal) {
-        console.log('🏢 Redirecting to business management...');
-        navigate('/businesses', { replace: true });
+      // Super admin always goes to super admin dashboard
+      if (isSuperAdmin) {
+        console.log('🏢 Redirecting to super admin dashboard...');
+        navigate('/super-admin', { replace: true });
         return;
       }
       
+      // Regular business users go to role-based routes
       const redirectPath = user.role === 'cashier' 
         ? '/pos' 
         : user.role === 'pharmacist' 
@@ -48,7 +48,7 @@ export default function Login() {
           : '/dashboard';
       navigate(redirectPath, { replace: true });
     }
-  }, [isAuthenticated, user, isLoading, isSuperAdmin, isAdminPortal, navigate]);
+  }, [isAuthenticated, user, isLoading, isSuperAdmin, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

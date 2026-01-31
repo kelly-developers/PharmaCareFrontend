@@ -24,15 +24,25 @@ interface RegisterRequest {
 
 const normalizeRole = (rawRole: unknown): UserRole => {
   const role = String(rawRole ?? '').trim().toLowerCase();
+  // SUPER_ADMIN from API maps to admin role for UI purposes
+  if (role === 'super_admin' || role === 'superadmin') return 'admin';
   if (role === 'admin') return 'admin';
   if (role === 'manager') return 'manager';
   if (role === 'pharmacist') return 'pharmacist';
   if (role === 'cashier') return 'cashier';
-  if (role === 'superadmin') return 'admin'; // Super admin maps to admin
   // common aliases
   if (role === 'pharmacy') return 'pharmacist';
   if (role === 'sales' || role === 'seller') return 'cashier';
   return 'cashier';
+};
+
+// Check if user is super admin based on API response
+const checkIsSuperAdmin = (raw: any): boolean => {
+  // Check explicit isSuperAdmin flag from API
+  if (raw?.isSuperAdmin === true) return true;
+  // Check role from API
+  const role = String(raw?.role ?? '').trim().toLowerCase();
+  return role === 'super_admin' || role === 'superadmin';
 };
 
 const normalizeUser = (raw: any): User & { businessId?: string; isSuperAdmin?: boolean } => {
@@ -45,10 +55,10 @@ const normalizeUser = (raw: any): User & { businessId?: string; isSuperAdmin?: b
     email,
     role: normalizeRole(raw?.role),
     avatar: raw?.avatar,
-    isActive: raw?.isActive ?? true,
+    isActive: raw?.isActive ?? raw?.active ?? true,
     createdAt: (raw?.createdAt ?? new Date()) as any,
-    businessId: raw?.businessId,
-    isSuperAdmin: raw?.isSuperAdmin ?? raw?.role === 'superadmin',
+    businessId: raw?.businessId ?? raw?.business_id,
+    isSuperAdmin: checkIsSuperAdmin(raw),
   };
 };
 

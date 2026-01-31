@@ -30,6 +30,7 @@ import {
   Store,
   Barcode,
   ShoppingBag,
+  Shield,
 } from 'lucide-react';
 
 interface NavItem {
@@ -39,15 +40,26 @@ interface NavItem {
   feature?: string; // Optional feature flag
 }
 
+// Super admin navigation items (only shown when logged in as super admin)
+const superAdminNavItems: NavItem[] = [
+  { to: '/super-admin', icon: LayoutDashboard, label: 'Platform Dashboard' },
+  { to: '/businesses', icon: Building2, label: 'Business Management' },
+];
+
 // Base navigation items for all roles
 const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
   const terms = getTerminology(businessType);
   const isPharmacy = businessType === 'pharmacy';
 
-  // Super admin has access to business management
-  const superAdminItems: NavItem[] = isSuperAdmin ? [
-    { to: '/businesses', icon: Building2, label: 'Business Management' },
-  ] : [];
+  // Super admin only sees super admin routes (no business routes)
+  if (isSuperAdmin) {
+    return {
+      admin: superAdminNavItems,
+      manager: superAdminNavItems,
+      pharmacist: superAdminNavItems,
+      cashier: superAdminNavItems,
+    };
+  }
 
   const adminItems: NavItem[] = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -65,7 +77,6 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/reports', icon: BarChart3, label: 'Reports' },
     { to: '/users', icon: UserCircle, label: 'User Management' },
     { to: '/settings', icon: Settings, label: 'Settings' },
-    ...superAdminItems,
   ];
 
   const managerItems: NavItem[] = [
@@ -133,8 +144,10 @@ export function Sidebar() {
 
   const navItems = getNavItems(businessType, isSuperAdmin);
   const items = navItems[user.role] || [];
-  const BusinessIcon = getBusinessIcon(businessType);
-  const businessName = business?.name || 'PharmaPOS';
+  
+  // Super admin shows shield icon and platform name
+  const BusinessIcon = isSuperAdmin ? Shield : getBusinessIcon(businessType);
+  const businessName = isSuperAdmin ? 'Super Admin' : (business?.name || 'PharmaPOS');
 
   return (
     <>
@@ -168,7 +181,10 @@ export function Sidebar() {
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
             <div className={cn('flex items-center gap-3', isCollapsed && 'justify-center w-full')}>
-              <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-glow">
+              <div className={cn(
+                "w-10 h-10 rounded-xl flex items-center justify-center shadow-glow",
+                isSuperAdmin ? "bg-gradient-to-br from-amber-500 to-orange-600" : "gradient-primary"
+              )}>
                 <BusinessIcon className="h-5 w-5 text-primary-foreground" />
               </div>
               {!isCollapsed && (
@@ -177,7 +193,7 @@ export function Sidebar() {
                     {businessName}
                   </h1>
                   <p className="text-xs text-sidebar-foreground/60 capitalize">
-                    {businessType}
+                    {isSuperAdmin ? 'Platform Admin' : businessType}
                   </p>
                 </div>
               )}

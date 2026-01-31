@@ -36,6 +36,7 @@ import CreateMedicine from "./pages/CreateMedicine";
 import Prescriptions from "./pages/Prescriptions";
 import PharmacistMedicines from "./pages/PharmacistMedicines";
 import BusinessManagement from "./pages/BusinessManagement";
+import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -151,8 +152,11 @@ function AppRoutes() {
       {/* Settings */}
       <Route path="/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings /></ProtectedRoute>} />
       
-      {/* Business Management - Super Admin Only */}
+      {/* Super Admin Routes */}
+      <Route path="/super-admin" element={<ProtectedRoute superAdminOnly><SuperAdminDashboard /></ProtectedRoute>} />
       <Route path="/businesses" element={<ProtectedRoute superAdminOnly><BusinessManagement /></ProtectedRoute>} />
+      
+      {/* 404 */}
       
       {/* 404 */}
       <Route path="*" element={<NotFound />} />
