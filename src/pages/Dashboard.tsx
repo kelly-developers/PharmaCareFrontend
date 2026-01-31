@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSales } from '@/contexts/SalesContext';
 import { useStock } from '@/contexts/StockContext';
 import { Sale } from '@/types/pharmacy';
+import { getTerminology } from '@/types/business';
 import {
   DollarSign,
   ShoppingCart,
@@ -27,7 +28,8 @@ import { toast } from 'sonner';
 import { reportService } from '@/services/reportService';
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, business, businessType } = useAuth();
+  const terms = getTerminology(businessType);
   const { getAllSales, getTodaySales, fetchAllSales } = useSales();
   const { medicines, refreshMedicines } = useStock();
   const [todaySales, setTodaySales] = useState<Sale[]>([]);
@@ -159,7 +161,9 @@ export default function Dashboard() {
                 .toString()
                 .split(' ')[0]}
             </h1>
-            <p className="text-muted-foreground mt-1">Here's what's happening at your pharmacy today</p>
+            <p className="text-muted-foreground mt-1">
+              Here's what's happening at {business?.name || 'your business'} today
+            </p>
           </div>
           <div className="flex gap-2">
             <Button 

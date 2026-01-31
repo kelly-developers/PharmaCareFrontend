@@ -1,5 +1,6 @@
 import { api, setAuthToken, clearAuthToken } from './api';
 import { User, UserRole } from '@/types/pharmacy';
+import { Business } from '@/types/business';
 
 interface LoginRequest {
   email: string;
@@ -7,9 +8,10 @@ interface LoginRequest {
 }
 
 interface LoginResponse {
-  user: User;
+  user: User & { businessId?: string };
   token: string;
   refreshToken?: string;
+  business?: Business;
 }
 
 interface RegisterRequest {
@@ -26,13 +28,14 @@ const normalizeRole = (rawRole: unknown): UserRole => {
   if (role === 'manager') return 'manager';
   if (role === 'pharmacist') return 'pharmacist';
   if (role === 'cashier') return 'cashier';
+  if (role === 'superadmin') return 'admin'; // Super admin maps to admin
   // common aliases
   if (role === 'pharmacy') return 'pharmacist';
   if (role === 'sales' || role === 'seller') return 'cashier';
   return 'cashier';
 };
 
-const normalizeUser = (raw: any): User => {
+const normalizeUser = (raw: any): User & { businessId?: string; isSuperAdmin?: boolean } => {
   const email = String(raw?.email ?? '').trim();
   const fallbackName = email ? email.split('@')[0] : 'User';
 
@@ -44,43 +47,78 @@ const normalizeUser = (raw: any): User => {
     avatar: raw?.avatar,
     isActive: raw?.isActive ?? true,
     createdAt: (raw?.createdAt ?? new Date()) as any,
+    businessId: raw?.businessId,
+    isSuperAdmin: raw?.isSuperAdmin ?? raw?.role === 'superadmin',
+  };
+};
+
+const normalizeBusiness = (raw: any): Business | null => {
+  if (!raw) return null;
+  return {
+    id: String(raw?.id ?? raw?._id ?? ''),
+    name: String(raw?.name ?? ''),
+    email: String(raw?.email ?? ''),
+    phone: String(raw?.phone ?? ''),
+    businessType: raw?.businessType ?? 'pharmacy',
+    schemaName: String(raw?.schemaName ?? ''),
+    address: raw?.address,
+    city: raw?.city,
+    country: raw?.country,
+    logo: raw?.logo,
+    subscriptionPlan: raw?.subscriptionPlan,
+    status: raw?.status ?? 'active',
+    createdAt: new Date(raw?.createdAt ?? Date.now()),
+    updatedAt: raw?.updatedAt ? new Date(raw.updatedAt) : undefined,
+    ownerId: raw?.ownerId,
   };
 };
 
 export const authService = {
-  // Login user - UPDATED to handle new response structure
-  async login(credentials: LoginRequest): Promise<{ success: boolean; user?: User; error?: string }> {
+  // Login user - Returns user and business context
+  async login(credentials: LoginRequest): Promise<{ success: boolean; user?: User & { businessId?: string }; business?: Business | null; error?: string }> {
     const response = await api.post<LoginResponse>('/auth/login', credentials);
 
-    console.log('Login API Response:', response); // Debug
+    console.log('Login API Response:', response);
 
-    // FIX: Check response.data (which contains the actual auth data)
     if (response.success && response.data) {
-      // response.data is now the AuthResponse {user, token, refreshToken}
-      const { user: rawUser, token } = response.data as any;
+      const { user: rawUser, token, business: rawBusiness } = response.data as any;
       const user = normalizeUser(rawUser);
+      const business = normalizeBusiness(rawBusiness);
 
       if (token) {
         setAuthToken(token);
         sessionStorage.setItem('user', JSON.stringify(user));
-        console.log('✅ Token saved:', token.substring(0, 20) + '...'); // Debug
-        return { success: true, user };
+        
+        // Store business context for multi-tenant routing
+        if (business) {
+          sessionStorage.setItem('current_business', JSON.stringify(business));
+        }
+        
+        console.log('✅ Token saved:', token.substring(0, 20) + '...');
+        return { success: true, user, business };
       }
     }
 
-    console.log('❌ Login failed:', response.error); // Debug
+    console.log('❌ Login failed:', response.error);
     return { success: false, error: response.error || 'Login failed' };
   },
 
-  // Register new user - UPDATED
+  // Register new user
   async register(userData: RegisterRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     const response = await api.post<LoginResponse>('/auth/register', userData);
 
     if (response.success && response.data) {
-      const { user: rawUser, token } = response.data as any;
+      const { user: rawUser, token, business: rawBusiness } = response.data as any;
       const user = normalizeUser(rawUser);
+      const business = normalizeBusiness(rawBusiness);
+      
       setAuthToken(token);
       sessionStorage.setItem('user', JSON.stringify(user));
+      
+      if (business) {
+        sessionStorage.setItem('current_business', JSON.stringify(business));
+      }
+      
       return { success: true, user };
     }
 
@@ -95,11 +133,12 @@ export const authService = {
       console.error('Logout error:', error);
     } finally {
       clearAuthToken();
+      sessionStorage.removeItem('current_business');
     }
   },
 
   // Get current user from session
-  getCurrentUser(): User | null {
+  getCurrentUser(): (User & { businessId?: string; isSuperAdmin?: boolean }) | null {
     const userStr = sessionStorage.getItem('user');
     if (userStr) {
       try {
@@ -112,12 +151,31 @@ export const authService = {
     return null;
   },
 
+  // Get current business from session
+  getCurrentBusiness(): Business | null {
+    const businessStr = sessionStorage.getItem('current_business');
+    if (businessStr) {
+      try {
+        return JSON.parse(businessStr);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  },
+
   // Check if user is authenticated
   isAuthenticated(): boolean {
     const token = sessionStorage.getItem('auth_token');
     const hasToken = !!token;
-    console.log('Auth check - Token exists:', hasToken); // Debug
+    console.log('Auth check - Token exists:', hasToken);
     return hasToken;
+  },
+
+  // Check if user is super admin
+  isSuperAdmin(): boolean {
+    const user = this.getCurrentUser();
+    return user?.isSuperAdmin ?? false;
   },
 
   // Refresh token

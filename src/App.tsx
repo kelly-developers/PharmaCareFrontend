@@ -4,12 +4,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { TenantProvider } from "@/contexts/TenantContext";
 import { StockProvider } from "@/contexts/StockContext";
 import { SalesProvider } from "@/contexts/SalesContext";
 import { CategoriesProvider } from "@/contexts/CategoriesContext";
 import { ExpensesProvider } from "@/contexts/ExpensesContext";
 import { PrescriptionsProvider } from "@/contexts/PrescriptionsContext";
 import { Loader2 } from "lucide-react";
+
 // Pages
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -33,6 +35,7 @@ import MedicineCategories from "./pages/MedicineCategories";
 import CreateMedicine from "./pages/CreateMedicine";
 import Prescriptions from "./pages/Prescriptions";
 import PharmacistMedicines from "./pages/PharmacistMedicines";
+import BusinessManagement from "./pages/BusinessManagement";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -50,8 +53,12 @@ function LoadingScreen() {
 }
 
 // Protected Route wrapper
-function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
-  const { isAuthenticated, user, isLoading } = useAuth();
+function ProtectedRoute({ children, allowedRoles, superAdminOnly = false }: { 
+  children: React.ReactNode; 
+  allowedRoles?: string[];
+  superAdminOnly?: boolean;
+}) {
+  const { isAuthenticated, user, isLoading, isSuperAdmin, businessType } = useAuth();
   
   if (isLoading) {
     return <LoadingScreen />;
@@ -60,10 +67,18 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
+
+  // Super admin only routes
+  if (superAdminOnly && !isSuperAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
   
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     if (user.role === 'cashier') return <Navigate to="/pos" replace />;
-    if (user.role === 'pharmacist') return <Navigate to="/medicine-categories" replace />;
+    if (user.role === 'pharmacist') {
+      // Pharmacist only exists in pharmacy type
+      return <Navigate to="/categories" replace />;
+    }
     return <Navigate to="/dashboard" replace />;
   }
   
@@ -71,36 +86,75 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
 }
 
 function AppRoutes() {
-  const { isLoading } = useAuth();
+  const { isLoading, businessType } = useAuth();
   
   if (isLoading) {
     return <LoadingScreen />;
   }
+
+  // Check if this is a pharmacy business (for prescription/medicine routes)
+  const isPharmacy = businessType === 'pharmacy';
   
   return (
     <Routes>
       <Route path="/" element={<Index />} />
       <Route path="/login" element={<Login />} />
+      
+      {/* Dashboard */}
       <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Dashboard /></ProtectedRoute>} />
+      
+      {/* POS & Sales */}
       <Route path="/pos" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'cashier']}><POS /></ProtectedRoute>} />
-      <Route path="/inventory" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Inventory /></ProtectedRoute>} />
-      <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Suppliers /></ProtectedRoute>} />
-      <Route path="/orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
       <Route path="/sales" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Sales /></ProtectedRoute>} />
       <Route path="/my-sales" element={<ProtectedRoute allowedRoles={['cashier']}><MySales /></ProtectedRoute>} />
-      <Route path="/my-expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><CashierExpenses /></ProtectedRoute>} />
       <Route path="/cashier-tracking" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><CashierTracking /></ProtectedRoute>} />
-      <Route path="/expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Expenses /></ProtectedRoute>} />
-      <Route path="/reports" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Reports /></ProtectedRoute>} />
+      
+      {/* Inventory - mapped to both /inventory and /stock */}
+      <Route path="/inventory" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Inventory /></ProtectedRoute>} />
       <Route path="/stock" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><StockManagement /></ProtectedRoute>} />
+      
+      {/* Categories - works for both medicine categories and product categories */}
+      <Route path="/categories" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><MedicineCategories /></ProtectedRoute>} />
+      <Route path="/medicine-categories" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><MedicineCategories /></ProtectedRoute>} />
+      
+      {/* Create Item - works for both medicines and products */}
+      <Route path="/create-item" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><CreateMedicine /></ProtectedRoute>} />
+      <Route path="/create-medicine" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><CreateMedicine /></ProtectedRoute>} />
+      
+      {/* Pharmacist items */}
+      <Route path="/pharmacist-items" element={<ProtectedRoute allowedRoles={['pharmacist']}><PharmacistMedicines /></ProtectedRoute>} />
+      <Route path="/pharmacist-medicines" element={<ProtectedRoute allowedRoles={['pharmacist']}><PharmacistMedicines /></ProtectedRoute>} />
+      
+      {/* Prescriptions - only for pharmacy */}
+      {isPharmacy && (
+        <Route path="/prescriptions" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><Prescriptions /></ProtectedRoute>} />
+      )}
+      
+      {/* Suppliers & Orders */}
+      <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Suppliers /></ProtectedRoute>} />
+      <Route path="/orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
+      
+      {/* Expenses */}
+      <Route path="/expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Expenses /></ProtectedRoute>} />
+      <Route path="/my-expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><CashierExpenses /></ProtectedRoute>} />
+      
+      {/* Reports */}
+      <Route path="/reports" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Reports /></ProtectedRoute>} />
+      
+      {/* Employees & Payroll */}
       <Route path="/employees" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Employees /></ProtectedRoute>} />
       <Route path="/payroll" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Payroll /></ProtectedRoute>} />
+      
+      {/* User Management */}
       <Route path="/users" element={<ProtectedRoute allowedRoles={['admin']}><UserManagement /></ProtectedRoute>} />
+      
+      {/* Settings */}
       <Route path="/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings /></ProtectedRoute>} />
-      <Route path="/medicine-categories" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><MedicineCategories /></ProtectedRoute>} />
-      <Route path="/create-medicine" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><CreateMedicine /></ProtectedRoute>} />
-      <Route path="/prescriptions" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><Prescriptions /></ProtectedRoute>} />
-      <Route path="/pharmacist-medicines" element={<ProtectedRoute allowedRoles={['pharmacist']}><PharmacistMedicines /></ProtectedRoute>} />
+      
+      {/* Business Management - Super Admin Only */}
+      <Route path="/businesses" element={<ProtectedRoute superAdminOnly><BusinessManagement /></ProtectedRoute>} />
+      
+      {/* 404 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
@@ -109,23 +163,25 @@ function AppRoutes() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <StockProvider>
-        <SalesProvider>
-          <CategoriesProvider>
-            <ExpensesProvider>
-              <PrescriptionsProvider>
-                <TooltipProvider>
-                  <Toaster />
-                  <Sonner />
-                  <BrowserRouter>
-                    <AppRoutes />
-                  </BrowserRouter>
-                </TooltipProvider>
-              </PrescriptionsProvider>
-            </ExpensesProvider>
-          </CategoriesProvider>
-        </SalesProvider>
-      </StockProvider>
+      <TenantProvider>
+        <StockProvider>
+          <SalesProvider>
+            <CategoriesProvider>
+              <ExpensesProvider>
+                <PrescriptionsProvider>
+                  <TooltipProvider>
+                    <Toaster />
+                    <Sonner />
+                    <BrowserRouter>
+                      <AppRoutes />
+                    </BrowserRouter>
+                  </TooltipProvider>
+                </PrescriptionsProvider>
+              </ExpensesProvider>
+            </CategoriesProvider>
+          </SalesProvider>
+        </StockProvider>
+      </TenantProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

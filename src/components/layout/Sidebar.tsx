@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { BusinessType, getTerminology } from '@/types/business';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -25,58 +26,115 @@ import {
   PlusCircle,
   Layers,
   FileBox,
+  Building2,
+  Store,
+  Barcode,
+  ShoppingBag,
 } from 'lucide-react';
 
-const navItems = {
-  admin: [
+interface NavItem {
+  to: string;
+  icon: any;
+  label: string;
+  feature?: string; // Optional feature flag
+}
+
+// Base navigation items for all roles
+const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
+  const terms = getTerminology(businessType);
+  const isPharmacy = businessType === 'pharmacy';
+
+  // Super admin has access to business management
+  const superAdminItems: NavItem[] = isSuperAdmin ? [
+    { to: '/businesses', icon: Building2, label: 'Business Management' },
+  ] : [];
+
+  const adminItems: NavItem[] = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
-    { to: '/inventory', icon: Package, label: 'Inventory' },
-    { to: '/medicine-categories', icon: Layers, label: 'Medicine Categories' },
-    { to: '/create-medicine', icon: PlusCircle, label: 'Create Medicine' },
-    { to: '/prescriptions', icon: FileBox, label: 'Prescriptions' },
-    { to: '/suppliers', icon: Truck, label: 'Suppliers' },
+    { to: '/inventory', icon: Package, label: terms.stock },
+    { to: '/categories', icon: Layers, label: terms.itemCategories },
+    { to: '/create-item', icon: PlusCircle, label: terms.createItem },
+    ...(isPharmacy ? [
+      { to: '/prescriptions', icon: FileBox, label: 'Prescriptions' },
+    ] : []),
+    { to: '/suppliers', icon: Truck, label: terms.supplier + 's' },
     { to: '/orders', icon: ClipboardList, label: 'Purchase Orders' },
     { to: '/sales', icon: DollarSign, label: 'Sales' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
     { to: '/users', icon: UserCircle, label: 'User Management' },
     { to: '/settings', icon: Settings, label: 'Settings' },
-  ],
-  manager: [
+    ...superAdminItems,
+  ];
+
+  const managerItems: NavItem[] = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
-    { to: '/inventory', icon: Package, label: 'Inventory' },
-    { to: '/medicine-categories', icon: Layers, label: 'Medicine Categories' },
-    { to: '/create-medicine', icon: PlusCircle, label: 'Create Medicine' },
-    { to: '/prescriptions', icon: FileBox, label: 'Prescriptions' },
-    { to: '/suppliers', icon: Truck, label: 'Suppliers' },
+    { to: '/inventory', icon: Package, label: terms.stock },
+    { to: '/categories', icon: Layers, label: terms.itemCategories },
+    { to: '/create-item', icon: PlusCircle, label: terms.createItem },
+    ...(isPharmacy ? [
+      { to: '/prescriptions', icon: FileBox, label: 'Prescriptions' },
+    ] : []),
+    { to: '/suppliers', icon: Truck, label: terms.supplier + 's' },
     { to: '/orders', icon: ClipboardList, label: 'Purchase Orders' },
     { to: '/sales', icon: DollarSign, label: 'Sales' },
     { to: '/cashier-tracking', icon: Receipt, label: 'Cashier Tracking' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
-  ],
-  pharmacist: [
-    { to: '/medicine-categories', icon: Layers, label: 'Medicine Categories' },
-    { to: '/create-medicine', icon: PlusCircle, label: 'Create Medicine' },
-    { to: '/pharmacist-medicines', icon: Package, label: 'Available Medicines' },
+  ];
+
+  const pharmacistItems: NavItem[] = isPharmacy ? [
+    { to: '/categories', icon: Layers, label: terms.itemCategories },
+    { to: '/create-item', icon: PlusCircle, label: terms.createItem },
+    { to: '/pharmacist-items', icon: Package, label: `Available ${terms.items}` },
     { to: '/prescriptions', icon: FileBox, label: 'Prescriptions' },
-  ],
-  cashier: [
+  ] : [
+    { to: '/categories', icon: Layers, label: terms.itemCategories },
+    { to: '/create-item', icon: PlusCircle, label: terms.createItem },
+  ];
+
+  const cashierItems: NavItem[] = [
     { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
     { to: '/my-sales', icon: Receipt, label: 'My Sales' },
-  ],
+  ];
+
+  return {
+    admin: adminItems,
+    manager: managerItems,
+    pharmacist: pharmacistItems,
+    cashier: cashierItems,
+  };
+};
+
+// Get icon for business type
+const getBusinessIcon = (businessType: BusinessType) => {
+  switch (businessType) {
+    case 'pharmacy':
+      return Pill;
+    case 'supermarket':
+      return ShoppingBag;
+    case 'general':
+      return Store;
+    case 'retail':
+      return Package;
+    default:
+      return Store;
+  }
 };
 
 export function Sidebar() {
-  const { user, logout } = useAuth();
+  const { user, business, businessType, isSuperAdmin, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   if (!user) return null;
 
+  const navItems = getNavItems(businessType, isSuperAdmin);
   const items = navItems[user.role] || [];
+  const BusinessIcon = getBusinessIcon(businessType);
+  const businessName = business?.name || 'PharmaPOS';
 
   return (
     <>
@@ -111,12 +169,16 @@ export function Sidebar() {
           <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
             <div className={cn('flex items-center gap-3', isCollapsed && 'justify-center w-full')}>
               <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-glow">
-                <Pill className="h-5 w-5 text-primary-foreground" />
+                <BusinessIcon className="h-5 w-5 text-primary-foreground" />
               </div>
               {!isCollapsed && (
                 <div className="animate-fade-in">
-                  <h1 className="font-display font-bold text-sidebar-foreground">PharmaPOS</h1>
-                  <p className="text-xs text-sidebar-foreground/60">Kenya</p>
+                  <h1 className="font-display font-bold text-sidebar-foreground truncate max-w-[140px]">
+                    {businessName}
+                  </h1>
+                  <p className="text-xs text-sidebar-foreground/60 capitalize">
+                    {businessType}
+                  </p>
                 </div>
               )}
             </div>
@@ -164,7 +226,9 @@ export function Sidebar() {
               {!isCollapsed && (
                 <div className="flex-1 min-w-0 animate-fade-in">
                   <p className="text-sm font-medium text-sidebar-foreground truncate">{user.name || user.email}</p>
-                  <p className="text-xs text-sidebar-foreground/60 capitalize">{user.role}</p>
+                  <p className="text-xs text-sidebar-foreground/60 capitalize">
+                    {isSuperAdmin ? 'Super Admin' : user.role}
+                  </p>
                 </div>
               )}
             </div>

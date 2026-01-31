@@ -651,3 +651,38 @@ All error responses follow this format:
    - Sum all payments to sellers/cashiers
 
 3. **Seller Payments**: Track commissions or payments made to cashiers/sellers who process sales on behalf of the pharmacy.
+
+---
+
+## Multi-Tenant Support
+
+**IMPORTANT**: This system now supports multi-tenant architecture. See `docs/MULTI_TENANT_API_ENDPOINTS.md` for:
+
+- Business management endpoints
+- Schema-based tenant isolation
+- Modified authentication with business context
+- Business type-specific features (pharmacy vs general stores)
+
+### Required Headers for Multi-Tenant Requests:
+```
+Authorization: Bearer <token>
+X-Business-ID: <business_id>
+X-Schema-Name: <schema_name>
+```
+
+### Login Response Now Includes Business:
+```json
+{
+  "success": true,
+  "data": {
+    "token": "...",
+    "user": { ... },
+    "business": {
+      "id": "bus_123",
+      "name": "ABC Pharmacy",
+      "businessType": "pharmacy",
+      "schemaName": "abc_pharmacy"
+    }
+  }
+}
+```

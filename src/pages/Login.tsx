@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Pill, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Building2, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Login() {
@@ -74,10 +74,10 @@ export default function Login() {
         <Card className="shadow-xl border-0">
           <CardHeader className="text-center pb-2">
             <div className="mx-auto w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center shadow-glow mb-4">
-              <Pill className="h-8 w-8 text-primary-foreground" />
+              <Building2 className="h-8 w-8 text-primary-foreground" />
             </div>
-            <CardTitle className="text-2xl">PharmaCare</CardTitle>
-            <CardDescription>Sign in to manage your pharmacy</CardDescription>
+            <CardTitle className="text-2xl">Business Portal</CardTitle>
+            <CardDescription>Sign in to manage your business</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
