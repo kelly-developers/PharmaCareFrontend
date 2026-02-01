@@ -28,34 +28,67 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { creditService, CreditSale } from '@/services/creditService';
+import { creditService, CreditSale, CreditPayment } from '@/services/creditService';
+import { api } from '@/services/api';
 import { format } from 'date-fns';
 import {
   Receipt,
   Search,
-  CreditCard,
   Phone,
   User,
   DollarSign,
   CheckCircle,
   Clock,
   AlertCircle,
-  Plus,
   RefreshCw,
+  Eye,
+  Banknote,
+  CreditCard,
+  History,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+interface SaleItem {
+  id: string;
+  medicine_id: string;
+  medicine_name: string;
+  quantity: number;
+  unit_type: string;
+  unit_label: string;
+  unit_price: number;
+  subtotal: number;
+}
+
+interface SaleReceipt {
+  id: string;
+  transaction_id?: string;
+  cashier_name: string;
+  total_amount: number;
+  discount: number;
+  final_amount: number;
+  payment_method: string;
+  customer_name: string;
+  customer_phone: string;
+  created_at: string;
+  items: SaleItem[];
+}
 
 export default function CreditSales() {
   const [credits, setCredits] = useState<CreditSale[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('unpaid');
   const [selectedCredit, setSelectedCredit] = useState<CreditSale | null>(null);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mpesa' | 'card'>('cash');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [receiptData, setReceiptData] = useState<SaleReceipt | null>(null);
+  const [isLoadingReceipt, setIsLoadingReceipt] = useState(false);
   const [summary, setSummary] = useState({
     totalOutstanding: 0,
     totalCredits: 0,
@@ -68,14 +101,29 @@ export default function CreditSales() {
   const fetchCredits = async () => {
     setIsLoading(true);
     try {
-      const filters = statusFilter !== 'all' ? { status: statusFilter } : undefined;
+      // For 'unpaid' filter, we want PENDING and PARTIAL status
+      let apiStatus: string | undefined = undefined;
+      if (statusFilter === 'unpaid') {
+        // Fetch all and filter client-side for pending + partial
+        apiStatus = undefined;
+      } else if (statusFilter !== 'all') {
+        apiStatus = statusFilter;
+      }
+      
       const [creditsRes, summaryRes] = await Promise.all([
-        creditService.getAll(filters),
+        creditService.getAll(apiStatus ? { status: apiStatus } : undefined),
         creditService.getSummary(),
       ]);
 
       if (creditsRes.success && creditsRes.data) {
-        setCredits(creditsRes.data);
+        let filteredCredits = creditsRes.data;
+        
+        // Filter out PAID credits if showing unpaid
+        if (statusFilter === 'unpaid') {
+          filteredCredits = creditsRes.data.filter(c => c.status !== 'paid');
+        }
+        
+        setCredits(filteredCredits);
       }
 
       if (summaryRes.success && summaryRes.data) {
@@ -96,6 +144,28 @@ export default function CreditSales() {
   useEffect(() => {
     fetchCredits();
   }, [statusFilter]);
+
+  // Fetch receipt/sale details
+  const fetchReceipt = async (saleId: string) => {
+    setIsLoadingReceipt(true);
+    try {
+      const response = await api.get<SaleReceipt>(`/sales/${saleId}`);
+      if (response.success && response.data) {
+        setReceiptData(response.data);
+        setShowReceiptDialog(true);
+      } else {
+        throw new Error(response.error || 'Failed to load receipt');
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to load receipt details',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingReceipt(false);
+    }
+  };
 
   const handleRecordPayment = async () => {
     if (!selectedCredit || !paymentAmount) return;
@@ -128,10 +198,15 @@ export default function CreditSales() {
       });
 
       if (response.success) {
+        const isFullyPaid = amount >= selectedCredit.balanceAmount;
+        
         toast({
-          title: 'Payment Recorded',
-          description: `KSh ${amount.toLocaleString()} payment recorded successfully`,
+          title: isFullyPaid ? 'Credit Cleared!' : 'Payment Recorded',
+          description: isFullyPaid 
+            ? `Credit of KSh ${selectedCredit.totalAmount.toLocaleString()} has been fully paid and added to profits`
+            : `KSh ${amount.toLocaleString()} payment recorded. Remaining: KSh ${(selectedCredit.balanceAmount - amount).toLocaleString()}`,
         });
+        
         setShowPaymentDialog(false);
         setPaymentAmount('');
         setSelectedCredit(null);
@@ -180,6 +255,17 @@ export default function CreditSales() {
             Pending
           </Badge>
         );
+    }
+  };
+
+  const getPaymentMethodIcon = (method: string) => {
+    switch (method?.toLowerCase()) {
+      case 'mpesa':
+        return <Phone className="h-3 w-3" />;
+      case 'card':
+        return <CreditCard className="h-3 w-3" />;
+      default:
+        return <Banknote className="h-3 w-3" />;
     }
   };
 
@@ -275,14 +361,15 @@ export default function CreditSales() {
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-40">
+                <SelectTrigger className="w-full sm:w-48">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="PENDING">Pending</SelectItem>
-                  <SelectItem value="PARTIAL">Partial</SelectItem>
-                  <SelectItem value="PAID">Paid</SelectItem>
+                  <SelectItem value="unpaid">Unpaid Credits</SelectItem>
+                  <SelectItem value="all">All Credits</SelectItem>
+                  <SelectItem value="PENDING">Pending Only</SelectItem>
+                  <SelectItem value="PARTIAL">Partial Only</SelectItem>
+                  <SelectItem value="PAID">Paid Only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -304,7 +391,9 @@ export default function CreditSales() {
                 <Receipt className="h-12 w-12 text-muted-foreground/40 mb-3" />
                 <p className="text-muted-foreground">No credit sales found</p>
                 <p className="text-sm text-muted-foreground/60">
-                  Credit sales will appear here when created from POS
+                  {statusFilter === 'unpaid' 
+                    ? 'All credits have been paid!' 
+                    : 'Credit sales will appear here when created from POS'}
                 </p>
               </div>
             ) : (
@@ -314,11 +403,11 @@ export default function CreditSales() {
                     <TableRow>
                       <TableHead>Customer</TableHead>
                       <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Credit Amount</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Balance</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -349,22 +438,25 @@ export default function CreditSales() {
                           KSh {credit.balanceAmount.toLocaleString()}
                         </TableCell>
                         <TableCell>{getStatusBadge(credit.status)}</TableCell>
-                        <TableCell className="text-right">
-                          {credit.status !== 'paid' && (
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  // Set payment amount to full balance for "Clear" action
-                                  setSelectedCredit(credit);
-                                  setPaymentAmount(credit.balanceAmount.toString());
-                                  setShowPaymentDialog(true);
-                                }}
-                              >
-                                <CheckCircle className="h-4 w-4 mr-1" />
-                                Clear
-                              </Button>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-2">
+                            {/* View Receipt Button */}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setSelectedCredit(credit);
+                                if (credit.saleId) {
+                                  fetchReceipt(credit.saleId);
+                                }
+                              }}
+                              disabled={isLoadingReceipt}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            
+                            {/* Pay Button - only for unpaid credits */}
+                            {credit.status !== 'paid' && (
                               <Button
                                 size="sm"
                                 onClick={() => {
@@ -373,11 +465,11 @@ export default function CreditSales() {
                                   setShowPaymentDialog(true);
                                 }}
                               >
-                                <Plus className="h-4 w-4 mr-1" />
+                                <Banknote className="h-4 w-4 mr-1" />
                                 Pay
                               </Button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -389,11 +481,155 @@ export default function CreditSales() {
         </Card>
       </div>
 
+      {/* Receipt Dialog */}
+      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Credit Receipt
+            </DialogTitle>
+          </DialogHeader>
+          
+          {isLoadingReceipt ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-6 w-6 animate-spin" />
+            </div>
+          ) : receiptData && selectedCredit ? (
+            <div className="space-y-4">
+              {/* Customer & Sale Info */}
+              <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Customer</span>
+                  <span className="font-medium">{selectedCredit.customerName}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Phone</span>
+                  <span>{selectedCredit.customerPhone}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Date</span>
+                  <span>{format(new Date(receiptData.created_at), 'dd/MM/yyyy HH:mm')}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Served by</span>
+                  <span>{receiptData.cashier_name}</span>
+                </div>
+              </div>
+
+              {/* Items */}
+              <div>
+                <h4 className="text-sm font-medium mb-2">Items Purchased</h4>
+                <ScrollArea className="h-[150px]">
+                  <div className="space-y-2">
+                    {receiptData.items?.map((item, index) => (
+                      <div key={index} className="flex justify-between text-sm p-2 bg-accent/30 rounded">
+                        <div>
+                          <p className="font-medium">{item.medicine_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.quantity} {item.unit_label || item.unit_type} × KSh {item.unit_price.toLocaleString()}
+                          </p>
+                        </div>
+                        <p className="font-medium">KSh {item.subtotal.toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              <Separator />
+
+              {/* Totals */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span>KSh {receiptData.total_amount?.toLocaleString()}</span>
+                </div>
+                {receiptData.discount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span className="text-success">-KSh {receiptData.discount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-lg">
+                  <span>Total Credit</span>
+                  <span className="text-destructive">KSh {selectedCredit.totalAmount.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Payment History */}
+              <div>
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
+                  <History className="h-4 w-4" />
+                  Payment History
+                </h4>
+                {selectedCredit.payments && selectedCredit.payments.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedCredit.payments.map((payment, index) => (
+                      <div key={index} className="flex justify-between items-center text-sm p-2 bg-success/10 rounded">
+                        <div className="flex items-center gap-2">
+                          {getPaymentMethodIcon(payment.paymentMethod)}
+                          <span>{format(new Date(payment.createdAt), 'dd/MM/yyyy')}</span>
+                        </div>
+                        <span className="font-medium text-success">+KSh {payment.amount.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No payments recorded yet</p>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Balance Summary */}
+              <div className="p-3 bg-accent rounded-lg space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Total Paid</span>
+                  <span className="text-success font-medium">KSh {selectedCredit.paidAmount.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span>Balance Due</span>
+                  <span className={cn(
+                    selectedCredit.balanceAmount > 0 ? "text-destructive" : "text-success"
+                  )}>
+                    KSh {selectedCredit.balanceAmount.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-center py-4">Failed to load receipt</p>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReceiptDialog(false)}>
+              Close
+            </Button>
+            {selectedCredit && selectedCredit.status !== 'paid' && (
+              <Button onClick={() => {
+                setShowReceiptDialog(false);
+                setPaymentAmount('');
+                setShowPaymentDialog(true);
+              }}>
+                <Banknote className="h-4 w-4 mr-1" />
+                Record Payment
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Banknote className="h-5 w-5" />
+              Record Payment
+            </DialogTitle>
           </DialogHeader>
           {selectedCredit && (
             <div className="space-y-4">
@@ -408,7 +644,7 @@ export default function CreditSales() {
                 </div>
                 <Separator />
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total Amount</span>
+                  <span className="text-muted-foreground">Total Credit</span>
                   <span>KSh {selectedCredit.totalAmount.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -417,7 +653,7 @@ export default function CreditSales() {
                     KSh {selectedCredit.paidAmount.toLocaleString()}
                   </span>
                 </div>
-                <div className="flex justify-between font-bold">
+                <div className="flex justify-between font-bold text-lg">
                   <span>Balance Due</span>
                   <span className="text-destructive">
                     KSh {selectedCredit.balanceAmount.toLocaleString()}
@@ -427,17 +663,27 @@ export default function CreditSales() {
 
               <div className="space-y-3">
                 <div>
-                  <Label>Payment Amount</Label>
+                  <Label>Payment Amount (KSh)</Label>
                   <Input
                     type="number"
-                    placeholder="Enter amount"
+                    placeholder="Enter amount to pay"
                     value={paymentAmount}
                     onChange={(e) => setPaymentAmount(e.target.value)}
                     max={selectedCredit.balanceAmount}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Max: KSh {selectedCredit.balanceAmount.toLocaleString()}
-                  </p>
+                  <div className="flex justify-between mt-1">
+                    <p className="text-xs text-muted-foreground">
+                      Max: KSh {selectedCredit.balanceAmount.toLocaleString()}
+                    </p>
+                    <Button 
+                      variant="link" 
+                      size="sm" 
+                      className="h-auto p-0 text-xs"
+                      onClick={() => setPaymentAmount(selectedCredit.balanceAmount.toString())}
+                    >
+                      Pay Full Amount
+                    </Button>
+                  </div>
                 </div>
 
                 <div>
@@ -450,12 +696,36 @@ export default function CreditSales() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="mpesa">M-Pesa</SelectItem>
-                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="cash">
+                        <span className="flex items-center gap-2">
+                          <Banknote className="h-4 w-4" /> Cash
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="mpesa">
+                        <span className="flex items-center gap-2">
+                          <Phone className="h-4 w-4" /> M-Pesa
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="card">
+                        <span className="flex items-center gap-2">
+                          <CreditCard className="h-4 w-4" /> Card
+                        </span>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Preview what will happen */}
+                {paymentAmount && parseFloat(paymentAmount) > 0 && (
+                  <div className="p-3 bg-success/10 border border-success/30 rounded-lg text-sm">
+                    <p className="font-medium text-success mb-1">After this payment:</p>
+                    {parseFloat(paymentAmount) >= selectedCredit.balanceAmount ? (
+                      <p>✅ Credit will be <strong>fully cleared</strong> and added to profits</p>
+                    ) : (
+                      <p>Remaining balance: <strong>KSh {(selectedCredit.balanceAmount - parseFloat(paymentAmount)).toLocaleString()}</strong></p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -463,8 +733,21 @@ export default function CreditSales() {
             <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleRecordPayment} disabled={isProcessing || !paymentAmount}>
-              {isProcessing ? 'Processing...' : 'Record Payment'}
+            <Button 
+              onClick={handleRecordPayment} 
+              disabled={isProcessing || !paymentAmount || parseFloat(paymentAmount) <= 0}
+            >
+              {isProcessing ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Record Payment
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

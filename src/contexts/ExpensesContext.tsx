@@ -93,9 +93,9 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
         const expensesArray = extractArray<Expense>(response.data);
         
         // Safely parse dates
-        const safeExpenses = expensesArray.map(exp => {
+        const safeExpenses = expensesArray.map((exp: any) => {
           const date = safeParseDate(exp.date || exp.expense_date || '');
-          const createdAt = safeParseDate(exp.createdAt || '');
+          const createdAt = safeParseDate(exp.createdAt || exp.created_at || '');
           
           return {
             ...exp,
