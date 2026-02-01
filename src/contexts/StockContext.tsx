@@ -184,18 +184,34 @@ export function StockProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) return;
     
     try {
-      const response = await stockService.getMonthlyStock();
+      const now = new Date();
+      const response = await stockService.getMonthlyStock(now.getFullYear(), now.getMonth() + 1);
       console.log('📅 Monthly Stocks Response:', response);
       
       if (response.success && response.data) {
-        // Transform backend MonthlyStockSummary to frontend MonthlyStock format
-        const transformedData: MonthlyStock[] = (response.data as any[]).map((item: any) => ({
-          month: item.month,
-          openingStock: [], // Backend returns numeric, we keep empty for now
-          closingStock: [], // Backend returns numeric, we keep empty for now
-          uploadedAt: item.uploadedAt
-        }));
-        setMonthlyStocks(transformedData);
+        // Backend returns an object with year, month, totalAdditions, totalSales, netChange
+        // Transform to the expected format
+        const data = response.data;
+        
+        // If it's an array, map it, otherwise wrap single object in array
+        if (Array.isArray(data)) {
+          const transformedData: MonthlyStock[] = data.map((item: any) => ({
+            month: item.month?.toString() || new Date().getMonth() + 1,
+            openingStock: [],
+            closingStock: [],
+            uploadedAt: item.uploadedAt
+          }));
+          setMonthlyStocks(transformedData);
+        } else {
+          // Single object response - wrap in array
+          const transformedData: MonthlyStock[] = [{
+            month: data.month?.toString() || (new Date().getMonth() + 1).toString(),
+            openingStock: [],
+            closingStock: [],
+            uploadedAt: new Date().toISOString()
+          }];
+          setMonthlyStocks(transformedData);
+        }
       } else {
         console.warn('No data in monthly stocks response');
         setMonthlyStocks([]);

@@ -86,8 +86,12 @@ export const stockService = {
   },
 
   // Get monthly stock summary
-  async getMonthlyStock(): Promise<ApiResponse<MonthlyStockSummary[]>> {
-    return api.get<MonthlyStockSummary[]>('/stock/monthly');
+  async getMonthlyStock(year?: number, month?: number): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams();
+    if (year) queryParams.append('year', year.toString());
+    if (month) queryParams.append('month', month.toString());
+    const queryString = queryParams.toString();
+    return api.get<any>(`/stock/monthly${queryString ? `?${queryString}` : ''}`);
   },
 
   // Get net movement for a medicine in a period
