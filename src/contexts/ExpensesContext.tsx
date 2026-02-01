@@ -32,6 +32,49 @@ function extractArray<T>(data: unknown): T[] {
   return [];
 }
 
+// Safe date parser that handles various formats
+const safeParseDate = (dateString: string | Date): Date => {
+  if (dateString instanceof Date) {
+    return isNaN(dateString.getTime()) ? new Date() : dateString;
+  }
+  
+  if (!dateString || dateString === '') {
+    return new Date();
+  }
+  
+  try {
+    // Try to parse as ISO string
+    const isoDate = new Date(dateString);
+    if (!isNaN(isoDate.getTime())) {
+      return isoDate;
+    }
+    
+    // Try to parse as YYYY-MM-DD
+    const match = dateString.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1; // JavaScript months are 0-indexed
+      const day = parseInt(match[3], 10);
+      const date = new Date(year, month, day);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    
+    // Try to parse with Date.parse
+    const parsed = Date.parse(dateString);
+    if (!isNaN(parsed)) {
+      return new Date(parsed);
+    }
+    
+    console.warn(`Could not parse date: ${dateString}, using current date`);
+    return new Date();
+  } catch (error) {
+    console.error('Date parsing error:', error);
+    return new Date();
+  }
+};
+
 export function ExpensesProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -48,17 +91,31 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
       const response = await expenseService.getAll();
       if (response.success && response.data) {
         const expensesArray = extractArray<Expense>(response.data);
-        setExpenses(expensesArray.map(exp => ({
-          ...exp,
-          date: new Date(exp.date),
-          createdAt: new Date(exp.createdAt),
-        })));
+        
+        // Safely parse dates
+        const safeExpenses = expensesArray.map(exp => {
+          const date = safeParseDate(exp.date || exp.expense_date || '');
+          const createdAt = safeParseDate(exp.createdAt || '');
+          
+          return {
+            ...exp,
+            date,
+            createdAt,
+            // Ensure amount is a number
+            amount: typeof exp.amount === 'number' ? exp.amount : parseFloat(exp.amount) || 0,
+            // Use description or title
+            description: exp.description || exp.title || exp.category || 'No description',
+          };
+        });
+        
+        setExpenses(safeExpenses);
       } else {
         console.warn('Failed to fetch expenses:', response.error);
         setExpenses([]);
       }
     } catch (err) {
       console.error('Failed to fetch expenses:', err);
+      setError('Failed to load expenses. Please try again.');
       setExpenses([]);
     } finally {
       setIsLoading(false);
@@ -76,27 +133,24 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
 
   const addExpense = async (expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense | null> => {
     try {
-      // Format date properly - ensure it's a string in YYYY-MM-DD format
-      let dateString: string;
-      const dateValue = expenseData.date as Date | string;
-      if (dateValue instanceof Date) {
-        dateString = dateValue.toISOString().split('T')[0];
-      } else if (typeof dateValue === 'string') {
-        dateString = dateValue.split('T')[0];
-      } else {
-        dateString = new Date().toISOString().split('T')[0];
-      }
+      // Safely parse and format date
+      const dateObj = safeParseDate(expenseData.date);
+      const dateString = dateObj.toISOString().split('T')[0];
 
-      console.log('📝 Adding expense:', { ...expenseData, date: dateString });
+      console.log('📝 Adding expense:', { 
+        ...expenseData, 
+        date: dateString,
+        parsedDate: dateObj.toISOString() 
+      });
 
       // Backend expects 'title' field, use description as title
       const response = await expenseService.create({
         category: expenseData.category,
-        title: expenseData.description, // Backend requires title
-        description: expenseData.description,
-        amount: expenseData.amount,
+        title: expenseData.description || expenseData.category, // Use description or category as title
+        description: expenseData.description || expenseData.category,
+        amount: typeof expenseData.amount === 'number' ? expenseData.amount : parseFloat(expenseData.amount as any) || 0,
         date: dateString,
-        createdBy: expenseData.createdBy,
+        createdBy: expenseData.createdBy || 'Unknown',
         createdByRole: expenseData.createdByRole || 'admin',
       });
       
@@ -104,27 +158,30 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
 
       if (response.success && response.data) {
         const responseData = response.data as any;
+        
+        // Create new expense with safe date parsing
         const newExpense: Expense = {
-          id: responseData.id,
-          category: responseData.category,
-          description: responseData.description || responseData.title,
-          amount: parseFloat(responseData.amount) || 0,
-          date: new Date(responseData.date || responseData.expense_date || dateString),
-          createdBy: responseData.createdBy || responseData.created_by_name || expenseData.createdBy,
-          createdByRole: responseData.createdByRole || expenseData.createdByRole,
-          createdAt: responseData.createdAt ? new Date(responseData.createdAt) : new Date(),
+          id: responseData.id || Date.now().toString(),
+          category: responseData.category || expenseData.category,
+          description: responseData.description || responseData.title || expenseData.description || expenseData.category,
+          amount: typeof responseData.amount === 'number' ? responseData.amount : parseFloat(responseData.amount) || expenseData.amount,
+          date: safeParseDate(responseData.date || responseData.expense_date || dateString),
+          createdBy: responseData.createdBy || responseData.created_by_name || expenseData.createdBy || 'Unknown',
+          createdByRole: responseData.createdByRole || expenseData.createdByRole || 'admin',
+          createdAt: safeParseDate(responseData.createdAt || new Date().toISOString()),
         };
+        
         setExpenses(prev => [newExpense, ...prev]);
         // Refresh to get full data from server
         await refreshExpenses();
         return newExpense;
       } else {
         console.error('❌ Failed to add expense:', response.error);
+        throw new Error(response.error || 'Failed to add expense');
       }
-      return null;
     } catch (err) {
       console.error('❌ Failed to add expense:', err);
-      return null;
+      throw err;
     }
   };
 
@@ -168,6 +225,9 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    monthStart.setHours(0, 0, 0, 0);
+    monthEnd.setHours(23, 59, 59, 999);
+    
     return expenses.filter(exp => {
       const expDate = new Date(exp.date);
       return expDate >= monthStart && expDate <= monthEnd;

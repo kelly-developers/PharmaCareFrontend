@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Wallet,
@@ -69,19 +70,55 @@ const expenseCategories = [
   'Miscellaneous',
 ];
 
+// Safe date formatter
+const safeFormat = (date: Date | string, formatStr: string): string => {
+  try {
+    const dateObj = date instanceof Date ? date : new Date(date);
+    if (isNaN(dateObj.getTime())) {
+      return 'Invalid Date';
+    }
+    return format(dateObj, formatStr);
+  } catch (error) {
+    console.error('Date formatting error:', error);
+    return 'Invalid Date';
+  }
+};
+
+// Get today's date in YYYY-MM-DD format safely
+const getTodayDateString = (): string => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function Expenses() {
-  const { expenses, addExpense, deleteExpense, getExpensesByRole, getTotalExpenses } = useExpenses();
-  const { sales } = useSales();
-  const { medicines } = useStock();
+  const { expenses, addExpense, deleteExpense, getExpensesByRole, getTotalExpenses, isLoading } = useExpenses();
+  const { sales, isLoading: salesLoading } = useSales();
+  const { medicines, isLoading: stockLoading } = useStock();
   const { user, canViewProfit } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newExpense, setNewExpense] = useState({
     category: '',
     description: '',
     amount: '',
-    date: format(new Date(), 'yyyy-MM-dd'),
+    date: getTodayDateString(),
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+
+  // Initialize with today's date
+  useEffect(() => {
+    if (!showAddDialog) {
+      setNewExpense({
+        category: '',
+        description: '',
+        amount: '',
+        date: getTodayDateString(),
+      });
+    }
+  }, [showAddDialog]);
 
   // Calculate financials
   const totalExpenses = getTotalExpenses();
@@ -89,16 +126,16 @@ export default function Expenses() {
   const cashierExpensesTotal = cashierExpenses.reduce((sum, exp) => sum + exp.amount, 0);
   
   // Calculate total sales
-  const totalSales = sales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalSales = sales.reduce((sum, sale) => sum + (sale.total || 0), 0);
   
   // Calculate COGS from actual sales data
   const totalCOGS = sales.reduce((sum, sale) => {
-    return sum + sale.items.reduce((itemSum, item) => {
+    return sum + (sale.items?.reduce((itemSum, item) => {
       const medicine = medicines.find(m => m.id === item.medicineId);
-      const unit = medicine?.units.find(u => u.type === item.unitType);
+      const unit = medicine?.units?.find(u => u.type === item.unitType);
       const costPerUnit = medicine ? medicine.costPrice * (unit?.quantity || 1) : 0;
-      return itemSum + (costPerUnit * item.quantity);
-    }, 0);
+      return itemSum + (costPerUnit * (item.quantity || 0));
+    }, 0) || 0);
   }, 0);
   
   const grossProfit = totalSales - totalCOGS;
@@ -106,7 +143,8 @@ export default function Expenses() {
 
   // Expenses by category
   const expensesByCategory = expenses.reduce((acc, exp) => {
-    acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
+    const category = exp.category || 'Uncategorized';
+    acc[category] = (acc[category] || 0) + (exp.amount || 0);
     return acc;
   }, {} as Record<string, number>);
 
@@ -116,12 +154,12 @@ export default function Expenses() {
     if (!acc[cashier]) {
       acc[cashier] = { total: 0, count: 0 };
     }
-    acc[cashier].total += exp.amount;
+    acc[cashier].total += (exp.amount || 0);
     acc[cashier].count += 1;
     return acc;
   }, {} as Record<string, { total: number; count: number }>);
 
-  const handleAddExpense = () => {
+  const handleAddExpense = async () => {
     if (!newExpense.category || !newExpense.description || !newExpense.amount) {
       toast({
         title: 'Error',
@@ -131,31 +169,93 @@ export default function Expenses() {
       return;
     }
 
-    addExpense({
-      category: newExpense.category,
-      description: newExpense.description,
-      amount: parseFloat(newExpense.amount),
-      date: new Date(newExpense.date),
-      createdBy: user?.name || 'Admin',
-      createdByRole: user?.role,
-    });
+    const amount = parseFloat(newExpense.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a valid positive amount',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-    setShowAddDialog(false);
-    setNewExpense({ category: '', description: '', amount: '', date: format(new Date(), 'yyyy-MM-dd') });
-    
-    toast({
-      title: 'Expense Added',
-      description: `${newExpense.category} - KSh ${parseFloat(newExpense.amount).toLocaleString()}`,
-    });
+    setIsSubmitting(true);
+    try {
+      await addExpense({
+        category: newExpense.category,
+        description: newExpense.description,
+        amount: amount,
+        date: new Date(newExpense.date),
+        createdBy: user?.name || 'Admin',
+        createdByRole: user?.role as any,
+      });
+
+      setShowAddDialog(false);
+      setNewExpense({ category: '', description: '', amount: '', date: getTodayDateString() });
+      
+      toast({
+        title: 'Expense Added',
+        description: `${newExpense.category} - KSh ${amount.toLocaleString()}`,
+      });
+    } catch (error) {
+      console.error('Failed to add expense:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to add expense. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDeleteExpense = (id: string) => {
-    deleteExpense(id);
-    toast({
-      title: 'Expense Deleted',
-      description: 'The expense has been removed',
-    });
+  const handleDeleteExpense = async (id: string) => {
+    try {
+      const success = await deleteExpense(id);
+      if (success) {
+        toast({
+          title: 'Expense Deleted',
+          description: 'The expense has been removed',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Failed to delete expense',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete expense:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete expense',
+        variant: 'destructive',
+      });
+    }
   };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Basic date validation
+    if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      setNewExpense({ ...newExpense, date: value });
+    } else {
+      setNewExpense({ ...newExpense, date: '' });
+    }
+  };
+
+  if (isLoading || salesLoading || stockLoading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="mt-4 text-muted-foreground">Loading expenses...</p>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -215,6 +315,8 @@ export default function Expenses() {
                       <Label>Amount (KSh) *</Label>
                       <Input
                         type="number"
+                        min="0.01"
+                        step="0.01"
                         value={newExpense.amount}
                         onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
                         placeholder="Enter amount"
@@ -225,20 +327,30 @@ export default function Expenses() {
                       <Input
                         type="date"
                         value={newExpense.date}
-                        onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
+                        onChange={handleDateChange}
+                        max={getTodayDateString()}
                       />
                     </div>
                   </div>
                   
-                  <div className="flex gap-2 pt-4">
-                    <Button variant="outline" onClick={() => setShowAddDialog(false)} className="flex-1">
+                  <DialogFooter className="pt-4">
+                    <Button variant="outline" onClick={() => setShowAddDialog(false)} disabled={isSubmitting}>
                       Cancel
                     </Button>
-                    <Button onClick={handleAddExpense} className="flex-1">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Expense
+                    <Button onClick={handleAddExpense} disabled={isSubmitting}>
+                      {isSubmitting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                          Adding...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Expense
+                        </>
+                      )}
                     </Button>
-                  </div>
+                  </DialogFooter>
                 </div>
               </DialogContent>
             </Dialog>
@@ -355,7 +467,7 @@ export default function Expenses() {
                               <TableCell className="text-muted-foreground">
                                 <div className="flex items-center gap-1">
                                   <Calendar className="h-3 w-3" />
-                                  {format(new Date(expense.date), 'MMM dd')}
+                                  {safeFormat(expense.date, 'MMM dd')}
                                 </div>
                               </TableCell>
                               <TableCell>
@@ -373,7 +485,7 @@ export default function Expenses() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-right font-semibold text-destructive">
-                                KSh {expense.amount.toLocaleString()}
+                                KSh {(expense.amount || 0).toLocaleString()}
                               </TableCell>
                               <TableCell className="text-right">
                                 <Button
@@ -381,6 +493,7 @@ export default function Expenses() {
                                   size="icon"
                                   className="h-8 w-8 text-destructive hover:text-destructive"
                                   onClick={() => handleDeleteExpense(expense.id)}
+                                  title="Delete expense"
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
@@ -418,7 +531,7 @@ export default function Expenses() {
                           </div>
                           <div>
                             <p className="font-medium">{cashier}</p>
-                            <p className="text-lg font-bold text-destructive">KSh {data.total.toLocaleString()}</p>
+                            <p className="text-lg font-bold text-destructive">KSh {(data.total || 0).toLocaleString()}</p>
                             <p className="text-xs text-muted-foreground">{data.count} expense(s)</p>
                           </div>
                         </div>
@@ -453,7 +566,7 @@ export default function Expenses() {
                       cashierExpenses.map((expense) => (
                         <TableRow key={expense.id}>
                           <TableCell className="text-muted-foreground">
-                            {format(new Date(expense.date), 'MMM dd, yyyy')}
+                            {safeFormat(expense.date, 'MMM dd, yyyy')}
                           </TableCell>
                           <TableCell className="font-medium">{expense.createdBy}</TableCell>
                           <TableCell>
@@ -463,7 +576,7 @@ export default function Expenses() {
                             {expense.description}
                           </TableCell>
                           <TableCell className="text-right font-semibold">
-                            KSh {expense.amount.toLocaleString()}
+                            KSh {(expense.amount || 0).toLocaleString()}
                           </TableCell>
                         </TableRow>
                       ))
