@@ -155,6 +155,7 @@ function AppRoutes() {
       {/* Super Admin Routes */}
       <Route path="/super-admin" element={<ProtectedRoute superAdminOnly><SuperAdminDashboard /></ProtectedRoute>} />
       <Route path="/businesses" element={<ProtectedRoute superAdminOnly><BusinessManagement /></ProtectedRoute>} />
+       <Route path="/businesses/new" element={<ProtectedRoute superAdminOnly><BusinessManagement /></ProtectedRoute>} />
       
       {/* 404 */}
       

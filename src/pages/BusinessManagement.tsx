@@ -106,7 +106,7 @@ export default function BusinessManagement() {
     try {
       const response = await businessService.getAll(1, 100);
       if (response.success && response.data) {
-        setBusinesses(response.data.businesses || []);
+        setBusinesses(response.data.data || []);
       }
     } catch (error) {
       toast.error('Failed to load businesses');

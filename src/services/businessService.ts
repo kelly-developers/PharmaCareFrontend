@@ -11,21 +11,21 @@ interface BusinessListResponse {
   };
 }
 
-interface BusinessStatsResponse {
-  data: {
-    total: number;
-    byStatus: {
-      active: number;
-      inactive: number;
-      suspended: number;
-      pending: number;
-    };
-    byType: Record<string, number>;
-    recent: number;
-    monthlyGrowth?: {
-      current: number;
-      previous: number;
-    };
+interface BusinessDashboardStats {
+  totalBusinesses: number;
+  activeBusinesses: number;
+  suspendedBusinesses: number;
+  pendingBusinesses: number;
+  pharmacyCount: number;
+  generalCount: number;
+  supermarketCount: number;
+  retailCount: number;
+  totalUsers?: number;
+  adminCount?: number;
+  recentBusinesses?: number;
+  monthlyGrowth?: {
+    current: number;
+    previous: number;
   };
 }
 
@@ -35,6 +35,42 @@ interface ApiResponse<T = any> {
   error?: string;
   message?: string;
 }
+
+const toDate = (value: any): Date => {
+  if (!value) return new Date();
+  if (value instanceof Date) return value;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+};
+
+const normalizeBusiness = (raw: any): Business & { admins?: any[]; usersCount?: number } => {
+  const usersCountRaw = raw?.usersCount ?? raw?.users_count;
+
+  return {
+    id: String(raw?.id ?? raw?._id ?? ''),
+    name: String(raw?.name ?? ''),
+    email: String(raw?.email ?? ''),
+    phone: String(raw?.phone ?? ''),
+    businessType: (raw?.businessType ?? raw?.business_type ?? 'pharmacy') as any,
+    schemaName: String(raw?.schemaName ?? raw?.schema_name ?? raw?.schema ?? ''),
+    address: raw?.address ?? undefined,
+    city: raw?.city ?? undefined,
+    country: raw?.country ?? undefined,
+    logo: raw?.logo ?? undefined,
+    subscriptionPlan: (raw?.subscriptionPlan ?? raw?.subscription_plan ?? undefined) as any,
+    status: (raw?.status ?? 'active') as any,
+    createdAt: toDate(raw?.createdAt ?? raw?.created_at),
+    updatedAt: raw?.updatedAt || raw?.updated_at ? toDate(raw?.updatedAt ?? raw?.updated_at) : undefined,
+    ownerId: raw?.ownerId ?? raw?.owner_id ?? undefined,
+    ...(usersCountRaw !== undefined ? { usersCount: Number(usersCountRaw) } : {}),
+    ...(Array.isArray(raw?.admins) ? { admins: raw.admins } : {}),
+  };
+};
+
+const normalizeBusinessArray = (raw: any): Business[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeBusiness);
+};
 
 export const businessService = {
   // Get all businesses (super admin only)
@@ -47,50 +83,35 @@ export const businessService = {
       let endpoint = `/businesses?page=${page}&limit=${limit}`;
       if (status) endpoint += `&status=${status}`;
       
-      const response = await api.get<BusinessListResponse>(endpoint);
-      
-      // Ensure consistent response structure
-      if (response.success && response.data) {
-        // Handle both possible response structures
-        const data = response.data as any;
-        
-        // If businesses array is at root level (old structure)
-        if (Array.isArray(data.businesses)) {
-          return {
-            success: true,
-            data: {
-              data: data.businesses || [],
-              pagination: {
-                page: data.page || 1,
-                limit: data.limit || 20,
-                total: data.total || 0,
-                pages: data.pages || 1
-              }
-            }
-          };
-        }
-        
-        // If data already has proper structure
-        if (Array.isArray(data.data)) {
-          return response;
-        }
-        
-        // Fallback to empty array
-        return {
-          success: true,
-          data: {
-            data: [],
-            pagination: {
-              page: 1,
-              limit: 20,
-              total: 0,
-              pages: 1
-            }
-          }
-        };
-      }
-      
-      return response;
+      const response = await api.get<any>(endpoint);
+
+      if (!response.success) return response as any;
+
+      const payload = response.data as any;
+
+      const businessesRaw = payload?.businesses ?? payload?.data ?? payload;
+      const businesses = normalizeBusinessArray(businessesRaw);
+
+      const total = Number(payload?.total ?? payload?.pagination?.total ?? 0);
+      const resolvedLimit = Number(payload?.limit ?? payload?.pagination?.limit ?? limit);
+      const pages = Number(
+        payload?.pages ??
+          payload?.pagination?.pages ??
+          (resolvedLimit ? Math.ceil(total / resolvedLimit) : 1)
+      );
+
+      return {
+        success: true,
+        data: {
+          data: businesses,
+          pagination: {
+            page: Number(payload?.page ?? payload?.pagination?.page ?? page),
+            limit: resolvedLimit,
+            total,
+            pages,
+          },
+        },
+      };
     } catch (error) {
       console.error('Error fetching businesses:', error);
       return {
@@ -103,7 +124,11 @@ export const businessService = {
   // Get business by ID
   async getById(id: string): Promise<ApiResponse<Business>> {
     try {
-      return await api.get<Business>(`/businesses/${id}`);
+      const response = await api.get<any>(`/businesses/${id}`);
+      if (response.success && response.data) {
+        return { success: true, data: normalizeBusiness(response.data) as any };
+      }
+      return response as any;
     } catch (error) {
       console.error('Error fetching business by ID:', error);
       return {
@@ -116,7 +141,11 @@ export const businessService = {
   // Create new business (super admin only)
   async create(data: CreateBusinessRequest): Promise<ApiResponse<Business>> {
     try {
-      return await api.post<Business>('/businesses', data);
+      const response = await api.post<any>('/businesses', data);
+      if (response.success && response.data) {
+        return { success: true, data: normalizeBusiness(response.data) as any, message: response.message };
+      }
+      return response as any;
     } catch (error) {
       console.error('Error creating business:', error);
       return {
@@ -129,7 +158,11 @@ export const businessService = {
   // Update business
   async update(id: string, data: UpdateBusinessRequest): Promise<ApiResponse<Business>> {
     try {
-      return await api.put<Business>(`/businesses/${id}`, data);
+      const response = await api.put<any>(`/businesses/${id}`, data);
+      if (response.success && response.data) {
+        return { success: true, data: normalizeBusiness(response.data) as any, message: response.message };
+      }
+      return response as any;
     } catch (error) {
       console.error('Error updating business:', error);
       return {
@@ -153,47 +186,55 @@ export const businessService = {
   },
 
   // Get business statistics (super admin dashboard)
-  async getStats(): Promise<ApiResponse<BusinessStatsResponse['data']>> {
+  async getStats(): Promise<ApiResponse<BusinessDashboardStats>> {
     try {
-      const response = await api.get<BusinessStatsResponse['data']>('/businesses/stats');
+      const response = await api.get<any>('/businesses/stats');
       
       if (response.success && response.data) {
         const stats = response.data as any;
-        
-        // Transform the backend response to match frontend expectations
-        const transformedData = {
-          total: stats.total || 0,
-          byStatus: stats.byStatus || {
-            active: 0,
-            inactive: 0,
-            suspended: 0,
-            pending: 0
-          },
-          byType: stats.byType || {},
-          recent: stats.recent || 0,
-          monthlyGrowth: stats.monthlyGrowth || {
-            current: stats.recent || 0,
-            previous: Math.floor((stats.recent || 0) * 0.8)
-          }
+
+        // Prefer backend-provided shape (newer backend)
+        if (typeof stats.totalBusinesses === 'number') {
+          return { success: true, data: stats as BusinessDashboardStats };
+        }
+
+        // Back-compat: transform older stats shapes
+        const total = Number(stats.total ?? stats.total_businesses ?? 0);
+        const byStatus = stats.byStatus || {
+          active: Number(stats.active_businesses ?? 0),
+          inactive: Number(stats.inactive_businesses ?? 0),
+          suspended: Number(stats.suspended_businesses ?? 0),
+          pending: Number(stats.pending_businesses ?? 0),
         };
-        
-        // Calculate type counts safely
-        const typeCounts = transformedData.byType || {};
-        
+        const byType = stats.byType || {
+          pharmacy: Number(stats.pharmacy_count ?? 0),
+          general: Number(stats.general_count ?? 0),
+          supermarket: Number(stats.supermarket_count ?? 0),
+          retail: Number(stats.retail_count ?? 0),
+        };
+        const recent = Number(stats.recent ?? stats.recentBusinesses ?? 0);
+        const monthlyGrowth =
+          stats.monthlyGrowth || {
+            current: recent,
+            previous: Math.floor(recent * 0.8),
+          };
+
         return {
           success: true,
           data: {
-            totalBusinesses: transformedData.total,
-            activeBusinesses: transformedData.byStatus?.active || 0,
-            suspendedBusinesses: transformedData.byStatus?.suspended || 0,
-            pendingBusinesses: transformedData.byStatus?.pending || 0,
-            pharmacyCount: typeCounts.pharmacy || 0,
-            generalCount: typeCounts.general || 0,
-            supermarketCount: typeCounts.supermarket || 0,
-            retailCount: typeCounts.retail || 0,
-            recentBusinesses: transformedData.recent,
-            monthlyGrowth: transformedData.monthlyGrowth
-          } as any // Cast to expected type
+            totalBusinesses: total,
+            activeBusinesses: Number(byStatus?.active ?? 0),
+            suspendedBusinesses: Number(byStatus?.suspended ?? 0),
+            pendingBusinesses: Number(byStatus?.pending ?? 0),
+            pharmacyCount: Number(byType?.pharmacy ?? 0),
+            generalCount: Number(byType?.general ?? 0),
+            supermarketCount: Number(byType?.supermarket ?? 0),
+            retailCount: Number(byType?.retail ?? 0),
+            totalUsers: Number(stats.totalUsers ?? 0),
+            adminCount: Number(stats.adminCount ?? 0),
+            recentBusinesses: recent,
+            monthlyGrowth,
+          },
         };
       }
       
