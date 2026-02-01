@@ -3,10 +3,10 @@ import { Expense, UserRole } from '@/types/pharmacy';
 
 interface CreateExpenseRequest {
   category: string;
-  title: string; // Backend requires title
+  title: string; // Backend expects title
   description: string;
   amount: number;
-  date: string;
+  date: string; // Should be YYYY-MM-DD format
   createdBy?: string;
   createdByRole?: UserRole;
 }
@@ -44,15 +44,41 @@ interface PeriodTotal {
   count: number;
 }
 
+// Helper to safely format date
+const safeDateFormat = (date: Date | string): string => {
+  try {
+    if (typeof date === 'string') {
+      // If it's already a string, try to parse it
+      const parsed = new Date(date);
+      if (isNaN(parsed.getTime())) {
+        throw new Error('Invalid date string');
+      }
+      return parsed.toISOString().split('T')[0];
+    }
+    
+    const d = new Date(date);
+    if (isNaN(d.getTime())) {
+      throw new Error('Invalid date');
+    }
+    return d.toISOString().split('T')[0];
+  } catch (error) {
+    console.warn('Date formatting error, using current date:', error);
+    return new Date().toISOString().split('T')[0];
+  }
+};
+
 export const expenseService = {
   // Get all expenses (NO pagination - returns ALL expenses)
   async getAll(filters?: ExpenseFilters): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
     if (filters?.category) queryParams.append('category', filters.category);
-    if (filters?.startDate) queryParams.append('startDate', filters.startDate);
-    if (filters?.endDate) queryParams.append('endDate', filters.endDate);
+    if (filters?.startDate) {
+      queryParams.append('startDate', safeDateFormat(filters.startDate));
+    }
+    if (filters?.endDate) {
+      queryParams.append('endDate', safeDateFormat(filters.endDate));
+    }
     if (filters?.createdBy) queryParams.append('createdBy', filters.createdBy);
-    // NO page/limit params - backend returns all records
     
     const query = queryParams.toString();
     return api.get<any>(`/expenses${query ? `?${query}` : ''}`);
@@ -65,12 +91,21 @@ export const expenseService = {
 
   // Create expense
   async create(expense: CreateExpenseRequest): Promise<ApiResponse<Expense>> {
-    return api.post<Expense>('/expenses', expense);
+    // Ensure date is properly formatted
+    const formattedExpense = {
+      ...expense,
+      date: safeDateFormat(expense.date),
+    };
+    return api.post<Expense>('/expenses', formattedExpense);
   },
 
   // Update expense
   async update(id: string, updates: UpdateExpenseRequest): Promise<ApiResponse<Expense>> {
-    return api.put<Expense>(`/expenses/${id}`, updates);
+    const formattedUpdates = {
+      ...updates,
+      ...(updates.date && { date: safeDateFormat(updates.date) }),
+    };
+    return api.put<Expense>(`/expenses/${id}`, formattedUpdates);
   },
 
   // Delete expense
@@ -100,7 +135,9 @@ export const expenseService = {
 
   // Get expenses total for period
   async getPeriodTotal(startDate: string, endDate: string): Promise<ApiResponse<PeriodTotal>> {
-    return api.get<PeriodTotal>(`/expenses/period-total?startDate=${startDate}&endDate=${endDate}`);
+    const safeStart = safeDateFormat(startDate);
+    const safeEnd = safeDateFormat(endDate);
+    return api.get<PeriodTotal>(`/expenses/period-total?startDate=${safeStart}&endDate=${safeEnd}`);
   },
 
   // Get expense statistics
@@ -118,27 +155,31 @@ export const expenseService = {
   },
 
   async getToday(): Promise<ApiResponse<Expense[]>> {
-    const today = new Date().toISOString().split('T')[0];
+    const today = safeDateFormat(new Date());
     return api.get<Expense[]>(`/expenses?startDate=${today}&endDate=${today}`);
   },
 
   async getThisMonth(): Promise<ApiResponse<Expense[]>> {
     const now = new Date();
-    const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    const endDate = now.toISOString().split('T')[0];
+    const startDate = safeDateFormat(new Date(now.getFullYear(), now.getMonth(), 1));
+    const endDate = safeDateFormat(now);
     return api.get<Expense[]>(`/expenses?startDate=${startDate}&endDate=${endDate}`);
   },
 
   async getSummary(startDate?: string, endDate?: string): Promise<ApiResponse<any>> {
     const queryParams = new URLSearchParams();
-    if (startDate) queryParams.append('startDate', startDate);
-    if (endDate) queryParams.append('endDate', endDate);
+    if (startDate) queryParams.append('startDate', safeDateFormat(startDate));
+    if (endDate) queryParams.append('endDate', safeDateFormat(endDate));
     const query = queryParams.toString();
     return api.get(`/expenses/stats${query ? `?${query}` : ''}`);
   },
 
   async getCategories(): Promise<ApiResponse<string[]>> {
-    // Categories are typically static or can be fetched from medicine categories
     return api.get<string[]>('/expenses/categories');
   },
+  
+  // Utility function to get today's date in safe format
+  getTodayDate(): string {
+    return safeDateFormat(new Date());
+  }
 };
