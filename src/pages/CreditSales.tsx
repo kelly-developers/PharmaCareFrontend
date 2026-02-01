@@ -412,7 +412,20 @@ export default function CreditSales() {
                   </TableHeader>
                   <TableBody>
                     {filteredCredits.map((credit) => (
-                      <TableRow key={credit.id}>
+                      <TableRow 
+                        key={credit.id}
+                        className="cursor-pointer hover:bg-muted/80"
+                        onClick={() => {
+                          setSelectedCredit(credit);
+                          if (credit.saleId) {
+                            fetchReceipt(credit.saleId);
+                          } else {
+                            // Show receipt dialog even without full receipt data
+                            setReceiptData(null);
+                            setShowReceiptDialog(true);
+                          }
+                        }}
+                      >
                         <TableCell>
                           <div>
                             <p className="font-medium flex items-center gap-1">
@@ -439,20 +452,24 @@ export default function CreditSales() {
                         </TableCell>
                         <TableCell>{getStatusBadge(credit.status)}</TableCell>
                         <TableCell>
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                             {/* View Receipt Button */}
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="outline"
                               onClick={() => {
                                 setSelectedCredit(credit);
                                 if (credit.saleId) {
                                   fetchReceipt(credit.saleId);
+                                } else {
+                                  setReceiptData(null);
+                                  setShowReceiptDialog(true);
                                 }
                               }}
                               disabled={isLoadingReceipt}
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
                             </Button>
                             
                             {/* Pay Button - only for unpaid credits */}
@@ -495,7 +512,7 @@ export default function CreditSales() {
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-6 w-6 animate-spin" />
             </div>
-          ) : receiptData && selectedCredit ? (
+          ) : selectedCredit ? (
             <div className="space-y-4">
               {/* Customer & Sale Info */}
               <div className="p-3 bg-muted/50 rounded-lg space-y-2">
@@ -509,43 +526,49 @@ export default function CreditSales() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Date</span>
-                  <span>{format(new Date(receiptData.created_at), 'dd/MM/yyyy HH:mm')}</span>
+                  <span>{format(new Date(receiptData?.created_at || selectedCredit.createdAt), 'dd/MM/yyyy HH:mm')}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Served by</span>
-                  <span>{receiptData.cashier_name}</span>
-                </div>
+                {receiptData?.cashier_name && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Served by</span>
+                    <span>{receiptData.cashier_name}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Items */}
-              <div>
-                <h4 className="text-sm font-medium mb-2">Items Purchased</h4>
-                <ScrollArea className="h-[150px]">
-                  <div className="space-y-2">
-                    {receiptData.items?.map((item, index) => (
-                      <div key={index} className="flex justify-between text-sm p-2 bg-accent/30 rounded">
-                        <div>
-                          <p className="font-medium">{item.medicine_name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.quantity} {item.unit_label || item.unit_type} × KSh {item.unit_price.toLocaleString()}
-                          </p>
+              {/* Items - only show if receipt data is available */}
+              {receiptData?.items && receiptData.items.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Items Purchased</h4>
+                  <ScrollArea className="h-[150px]">
+                    <div className="space-y-2">
+                      {receiptData.items.map((item, index) => (
+                        <div key={index} className="flex justify-between text-sm p-2 bg-accent/30 rounded">
+                          <div>
+                            <p className="font-medium">{item.medicine_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.quantity} {item.unit_label || item.unit_type} × KSh {item.unit_price.toLocaleString()}
+                            </p>
+                          </div>
+                          <p className="font-medium">KSh {item.subtotal.toLocaleString()}</p>
                         </div>
-                        <p className="font-medium">KSh {item.subtotal.toLocaleString()}</p>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
 
               <Separator />
 
               {/* Totals */}
               <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span>KSh {receiptData.total_amount?.toLocaleString()}</span>
-                </div>
-                {receiptData.discount > 0 && (
+                {receiptData?.total_amount && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span>KSh {receiptData.total_amount.toLocaleString()}</span>
+                  </div>
+                )}
+                {receiptData?.discount && receiptData.discount > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Discount</span>
                     <span className="text-success">-KSh {receiptData.discount.toLocaleString()}</span>
@@ -601,7 +624,7 @@ export default function CreditSales() {
               </div>
             </div>
           ) : (
-            <p className="text-muted-foreground text-center py-4">Failed to load receipt</p>
+            <p className="text-muted-foreground text-center py-4">No credit selected</p>
           )}
 
           <DialogFooter>
