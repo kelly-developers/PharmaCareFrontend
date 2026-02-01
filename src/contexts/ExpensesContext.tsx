@@ -76,30 +76,54 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
 
   const addExpense = async (expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense | null> => {
     try {
+      // Format date properly - ensure it's a string in YYYY-MM-DD format
+      let dateString: string;
+      const dateValue = expenseData.date as Date | string;
+      if (dateValue instanceof Date) {
+        dateString = dateValue.toISOString().split('T')[0];
+      } else if (typeof dateValue === 'string') {
+        dateString = dateValue.split('T')[0];
+      } else {
+        dateString = new Date().toISOString().split('T')[0];
+      }
+
+      console.log('📝 Adding expense:', { ...expenseData, date: dateString });
+
       // Backend expects 'title' field, use description as title
       const response = await expenseService.create({
         category: expenseData.category,
         title: expenseData.description, // Backend requires title
         description: expenseData.description,
         amount: expenseData.amount,
-        date: expenseData.date instanceof Date ? expenseData.date.toISOString().split('T')[0] : expenseData.date,
+        date: dateString,
         createdBy: expenseData.createdBy,
         createdByRole: expenseData.createdByRole || 'admin',
       });
       
+      console.log('📝 Expense creation response:', response);
+
       if (response.success && response.data) {
-        const newExpense = {
-          ...response.data,
-          date: new Date(response.data.date),
-          createdAt: response.data.createdAt ? new Date(response.data.createdAt) : new Date(),
+        const responseData = response.data as any;
+        const newExpense: Expense = {
+          id: responseData.id,
+          category: responseData.category,
+          description: responseData.description || responseData.title,
+          amount: parseFloat(responseData.amount) || 0,
+          date: new Date(responseData.date || responseData.expense_date || dateString),
+          createdBy: responseData.createdBy || responseData.created_by_name || expenseData.createdBy,
+          createdByRole: responseData.createdByRole || expenseData.createdByRole,
+          createdAt: responseData.createdAt ? new Date(responseData.createdAt) : new Date(),
         };
         setExpenses(prev => [newExpense, ...prev]);
-        await refreshExpenses(); // Refresh to get full data
+        // Refresh to get full data from server
+        await refreshExpenses();
         return newExpense;
+      } else {
+        console.error('❌ Failed to add expense:', response.error);
       }
       return null;
     } catch (err) {
-      console.error('Failed to add expense:', err);
+      console.error('❌ Failed to add expense:', err);
       return null;
     }
   };

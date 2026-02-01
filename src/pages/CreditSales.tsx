@@ -351,16 +351,32 @@ export default function CreditSales() {
                         <TableCell>{getStatusBadge(credit.status)}</TableCell>
                         <TableCell className="text-right">
                           {credit.status !== 'paid' && (
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                setSelectedCredit(credit);
-                                setShowPaymentDialog(true);
-                              }}
-                            >
-                              <Plus className="h-4 w-4 mr-1" />
-                              Pay
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  // Set payment amount to full balance for "Clear" action
+                                  setSelectedCredit(credit);
+                                  setPaymentAmount(credit.balanceAmount.toString());
+                                  setShowPaymentDialog(true);
+                                }}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Clear
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedCredit(credit);
+                                  setPaymentAmount('');
+                                  setShowPaymentDialog(true);
+                                }}
+                              >
+                                <Plus className="h-4 w-4 mr-1" />
+                                Pay
+                              </Button>
+                            </div>
                           )}
                         </TableCell>
                       </TableRow>

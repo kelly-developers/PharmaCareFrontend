@@ -77,6 +77,8 @@ export default function BusinessManagement() {
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stats, setStats] = useState({
     totalBusinesses: 0,
@@ -85,7 +87,7 @@ export default function BusinessManagement() {
     generalCount: 0,
   });
 
-  // Form state
+  // Form state for create
   const [formData, setFormData] = useState<CreateBusinessRequest>({
     name: '',
     email: '',
@@ -98,6 +100,17 @@ export default function BusinessManagement() {
     adminName: '',
     adminEmail: '',
     adminPassword: '',
+  });
+
+  // Form state for edit
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    city: '',
+    country: '',
+    subscriptionPlan: 'basic' as 'free' | 'basic' | 'premium' | 'enterprise',
   });
 
   // Fetch businesses
@@ -215,6 +228,45 @@ export default function BusinessManagement() {
       fetchStats();
     } catch (error) {
       toast.error('Failed to update status');
+    }
+  };
+
+  // Open edit dialog
+  const handleOpenEdit = (business: Business) => {
+    setSelectedBusiness(business);
+    setEditFormData({
+      name: business.name,
+      email: business.email,
+      phone: business.phone,
+      address: business.address || '',
+      city: business.city || '',
+      country: business.country || 'Kenya',
+      subscriptionPlan: business.subscriptionPlan || 'basic',
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  // Update business
+  const handleUpdateBusiness = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBusiness) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await businessService.update(selectedBusiness.id, editFormData);
+      if (response.success) {
+        toast.success('Business updated successfully!');
+        setIsEditDialogOpen(false);
+        setSelectedBusiness(null);
+        fetchBusinesses();
+        fetchStats();
+      } else {
+        toast.error(response.error || 'Failed to update business');
+      }
+    } catch (error) {
+      toast.error('An error occurred');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -609,7 +661,7 @@ export default function BusinessManagement() {
                                 <Eye className="h-4 w-4 mr-2" />
                                 View Details
                               </DropdownMenuItem>
-                              <DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleOpenEdit(business)}>
                                 <Edit className="h-4 w-4 mr-2" />
                                 Edit
                               </DropdownMenuItem>
@@ -638,6 +690,107 @@ export default function BusinessManagement() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Edit Business Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Business</DialogTitle>
+            <DialogDescription>
+              Update business information for {selectedBusiness?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateBusiness} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <Label htmlFor="editName">Business Name *</Label>
+                <Input
+                  id="editName"
+                  value={editFormData.name}
+                  onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="editEmail">Business Email *</Label>
+                <Input
+                  id="editEmail"
+                  type="email"
+                  value={editFormData.email}
+                  onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="editPhone">Phone *</Label>
+                <Input
+                  id="editPhone"
+                  value={editFormData.phone}
+                  onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="editCity">City</Label>
+                <Input
+                  id="editCity"
+                  value={editFormData.city}
+                  onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="editAddress">Address</Label>
+                <Input
+                  id="editAddress"
+                  value={editFormData.address}
+                  onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2">
+                <Label htmlFor="editSubscription">Subscription Plan</Label>
+                <Select
+                  value={editFormData.subscriptionPlan}
+                  onValueChange={(value: 'free' | 'basic' | 'premium' | 'enterprise') =>
+                    setEditFormData({ ...editFormData, subscriptionPlan: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free">Free</SelectItem>
+                    <SelectItem value="basic">Basic</SelectItem>
+                    <SelectItem value="premium">Premium</SelectItem>
+                    <SelectItem value="enterprise">Enterprise</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsEditDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Update Business
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }
