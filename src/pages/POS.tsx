@@ -30,6 +30,7 @@ import {
   FileText,
   CheckCircle,
   ClipboardList,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -44,6 +45,7 @@ import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { salesService } from '@/services/salesService';
 import { getUnitLabel } from '@/types/pharmacy';
+import { MobileCartDrawer } from '@/components/pos/MobileCartDrawer';
 
 // Store carts per cashier in memory
 const cashierCarts: Record<string, SaleItem[]> = {};
@@ -55,8 +57,8 @@ export default function POS() {
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mpesa' | 'card'>('cash');
-  const [isProcessing, setIsProcessing] = useState(false); // ADDED: Loading state
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mpesa' | 'card' | 'credit'>('cash');
+  const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
   const { medicines, deductStock } = useStock();
@@ -386,12 +388,14 @@ const handleCheckout = async () => {
         discount: backendSale.discount || 0,
         tax: 0,
         total: backendSale.total || total,
-        paymentMethod: backendSale.paymentMethod || paymentMethod,
+        paymentMethod: (backendSale.paymentMethod || paymentMethod) as 'cash' | 'mpesa' | 'card' | 'credit',
         cashierId: backendSale.cashierId || user.id,
         cashierName: backendSale.cashierName || user.name,
         customerName: backendSale.customerName || customerName || 'Walk-in',
         customerPhone: backendSale.customerPhone || customerPhone || '',
         createdAt: new Date(backendSale.createdAt || new Date()),
+        isCredit: paymentMethod === 'credit',
+        creditSaleId: backendSale.creditSaleId,
       };
       
       setLastSale(frontendSale);
@@ -408,8 +412,10 @@ const handleCheckout = async () => {
       }
       
       toast({
-        title: 'Sale Complete!',
-        description: `Payment of KSh ${backendSale.total?.toLocaleString() || total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
+        title: paymentMethod === 'credit' ? 'Credit Sale Created!' : 'Sale Complete!',
+        description: paymentMethod === 'credit' 
+          ? `Credit sale of KSh ${backendSale.total?.toLocaleString() || total.toLocaleString()} for ${customerName}`
+          : `Payment of KSh ${backendSale.total?.toLocaleString() || total.toLocaleString()} received via ${paymentMethod.toUpperCase()}`,
       });
       
       // Clear cart
@@ -600,31 +606,23 @@ const handleCheckout = async () => {
           </div>
         </div>
 
-        {/* Mobile Cart Summary */}
-        <div className="lg:hidden">
-          {cart.length > 0 && (
-            <Card className="p-3 bg-primary/5 border-primary/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ShoppingCart className="h-4 w-4 text-primary" />
-                  <span className="font-medium text-sm">{cart.length} item(s)</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="font-bold text-primary">KSh {total.toLocaleString()}</span>
-                  <Button 
-                    size="sm" 
-                    variant="default"
-                    className="h-8"
-                    onClick={handleCheckout}
-                    disabled={isProcessing}
-                  >
-                    {isProcessing ? 'Processing...' : 'Checkout'}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          )}
-        </div>
+        {/* Mobile Cart Drawer - replaces the old mobile summary */}
+        <MobileCartDrawer
+          cart={cart}
+          customerName={customerName}
+          customerPhone={customerPhone}
+          paymentMethod={paymentMethod}
+          isProcessing={isProcessing}
+          subtotal={subtotal}
+          total={total}
+          onCustomerNameChange={setCustomerName}
+          onCustomerPhoneChange={setCustomerPhone}
+          onPaymentMethodChange={setPaymentMethod}
+          onUpdateQuantity={updateQuantity}
+          onRemoveFromCart={removeFromCart}
+          onClearCart={clearCart}
+          onCheckout={handleCheckout}
+        />
 
         {/* Main Content */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0 overflow-hidden">
@@ -1070,44 +1068,63 @@ const handleCheckout = async () => {
                       <Label className="text-xs text-muted-foreground mb-2 block">Payment Method</Label>
                       <RadioGroup 
                         value={paymentMethod} 
-                        onValueChange={(value) => setPaymentMethod(value as 'cash' | 'mpesa' | 'card')}
-                        className="flex gap-2"
+                        onValueChange={(value) => setPaymentMethod(value as 'cash' | 'mpesa' | 'card' | 'credit')}
+                        className="grid grid-cols-4 gap-2"
                         disabled={isProcessing}
                       >
                         <div className={cn(
-                          "flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors",
+                          "flex flex-col items-center gap-1 p-2 rounded-lg border cursor-pointer transition-colors",
                           paymentMethod === 'cash' ? 'border-primary bg-primary/10' : 'hover:bg-accent',
                           isProcessing && 'opacity-50 cursor-not-allowed'
                         )}>
                           <RadioGroupItem value="cash" id="cash" className="sr-only" />
-                          <label htmlFor="cash" className="flex items-center gap-1.5 cursor-pointer w-full">
+                          <label htmlFor="cash" className="flex flex-col items-center gap-1 cursor-pointer w-full">
                             <Banknote className="h-4 w-4 text-success" />
-                            <span className="text-xs font-medium">Cash</span>
+                            <span className="text-[10px] font-medium">Cash</span>
                           </label>
                         </div>
                         <div className={cn(
-                          "flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors",
+                          "flex flex-col items-center gap-1 p-2 rounded-lg border cursor-pointer transition-colors",
                           paymentMethod === 'mpesa' ? 'border-primary bg-primary/10' : 'hover:bg-accent',
                           isProcessing && 'opacity-50 cursor-not-allowed'
                         )}>
                           <RadioGroupItem value="mpesa" id="mpesa" className="sr-only" />
-                          <label htmlFor="mpesa" className="flex items-center gap-1.5 cursor-pointer w-full">
+                          <label htmlFor="mpesa" className="flex flex-col items-center gap-1 cursor-pointer w-full">
                             <Smartphone className="h-4 w-4 text-success" />
-                            <span className="text-xs font-medium">M-Pesa</span>
+                            <span className="text-[10px] font-medium">M-Pesa</span>
                           </label>
                         </div>
                         <div className={cn(
-                          "flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors",
+                          "flex flex-col items-center gap-1 p-2 rounded-lg border cursor-pointer transition-colors",
                           paymentMethod === 'card' ? 'border-primary bg-primary/10' : 'hover:bg-accent',
                           isProcessing && 'opacity-50 cursor-not-allowed'
                         )}>
                           <RadioGroupItem value="card" id="card" className="sr-only" />
-                          <label htmlFor="card" className="flex items-center gap-1.5 cursor-pointer w-full">
+                          <label htmlFor="card" className="flex flex-col items-center gap-1 cursor-pointer w-full">
                             <CreditCard className="h-4 w-4 text-info" />
-                            <span className="text-xs font-medium">Card</span>
+                            <span className="text-[10px] font-medium">Card</span>
+                          </label>
+                        </div>
+                        <div className={cn(
+                          "flex flex-col items-center gap-1 p-2 rounded-lg border cursor-pointer transition-colors",
+                          paymentMethod === 'credit' ? 'border-warning bg-warning/10' : 'hover:bg-accent',
+                          isProcessing && 'opacity-50 cursor-not-allowed'
+                        )}>
+                          <RadioGroupItem value="credit" id="credit" className="sr-only" />
+                          <label htmlFor="credit" className="flex flex-col items-center gap-1 cursor-pointer w-full">
+                            <Receipt className="h-4 w-4 text-warning" />
+                            <span className="text-[10px] font-medium">Credit</span>
                           </label>
                         </div>
                       </RadioGroup>
+                      
+                      {paymentMethod === 'credit' && (
+                        <div className="mt-2 p-2 bg-warning/10 border border-warning/30 rounded-lg">
+                          <p className="text-xs text-warning-foreground">
+                            ⚠️ Credit sale requires customer name & phone. Not included in total sales until paid.
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Totals & Checkout */}
@@ -1127,12 +1144,17 @@ const handleCheckout = async () => {
                       <Button
                         className="w-full h-10"
                         onClick={handleCheckout}
-                        disabled={isProcessing || cart.length === 0}
+                        disabled={isProcessing || cart.length === 0 || (paymentMethod === 'credit' && (!customerName || !customerPhone))}
                       >
                         {isProcessing ? (
                           <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-foreground mr-2"></div>
                             Processing...
+                          </>
+                        ) : paymentMethod === 'credit' ? (
+                          <>
+                            <Receipt className="h-4 w-4 mr-2" />
+                            Create Credit Sale
                           </>
                         ) : (
                           <>

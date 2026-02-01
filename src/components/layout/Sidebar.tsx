@@ -73,6 +73,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/suppliers', icon: Truck, label: terms.supplier + 's' },
     { to: '/orders', icon: ClipboardList, label: 'Purchase Orders' },
     { to: '/sales', icon: DollarSign, label: 'Sales' },
+    { to: '/credit-sales', icon: Receipt, label: 'Credit Sales' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
     { to: '/users', icon: UserCircle, label: 'User Management' },
@@ -91,6 +92,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/suppliers', icon: Truck, label: terms.supplier + 's' },
     { to: '/orders', icon: ClipboardList, label: 'Purchase Orders' },
     { to: '/sales', icon: DollarSign, label: 'Sales' },
+    { to: '/credit-sales', icon: Receipt, label: 'Credit Sales' },
     { to: '/cashier-tracking', icon: Receipt, label: 'Cashier Tracking' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
@@ -108,7 +110,8 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
 
   const cashierItems: NavItem[] = [
     { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
-    { to: '/my-sales', icon: Receipt, label: 'My Sales' },
+    { to: '/my-sales', icon: DollarSign, label: 'My Sales' },
+    { to: '/credit-sales', icon: Receipt, label: 'Credit Sales' },
   ];
 
   return {

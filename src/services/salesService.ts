@@ -11,11 +11,12 @@ interface CreateSaleRequest {
     totalPrice: number;
     costPrice: number;
   }>;
-  paymentMethod: 'cash' | 'mpesa' | 'card';
+  paymentMethod: 'cash' | 'mpesa' | 'card' | 'credit';
   customerName?: string;
   customerPhone?: string;
   discount?: number;
   notes?: string;
+  dueDate?: string;
 }
 
 interface TodaySalesSummary {

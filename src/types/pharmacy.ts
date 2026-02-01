@@ -186,7 +186,7 @@ export interface Sale {
   discount: number;
   tax: number;
   total: number;
-  paymentMethod: 'cash' | 'mpesa' | 'card';
+  paymentMethod: 'cash' | 'mpesa' | 'card' | 'credit';
   cashierId: string;
   cashierName: string;
   customerId?: string;
@@ -194,6 +194,8 @@ export interface Sale {
   customerPhone?: string;
   notes?: string;
   createdAt: Date;
+  isCredit?: boolean;
+  creditSaleId?: string;
 }
 
 export interface PurchaseOrder {

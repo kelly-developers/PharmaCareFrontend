@@ -21,6 +21,7 @@ import Inventory from "./pages/Inventory";
 import Suppliers from "./pages/Suppliers";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import Sales from "./pages/Sales";
+import CreditSales from "./pages/CreditSales";
 import MySales from "./pages/MySales";
 import CashierTracking from "./pages/CashierTracking";
 import Expenses from "./pages/Expenses";
@@ -107,6 +108,7 @@ function AppRoutes() {
       {/* POS & Sales */}
       <Route path="/pos" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'cashier']}><POS /></ProtectedRoute>} />
       <Route path="/sales" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Sales /></ProtectedRoute>} />
+      <Route path="/credit-sales" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'cashier']}><CreditSales /></ProtectedRoute>} />
       <Route path="/my-sales" element={<ProtectedRoute allowedRoles={['cashier']}><MySales /></ProtectedRoute>} />
       <Route path="/cashier-tracking" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><CashierTracking /></ProtectedRoute>} />
       
