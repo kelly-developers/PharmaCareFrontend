@@ -68,43 +68,42 @@ export function MobileCartDrawer({
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       {/* Floating Cart Button - Always visible on mobile */}
-      <Sheet open={isOpen} onOpenChange={setIsOpen}>
-        <SheetTrigger asChild>
-          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 p-3 bg-background/95 backdrop-blur-sm border-t-2 border-primary/20 shadow-xl">
-            <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
-              <div className="flex items-center gap-3 flex-1">
-                <div className="relative bg-primary/10 p-2 rounded-lg">
-                  <ShoppingCart className="h-6 w-6 text-primary" />
-                  {cart.length > 0 && (
-                    <Badge 
-                      className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-[10px] bg-destructive animate-pulse"
-                    >
-                      {cart.length}
-                    </Badge>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">
-                    {cart.length} item{cart.length !== 1 ? 's' : ''} in cart
-                  </p>
-                  <p className="font-bold text-lg text-primary">
-                    KSh {total.toLocaleString()}
-                  </p>
-                </div>
+      <SheetTrigger asChild>
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 p-3 bg-background/95 backdrop-blur-sm border-t-2 border-primary/20 shadow-xl">
+          <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
+            <div className="flex items-center gap-3 flex-1">
+              <div className="relative bg-primary/10 p-2 rounded-lg">
+                <ShoppingCart className="h-6 w-6 text-primary" />
+                {cart.length > 0 && (
+                  <Badge 
+                    className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-[10px] bg-destructive animate-pulse"
+                  >
+                    {cart.length}
+                  </Badge>
+                )}
               </div>
-              <Button 
-                className="h-12 px-6 text-base font-semibold shadow-lg"
-                disabled={cart.length === 0}
-              >
-                <ShoppingCart className="h-5 w-5 mr-2" />
-                View Cart
-              </Button>
+              <div>
+                <p className="text-xs text-muted-foreground font-medium">
+                  {cart.length} item{cart.length !== 1 ? 's' : ''} in cart
+                </p>
+                <p className="font-bold text-lg text-primary">
+                  KSh {total.toLocaleString()}
+                </p>
+              </div>
             </div>
+            <Button 
+              className="h-12 px-6 text-base font-semibold shadow-lg"
+              disabled={cart.length === 0}
+            >
+              <ShoppingCart className="h-5 w-5 mr-2" />
+              View Cart
+            </Button>
           </div>
-        </SheetTrigger>
+        </div>
+      </SheetTrigger>
 
-        {/* Full Screen Cart Sheet */}
-        <SheetContent side="bottom" className="h-[95vh] p-0 rounded-t-3xl">
+      {/* Full Screen Cart Sheet */}
+      <SheetContent side="bottom" className="h-[95vh] p-0 rounded-t-3xl">
           <SheetHeader className="p-4 border-b bg-gradient-to-r from-primary/10 to-primary/5">
             <div className="flex items-center justify-between">
               <SheetTitle className="flex items-center gap-2 text-lg">

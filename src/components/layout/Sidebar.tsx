@@ -31,6 +31,7 @@ import {
   Barcode,
   ShoppingBag,
   Shield,
+  Activity,
 } from 'lucide-react';
 
 interface NavItem {
@@ -76,6 +77,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/credit-sales', icon: Receipt, label: 'Credit Sales' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
+    { to: '/family-planning', icon: Activity, label: 'Family Planning' },
     { to: '/users', icon: UserCircle, label: 'User Management' },
     { to: '/settings', icon: Settings, label: 'Settings' },
   ];
@@ -96,6 +98,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/cashier-tracking', icon: Receipt, label: 'Cashier Tracking' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
+    { to: '/family-planning', icon: Activity, label: 'Family Planning' },
   ];
 
   const pharmacistItems: NavItem[] = isPharmacy ? [
@@ -112,6 +115,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
     { to: '/my-sales', icon: DollarSign, label: 'My Sales' },
     { to: '/credit-sales', icon: Receipt, label: 'Credit Sales' },
+    { to: '/family-planning', icon: Activity, label: 'Family Planning' },
   ];
 
   return {
