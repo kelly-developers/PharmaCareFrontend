@@ -124,6 +124,13 @@ export const businessService = {
   // Get business by ID
   async getById(id: string): Promise<ApiResponse<Business>> {
     try {
+      // Try the my-business endpoint first (for non-super-admin users)
+      const myBusinessResponse = await api.get<any>('/businesses/my-business');
+      if (myBusinessResponse.success && myBusinessResponse.data) {
+        return { success: true, data: normalizeBusiness(myBusinessResponse.data) as any };
+      }
+      
+      // Fall back to regular endpoint (for super admins)
       const response = await api.get<any>(`/businesses/${id}`);
       if (response.success && response.data) {
         return { success: true, data: normalizeBusiness(response.data) as any };
@@ -134,6 +141,40 @@ export const businessService = {
       return {
         success: false,
         error: 'Failed to fetch business'
+      };
+    }
+  },
+
+  // Get my business (for business admins)
+  async getMyBusiness(): Promise<ApiResponse<Business>> {
+    try {
+      const response = await api.get<any>('/businesses/my-business');
+      if (response.success && response.data) {
+        return { success: true, data: normalizeBusiness(response.data) as any };
+      }
+      return response as any;
+    } catch (error) {
+      console.error('Error fetching my business:', error);
+      return {
+        success: false,
+        error: 'Failed to fetch business'
+      };
+    }
+  },
+
+  // Update my business (for business admins)
+  async updateMyBusiness(data: UpdateBusinessRequest): Promise<ApiResponse<Business>> {
+    try {
+      const response = await api.put<any>('/businesses/my-business', data);
+      if (response.success && response.data) {
+        return { success: true, data: normalizeBusiness(response.data) as any, message: response.message };
+      }
+      return response as any;
+    } catch (error) {
+      console.error('Error updating my business:', error);
+      return {
+        success: false,
+        error: 'Failed to update business'
       };
     }
   },

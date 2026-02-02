@@ -27,12 +27,17 @@ import { businessService } from '@/services/businessService';
 export default function Settings() {
   const { toast } = useToast();
   const { business, user } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Check if user is admin (handle both cases)
+  const userRole = user?.role?.toLowerCase();
+  const isAdmin = userRole === 'admin';
   
   // Business form data
   const [formData, setFormData] = useState({
     name: '',
+    businessType: '',
     email: '',
     phone: '',
     address: '',
@@ -40,25 +45,64 @@ export default function Settings() {
     country: '',
   });
 
-  // Load business details on mount
+  // Load business details on mount - Fetch fresh data from API
   useEffect(() => {
-    if (business) {
-      setFormData({
-        name: business.name || '',
-        email: business.email || '',
-        phone: business.phone || '',
-        address: business.address || '',
-        city: business.city || '',
-        country: business.country || '',
-      });
-    }
+    const fetchBusinessDetails = async () => {
+      setIsLoading(true);
+      try {
+        // First, use the business from context if available
+        if (business) {
+          setFormData({
+            name: business.name || '',
+            businessType: business.businessType || '',
+            email: business.email || '',
+            phone: business.phone || '',
+            address: business.address || '',
+            city: business.city || '',
+            country: business.country || '',
+          });
+        }
+        
+        // Fetch the latest from API using my-business endpoint
+        const response = await businessService.getMyBusiness();
+        if (response.success && response.data) {
+          setFormData({
+            name: response.data.name || '',
+            businessType: response.data.businessType || '',
+            email: response.data.email || '',
+            phone: response.data.phone || '',
+            address: response.data.address || '',
+            city: response.data.city || '',
+            country: response.data.country || '',
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch business details:', error);
+        // Fallback to context data
+        if (business) {
+          setFormData({
+            name: business.name || '',
+            businessType: business.businessType || '',
+            email: business.email || '',
+            phone: business.phone || '',
+            address: business.address || '',
+            city: business.city || '',
+            country: business.country || '',
+          });
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchBusinessDetails();
   }, [business]);
 
   const handleSave = async () => {
-    if (!business?.id) {
+    if (!isAdmin) {
       toast({
-        title: 'Error',
-        description: 'No business context found',
+        title: 'Access Denied',
+        description: 'Only admins can edit business settings',
         variant: 'destructive',
       });
       return;
@@ -66,7 +110,8 @@ export default function Settings() {
 
     setIsSaving(true);
     try {
-      const response = await businessService.update(business.id, {
+      // Use the my-business endpoint for updates
+      const response = await businessService.updateMyBusiness({
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
@@ -149,15 +194,16 @@ export default function Settings() {
                           value={formData.name}
                           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                           placeholder="Enter business name"
+                          disabled={!isAdmin}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="businessType">Business Type</Label>
                         <Input 
                           id="businessType" 
-                          value={business?.businessType || 'N/A'}
+                          value={formData.businessType || 'N/A'}
                           disabled
-                          className="bg-muted"
+                          className="bg-muted capitalize"
                         />
                       </div>
                       <div className="space-y-2">
@@ -167,6 +213,7 @@ export default function Settings() {
                           value={formData.phone}
                           onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                           placeholder="Enter phone number"
+                          disabled={!isAdmin}
                         />
                       </div>
                       <div className="space-y-2">
@@ -177,6 +224,7 @@ export default function Settings() {
                           value={formData.email}
                           onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                           placeholder="Enter email address"
+                          disabled={!isAdmin}
                         />
                       </div>
                       <div className="space-y-2">
@@ -186,6 +234,7 @@ export default function Settings() {
                           value={formData.city}
                           onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                           placeholder="Enter city"
+                          disabled={!isAdmin}
                         />
                       </div>
                       <div className="space-y-2">
@@ -195,6 +244,7 @@ export default function Settings() {
                           value={formData.country}
                           onChange={(e) => setFormData({ ...formData, country: e.target.value })}
                           placeholder="Enter country"
+                          disabled={!isAdmin}
                         />
                       </div>
                       <div className="space-y-2 md:col-span-2">
@@ -204,24 +254,32 @@ export default function Settings() {
                           value={formData.address}
                           onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                           placeholder="Enter full address"
+                          disabled={!isAdmin}
                         />
                       </div>
                     </div>
-                    <div className="flex justify-end pt-4">
-                      <Button onClick={handleSave} disabled={isSaving}>
-                        {isSaving ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="h-4 w-4 mr-2" />
-                            Save Changes
-                          </>
-                        )}
-                      </Button>
-                    </div>
+                    {isAdmin && (
+                      <div className="flex justify-end pt-4">
+                        <Button onClick={handleSave} disabled={isSaving}>
+                          {isSaving ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="h-4 w-4 mr-2" />
+                              Save Changes
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                    {!isAdmin && (
+                      <p className="text-sm text-muted-foreground text-center pt-4">
+                        Only administrators can edit business settings
+                      </p>
+                    )}
                   </>
                 )}
               </CardContent>

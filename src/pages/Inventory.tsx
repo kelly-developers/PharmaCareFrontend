@@ -986,30 +986,69 @@ export default function Inventory() {
                 />
               </div>
 
-              {/* Image URL */}
+              {/* Image Upload */}
               <div className="space-y-2">
-                <Label>Product Image URL</Label>
-                <Input
-                  value={editFormData.imageUrl || ''}
-                  onChange={(e) => setEditFormData({ ...editFormData, imageUrl: e.target.value })}
-                  disabled={isLoading}
-                  placeholder="https://example.com/image.jpg (optional)"
-                />
-                {editFormData.imageUrl && (
-                  <div className="mt-2 flex items-center gap-3">
-                    <div className="w-16 h-16 rounded-md border overflow-hidden bg-muted">
-                      <img 
-                        src={editFormData.imageUrl} 
-                        alt="Preview"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">Image preview</p>
+                <Label>Product Image</Label>
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-2">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            // For now, we store the data URL - in production you'd upload to a server
+                            setEditFormData({ ...editFormData, imageUrl: reader.result as string });
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      disabled={isLoading}
+                      className="flex-1"
+                    />
                   </div>
-                )}
+                  <p className="text-xs text-muted-foreground">
+                    Select an image from your device or take a photo
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Or enter URL:</span>
+                    <Input
+                      value={editFormData.imageUrl?.startsWith('data:') ? '' : (editFormData.imageUrl || '')}
+                      onChange={(e) => setEditFormData({ ...editFormData, imageUrl: e.target.value })}
+                      disabled={isLoading}
+                      placeholder="https://example.com/image.jpg"
+                      className="flex-1"
+                    />
+                  </div>
+                  {editFormData.imageUrl && (
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="w-20 h-20 rounded-md border overflow-hidden bg-muted">
+                        <img 
+                          src={editFormData.imageUrl} 
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xs text-muted-foreground">Image preview</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditFormData({ ...editFormData, imageUrl: '' })}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Batch & Stock */}
