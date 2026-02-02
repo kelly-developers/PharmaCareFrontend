@@ -149,8 +149,8 @@ export const creditService = {
   // Record a payment for a credit sale
   async recordPayment(payment: CreateCreditPaymentRequest): Promise<ApiResponse<CreditSale>> {
     try {
-      const response = await api.post<any>('/sales/credit/payment', {
-        credit_sale_id: payment.creditSaleId,
+      // The backend route is /sales/credit/:id/payment
+      const response = await api.post<any>(`/sales/credit/${payment.creditSaleId}/payment`, {
         amount: payment.amount,
         payment_method: payment.paymentMethod.toUpperCase(),
         notes: payment.notes || '',

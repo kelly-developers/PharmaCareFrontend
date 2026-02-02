@@ -357,6 +357,7 @@ export default function Inventory() {
       reorderLevel: med.reorderLevel?.toString() || '10',
       costPrice: med.costPrice?.toString() || '0',
       description: med.description || '',
+      imageUrl: med.imageUrl || '',
     });
     
     // Initialize units based on medicine data
@@ -454,6 +455,7 @@ export default function Inventory() {
         units: unitsForBackend,
         description: editFormData.description || '',
         productType: editProductType,
+        imageUrl: editFormData.imageUrl || '',
       };
 
       if (expiryDateStr) {
@@ -982,6 +984,32 @@ export default function Inventory() {
                   placeholder="Optional notes"
                   disabled={isLoading}
                 />
+              </div>
+
+              {/* Image URL */}
+              <div className="space-y-2">
+                <Label>Product Image URL</Label>
+                <Input
+                  value={editFormData.imageUrl || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, imageUrl: e.target.value })}
+                  disabled={isLoading}
+                  placeholder="https://example.com/image.jpg (optional)"
+                />
+                {editFormData.imageUrl && (
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="w-16 h-16 rounded-md border overflow-hidden bg-muted">
+                      <img 
+                        src={editFormData.imageUrl} 
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Image preview</p>
+                  </div>
+                )}
               </div>
 
               {/* Batch & Stock */}

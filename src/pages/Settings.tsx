@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,17 +18,80 @@ import {
   Shield,
   Database,
   Save,
+  Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { businessService } from '@/services/businessService';
 
 export default function Settings() {
   const { toast } = useToast();
+  const { business, user } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Business form data
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    city: '',
+    country: '',
+  });
 
-  const handleSave = () => {
-    toast({
-      title: 'Settings Saved',
-      description: 'Your settings have been updated successfully.',
-    });
+  // Load business details on mount
+  useEffect(() => {
+    if (business) {
+      setFormData({
+        name: business.name || '',
+        email: business.email || '',
+        phone: business.phone || '',
+        address: business.address || '',
+        city: business.city || '',
+        country: business.country || '',
+      });
+    }
+  }, [business]);
+
+  const handleSave = async () => {
+    if (!business?.id) {
+      toast({
+        title: 'Error',
+        description: 'No business context found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await businessService.update(business.id, {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        city: formData.city,
+        country: formData.country,
+      });
+
+      if (response.success) {
+        toast({
+          title: 'Settings Saved',
+          description: 'Your business settings have been updated successfully.',
+        });
+      } else {
+        throw new Error(response.error || 'Failed to update settings');
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save settings',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -36,7 +100,7 @@ export default function Settings() {
         {/* Header */}
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold font-display">Settings</h1>
-          <p className="text-muted-foreground mt-1">Manage your pharmacy system settings</p>
+          <p className="text-muted-foreground mt-1">Manage your business system settings</p>
         </div>
 
         <Tabs defaultValue="general" className="space-y-6">
@@ -66,38 +130,100 @@ export default function Settings() {
           <TabsContent value="general">
             <Card>
               <CardHeader>
-                <CardTitle>Pharmacy Information</CardTitle>
-                <CardDescription>Basic details about your pharmacy</CardDescription>
+                <CardTitle>Business Information</CardTitle>
+                <CardDescription>Basic details about your business</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="pharmacyName">Pharmacy Name</Label>
-                    <Input id="pharmacyName" defaultValue="SpotMed Chemist Kibra" />
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <span className="ml-2">Loading...</span>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="licenseNo">License Number</Label>
-                    {/* <Input id="licenseNo" defaultValue="PPB-2024-12345" /> */}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" defaultValue="+254 727 55 0071" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" defaultValue="kellynyachiro@gmail.com" />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="address">Address</Label>
-                    <Input id="address" defaultValue="Kibra, Machimoni, Nairobi" />
-                  </div>
-                </div>
-                <div className="flex justify-end pt-4">
-                  <Button onClick={handleSave}>
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Changes
-                  </Button>
-                </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="businessName">Business Name</Label>
+                        <Input 
+                          id="businessName" 
+                          value={formData.name}
+                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                          placeholder="Enter business name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="businessType">Business Type</Label>
+                        <Input 
+                          id="businessType" 
+                          value={business?.businessType || 'N/A'}
+                          disabled
+                          className="bg-muted"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Phone Number</Label>
+                        <Input 
+                          id="phone" 
+                          value={formData.phone}
+                          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                          placeholder="Enter phone number"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input 
+                          id="email" 
+                          type="email" 
+                          value={formData.email}
+                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                          placeholder="Enter email address"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="city">City</Label>
+                        <Input 
+                          id="city" 
+                          value={formData.city}
+                          onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                          placeholder="Enter city"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="country">Country</Label>
+                        <Input 
+                          id="country" 
+                          value={formData.country}
+                          onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                          placeholder="Enter country"
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="address">Address</Label>
+                        <Input 
+                          id="address" 
+                          value={formData.address}
+                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                          placeholder="Enter full address"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end pt-4">
+                      <Button onClick={handleSave} disabled={isSaving}>
+                        {isSaving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-4 w-4 mr-2" />
+                            Save Changes
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -119,7 +245,7 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium">Expiry Alerts</p>
-                    <p className="text-sm text-muted-foreground">Alert for medicines expiring within 90 days</p>
+                    <p className="text-sm text-muted-foreground">Alert for products expiring within 90 days</p>
                   </div>
                   <Switch defaultChecked />
                 </div>
@@ -151,7 +277,7 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Receipt Header</Label>
-                    <Input defaultValue="PharmaCare Kenya" />
+                    <Input defaultValue={formData.name || 'Your Business'} />
                   </div>
                   <div className="space-y-2">
                     <Label>Receipt Footer</Label>
