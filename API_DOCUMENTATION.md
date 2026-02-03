@@ -29,7 +29,7 @@ https://your-backend-url.com/api
 ```typescript
 // Request
 interface LoginRequest {
-  email?: string;     // Either email or username required
+  email?: string;     // Either email or username requi
   username?: string;  // Either email or username required
   password: string;
 }
