@@ -9,6 +9,8 @@ interface ExtendedUser extends User {
   isSuperAdmin?: boolean;
 }
 
+//hello
+
 interface AuthContextType {
   user: ExtendedUser | null;
   business: Business | null;
