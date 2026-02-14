@@ -65,12 +65,28 @@ interface LowStockItem {
   selected: boolean;
 }
 
-const DEFAULT_PHARMACY: PharmacyInfo = {
-  name: 'PharmaCare Kenya',
-  licenseNo: 'PPB-2024-12345',
-  phone: '+254 722 123 456',
-  email: 'info@pharmacare.co.ke',
-  address: 'Kenyatta Avenue, CBD, Nairobi',
+// Dynamic pharmacy info from session
+const getPharmacyInfo = (): PharmacyInfo => {
+  try {
+    const businessStr = sessionStorage.getItem('current_business');
+    if (businessStr) {
+      const business = JSON.parse(businessStr);
+      return {
+        name: business.name || 'PharmaCare Kenya',
+        licenseNo: business.licenseNo || '',
+        phone: business.phone || '',
+        email: business.email || '',
+        address: business.address ? `${business.address}${business.city ? ', ' + business.city : ''}` : '',
+      };
+    }
+  } catch (e) {}
+  return {
+    name: 'PharmaCare Kenya',
+    licenseNo: '',
+    phone: '',
+    email: '',
+    address: '',
+  };
 };
 
 export default function PurchaseOrders() {
@@ -421,7 +437,7 @@ export default function PurchaseOrders() {
     generatePurchaseOrderPDF({
       orderNumber,
       orderDate: format(new Date(), 'MMMM dd, yyyy'),
-      pharmacy: DEFAULT_PHARMACY,
+      pharmacy: getPharmacyInfo(),
       supplier: supplierInfo,
       items: orderItems,
       totalAmount,
@@ -646,11 +662,13 @@ export default function PurchaseOrders() {
                     <Card className="p-4">
                       <h3 className="font-semibold mb-3">Pharmacy Details</h3>
                       <div className="p-3 bg-muted rounded-lg text-sm space-y-1">
-                        <p className="font-medium">{DEFAULT_PHARMACY.name}</p>
-                        <p className="text-muted-foreground">License: {DEFAULT_PHARMACY.licenseNo}</p>
-                        <p className="text-muted-foreground">Tel: {DEFAULT_PHARMACY.phone}</p>
-                        <p className="text-muted-foreground">Email: {DEFAULT_PHARMACY.email}</p>
-                        <p className="text-muted-foreground">{DEFAULT_PHARMACY.address}</p>
+                        {(() => { const pi = getPharmacyInfo(); return (<>
+                          <p className="font-medium">{pi.name}</p>
+                          {pi.licenseNo && <p className="text-muted-foreground">License: {pi.licenseNo}</p>}
+                          {pi.phone && <p className="text-muted-foreground">Tel: {pi.phone}</p>}
+                          {pi.email && <p className="text-muted-foreground">Email: {pi.email}</p>}
+                          {pi.address && <p className="text-muted-foreground">{pi.address}</p>}
+                        </>); })()}
                       </div>
                     </Card>
                   </div>

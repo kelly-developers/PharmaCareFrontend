@@ -32,6 +32,7 @@ import {
   ShoppingBag,
   Shield,
   Activity,
+  Minus,
 } from 'lucide-react';
 
 interface NavItem {
@@ -76,6 +77,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/sales', icon: DollarSign, label: 'Sales' },
     { to: '/credit-sales', icon: Receipt, label: 'Credit Sales' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
+    { to: '/internal-use', icon: Minus, label: 'Internal Use' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
     { to: '/family-planning', icon: Activity, label: 'Family Planning' },
     { to: '/users', icon: UserCircle, label: 'User Management' },

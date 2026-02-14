@@ -39,6 +39,7 @@ import PharmacistMedicines from "./pages/PharmacistMedicines";
 import BusinessManagement from "./pages/BusinessManagement";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import FamilyPlanning from "./pages/FamilyPlanning";
+import InternalUse from "./pages/InternalUse";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -141,6 +142,7 @@ function AppRoutes() {
       {/* Expenses */}
       <Route path="/expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Expenses /></ProtectedRoute>} />
       <Route path="/my-expenses" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><CashierExpenses /></ProtectedRoute>} />
+      <Route path="/internal-use" element={<ProtectedRoute allowedRoles={['admin', 'manager', 'pharmacist']}><InternalUse /></ProtectedRoute>} />
       
       {/* Reports */}
       <Route path="/reports" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Reports /></ProtectedRoute>} />

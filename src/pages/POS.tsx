@@ -494,10 +494,10 @@ const handleCheckout = async () => {
       </head>
       <body>
         <div class="header">
-          <h2>PHARMACY NAME</h2>
-          <p>123 Main Street, Nairobi</p>
-          <p>Tel: 0712 345 678</p>
-          <p>PIN: P051234567A</p>
+          <h2>${(() => { try { const b = sessionStorage.getItem('current_business'); return b ? JSON.parse(b).name : 'PharmaCare'; } catch(e) { return 'PharmaCare'; }})()}</h2>
+          <p>${(() => { try { const b = sessionStorage.getItem('current_business'); if (b) { const p = JSON.parse(b); return (p.address || '') + (p.city ? ', ' + p.city : ''); } return ''; } catch(e) { return ''; }})()}</p>
+          <p>Tel: ${(() => { try { const b = sessionStorage.getItem('current_business'); return b ? JSON.parse(b).phone || '' : ''; } catch(e) { return ''; }})()}</p>
+          <p></p>
         </div>
         
         <div class="info">

@@ -53,6 +53,7 @@ import {
   CalendarCheck,
   AlertTriangle,
   Activity,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -238,6 +239,32 @@ export default function FamilyPlanning() {
       toast({
         title: 'Error',
         description: error.message || 'Failed to record administration',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteRecord = async (id: string, clientName: string) => {
+    if (!confirm(`Are you sure you want to delete ${clientName}?`)) return;
+    
+    setIsProcessing(true);
+    try {
+      const response = await familyPlanningService.delete(id);
+      if (response.success) {
+        toast({
+          title: 'Client Deleted',
+          description: `${clientName} has been removed`,
+        });
+        fetchRecords();
+      } else {
+        throw new Error(response.error || 'Failed to delete');
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete client',
         variant: 'destructive',
       });
     } finally {
@@ -532,21 +559,31 @@ export default function FamilyPlanning() {
                             </TableCell>
                             <TableCell>{getDueStatusBadge(record)}</TableCell>
                             <TableCell className="text-right">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setSelectedRecord(record);
-                                  setAdministerData({
-                                    administeredDate: format(new Date(), 'yyyy-MM-dd'),
-                                    notes: '',
-                                  });
-                                  setShowAdministerDialog(true);
-                                }}
-                              >
-                                <Syringe className="h-4 w-4 mr-1" />
-                                Administer
-                              </Button>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedRecord(record);
+                                    setAdministerData({
+                                      administeredDate: format(new Date(), 'yyyy-MM-dd'),
+                                      notes: '',
+                                    });
+                                    setShowAdministerDialog(true);
+                                  }}
+                                >
+                                  <Syringe className="h-4 w-4 mr-1" />
+                                  Administer
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeleteRecord(record.id, record.clientName)}
+                                  disabled={isProcessing}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}

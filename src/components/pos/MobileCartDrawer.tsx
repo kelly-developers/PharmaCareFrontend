@@ -103,7 +103,8 @@ export function MobileCartDrawer({
       </SheetTrigger>
 
       {/* Full Screen Cart Sheet */}
-      <SheetContent side="bottom" className="h-[95vh] p-0 rounded-t-3xl">
+      <SheetContent side="bottom" className="h-[90vh] p-0 rounded-t-3xl flex flex-col" aria-describedby="cart-description">
+        <span id="cart-description" className="sr-only">Shopping cart with items, payment method selection, and checkout</span>
           <SheetHeader className="p-4 border-b bg-gradient-to-r from-primary/10 to-primary/5">
             <div className="flex items-center justify-between">
               <SheetTitle className="flex items-center gap-2 text-lg">
@@ -127,7 +128,7 @@ export function MobileCartDrawer({
           </SheetHeader>
 
         {cart.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 h-[60vh]">
+          <div className="flex-1 flex flex-col items-center justify-center p-8">
             <div className="bg-muted/50 p-6 rounded-full mb-4">
               <Package className="h-16 w-16 text-muted-foreground/40" />
             </div>
@@ -137,7 +138,7 @@ export function MobileCartDrawer({
             </p>
           </div>
         ) : (
-          <div className="flex flex-col h-full overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Customer Info - Compact */}
             <div className="p-3 border-b bg-accent/30 shrink-0">
               <div className="grid grid-cols-2 gap-2">
@@ -170,8 +171,8 @@ export function MobileCartDrawer({
               </div>
             </div>
 
-            {/* Cart Items - Scrollable with more height */}
-            <ScrollArea className="flex-1 min-h-0">
+            {/* Cart Items - Scrollable */}
+            <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: '30vh' }}>
               <div className="p-3 space-y-2 pb-4">
                 {cart.map((item, index) => (
                   <div
@@ -295,8 +296,8 @@ export function MobileCartDrawer({
             </div>
 
             {/* Totals & Checkout - Fixed at bottom */}
-            <div className="p-4 border-t bg-gradient-to-t from-background to-accent/20 shrink-0 safe-area-bottom">
-              <div className="space-y-2 mb-4">
+            <div className="p-3 border-t bg-gradient-to-t from-background to-accent/20 shrink-0 pb-[env(safe-area-inset-bottom,16px)]">
+              <div className="space-y-1 mb-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal ({cart.length} items)</span>
                   <span className="font-medium">KSh {subtotal.toLocaleString()}</span>
@@ -309,7 +310,7 @@ export function MobileCartDrawer({
               </div>
               
               <Button
-                className="w-full h-14 text-lg font-semibold shadow-lg"
+                className="w-full h-12 text-base font-semibold shadow-lg"
                 onClick={handleCheckout}
                 disabled={isProcessing || cart.length === 0 || (paymentMethod === 'credit' && (!customerName || !customerPhone))}
               >

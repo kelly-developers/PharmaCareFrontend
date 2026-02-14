@@ -124,7 +124,22 @@ export const stockService = {
     performedBy?: string;
     performedByRole?: UserRole;
   }): Promise<ApiResponse<StockMovement>> {
-    return api.post<StockMovement>('/stock/add', request);
+    return api.post<StockMovement>('/stock/add', {
+      medicineId: request.medicineId,
+      quantity: request.quantity,
+      reason: request.reason,
+      batchNumber: request.batchNumber,
+    });
+  },
+
+  // Record internal pharmacy use (deducts from stock, creates expense)
+  async recordInternalUse(request: {
+    medicineId: string;
+    quantity: number;
+    reason: string;
+    notes?: string;
+  }): Promise<ApiResponse<any>> {
+    return api.post<any>('/stock/internal-use', request);
   },
 
   // Get current stock for a medicine
