@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { useAuth } from '@/contexts/AuthContext';
+import { getTerminology } from '@/types/business';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +35,8 @@ import {
 } from 'lucide-react';
 
 export default function MedicineCategories() {
+  const { businessType } = useAuth();
+  const terms = getTerminology(businessType);
   const { categories, addCategory, updateCategory, deleteCategory } = useCategories();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -126,8 +130,8 @@ export default function MedicineCategories() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl lg:text-3xl font-bold font-display">Medicine Categories</h1>
-            <p className="text-muted-foreground mt-1">Manage medicine categories for organization</p>
+            <h1 className="text-2xl lg:text-3xl font-bold font-display">{terms.itemCategories}</h1>
+            <p className="text-muted-foreground mt-1">Manage {terms.itemCategories.toLowerCase()} for organization</p>
           </div>
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
@@ -231,7 +235,7 @@ export default function MedicineCategories() {
                   <Package className="h-5 w-5 text-success" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Total Medicines</p>
+                  <p className="text-sm text-muted-foreground">Total {terms.items}</p>
                   <p className="text-2xl font-bold">
                     {categories.reduce((sum, cat) => sum + cat.medicineCount, 0)}
                   </p>
@@ -304,7 +308,7 @@ export default function MedicineCategories() {
                   {category.description || 'No description'}
                 </p>
                 <Badge variant="secondary">
-                  {category.medicineCount} medicines
+                  {category.medicineCount} {terms.items.toLowerCase()}
                 </Badge>
               </CardContent>
             </Card>
@@ -323,7 +327,7 @@ export default function MedicineCategories() {
                   <TableRow>
                     <TableHead>Category Name</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead className="text-center">Medicines</TableHead>
+                    <TableHead className="text-center">{terms.items}</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>

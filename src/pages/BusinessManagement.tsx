@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -44,11 +45,15 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  Users,
+  KeyRound,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
@@ -80,6 +85,13 @@ export default function BusinessManagement() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isViewUsersOpen, setIsViewUsersOpen] = useState(false);
+  const [businessUsers, setBusinessUsers] = useState<any[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
+  const [resetPasswordName, setResetPasswordName] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
   const [stats, setStats] = useState({
     totalBusinesses: 0,
     activeBusinesses: 0,
@@ -262,6 +274,89 @@ export default function BusinessManagement() {
         fetchStats();
       } else {
         toast.error(response.error || 'Failed to update business');
+      }
+    } catch (error) {
+      toast.error('An error occurred');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Permanently delete business
+  const handleDeleteBusiness = async (business: Business) => {
+    if (!confirm(`⚠️ PERMANENTLY DELETE "${business.name}"?\n\nThis will delete ALL data including users, sales, inventory, etc. This action CANNOT be undone!`)) return;
+    
+    try {
+      const response = await businessService.permanentDelete(business.id);
+      if (response.success) {
+        toast.success(`Business "${business.name}" permanently deleted`);
+        fetchBusinesses();
+        fetchStats();
+      } else {
+        toast.error(response.error || 'Failed to delete business');
+      }
+    } catch (error) {
+      toast.error('An error occurred');
+    }
+  };
+
+  // View users for a business
+  const handleViewUsers = async (business: Business) => {
+    setSelectedBusiness(business);
+    setIsLoadingUsers(true);
+    setIsViewUsersOpen(true);
+    
+    try {
+      const token = sessionStorage.getItem('auth_token');
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://pharma-care-backend-hdyf.onrender.com/api';
+      const res = await fetch(`${API_BASE_URL}/businesses/${business.id}/users?limit=100`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBusinessUsers(data.data?.users || data.data || []);
+      }
+    } catch (error) {
+      toast.error('Failed to load users');
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
+
+  // Delete user permanently
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`Permanently delete user "${userName}"? This cannot be undone!`)) return;
+    
+    try {
+      const response = await businessService.deleteUser(userId);
+      if (response.success) {
+        toast.success(`User "${userName}" deleted`);
+        setBusinessUsers(prev => prev.filter(u => u.id !== userId));
+      } else {
+        toast.error(response.error || 'Failed to delete user');
+      }
+    } catch (error) {
+      toast.error('An error occurred');
+    }
+  };
+
+  // Reset user password
+  const handleResetPassword = async () => {
+    if (!resetPasswordUserId || !newPassword) return;
+    
+    setIsSubmitting(true);
+    try {
+      const response = await businessService.resetUserPassword(resetPasswordUserId, newPassword);
+      if (response.success) {
+        toast.success(`Password reset for "${resetPasswordName}"`);
+        setIsResetPasswordOpen(false);
+        setNewPassword('');
+        setResetPasswordUserId(null);
+      } else {
+        toast.error(response.error || 'Failed to reset password');
       }
     } catch (error) {
       toast.error('An error occurred');
@@ -657,9 +752,9 @@ export default function BusinessManagement() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem>
-                                <Eye className="h-4 w-4 mr-2" />
-                                View Details
+                              <DropdownMenuItem onClick={() => handleViewUsers(business)}>
+                                <Users className="h-4 w-4 mr-2" />
+                                View Users
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleOpenEdit(business)}>
                                 <Edit className="h-4 w-4 mr-2" />
@@ -677,6 +772,14 @@ export default function BusinessManagement() {
                                     Activate
                                   </>
                                 )}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => handleDeleteBusiness(business)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete Permanently
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -789,6 +892,112 @@ export default function BusinessManagement() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Users Dialog */}
+      <Dialog open={isViewUsersOpen} onOpenChange={setIsViewUsersOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Users - {selectedBusiness?.name}</DialogTitle>
+            <DialogDescription>
+              Manage users for this business. You can delete users or reset their passwords.
+            </DialogDescription>
+          </DialogHeader>
+          {isLoadingUsers ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : businessUsers.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No users found</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {businessUsers.map((user: any) => (
+                  <TableRow key={user.id}>
+                    <TableCell className="font-medium">{user.name}</TableCell>
+                    <TableCell>{user.email}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{user.role}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={user.active ? 'success' : 'destructive'}>
+                        {user.active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          title="Reset Password"
+                          onClick={() => {
+                            setResetPasswordUserId(user.id);
+                            setResetPasswordName(user.name);
+                            setNewPassword('');
+                            setIsResetPasswordOpen(true);
+                          }}
+                        >
+                          <KeyRound className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-destructive hover:text-destructive"
+                          title="Delete User"
+                          onClick={() => handleDeleteUser(user.id, user.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={isResetPasswordOpen} onOpenChange={setIsResetPasswordOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {resetPasswordName}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="newPassword">New Password</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password"
+                minLength={6}
+              />
+              <p className="text-xs text-muted-foreground mt-1">Minimum 6 characters</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsResetPasswordOpen(false)}>Cancel</Button>
+            <Button onClick={handleResetPassword} disabled={isSubmitting || newPassword.length < 6}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <KeyRound className="h-4 w-4 mr-2" />}
+              Reset Password
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </MainLayout>

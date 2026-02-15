@@ -1,6 +1,8 @@
 // CreateMedicine.tsx - Supports all product types with proper backend integration
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { useAuth } from '@/contexts/AuthContext';
+import { getTerminology } from '@/types/business';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -120,6 +122,8 @@ const getDefaultUnits = (productType: ProductType): UnitConfig[] => {
 
 export default function CreateMedicine() {
   const { toast } = useToast();
+  const { businessType } = useAuth();
+  const terms = getTerminology(businessType);
   const navigate = useNavigate();
   const { categories: categoryList, isLoading: categoriesLoading, refreshCategories } = useCategories();
   
@@ -386,9 +390,9 @@ export default function CreateMedicine() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl lg:text-3xl font-bold font-display">Add New Product</h1>
+            <h1 className="text-2xl lg:text-3xl font-bold font-display">{terms.createItem}</h1>
             <p className="text-muted-foreground mt-1">
-              Add any product or service to inventory. Fields marked with * are required.
+              Add a new {terms.item.toLowerCase()} to inventory. Fields marked with * are required.
             </p>
           </div>
           <div className="flex gap-2">

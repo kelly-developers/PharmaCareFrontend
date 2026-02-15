@@ -328,10 +328,7 @@ export const businessService = {
       return await api.get<{ available: boolean }>(`/businesses/check-schema/${schemaName}`);
     } catch (error) {
       console.error('Error checking schema availability:', error);
-      return {
-        success: false,
-        error: 'Failed to check schema availability'
-      };
+      return { success: false, error: 'Failed to check schema availability' };
     }
   },
 
@@ -341,10 +338,7 @@ export const businessService = {
       return await api.post(`/businesses/${id}/activate`);
     } catch (error) {
       console.error('Error activating business:', error);
-      return {
-        success: false,
-        error: 'Failed to activate business'
-      };
+      return { success: false, error: 'Failed to activate business' };
     }
   },
 
@@ -354,10 +348,37 @@ export const businessService = {
       return await api.post(`/businesses/${id}/suspend`, { reason });
     } catch (error) {
       console.error('Error suspending business:', error);
-      return {
-        success: false,
-        error: 'Failed to suspend business'
-      };
+      return { success: false, error: 'Failed to suspend business' };
+    }
+  },
+
+  // Permanently delete business (super admin)
+  async permanentDelete(id: string): Promise<ApiResponse> {
+    try {
+      return await api.delete(`/businesses/${id}/permanent`);
+    } catch (error) {
+      console.error('Error permanently deleting business:', error);
+      return { success: false, error: 'Failed to permanently delete business' };
+    }
+  },
+
+  // Permanently delete a user (super admin)
+  async deleteUser(userId: string): Promise<ApiResponse> {
+    try {
+      return await api.delete(`/businesses/users/${userId}/permanent`);
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      return { success: false, error: 'Failed to delete user' };
+    }
+  },
+
+  // Reset user password (super admin)
+  async resetUserPassword(userId: string, newPassword: string): Promise<ApiResponse> {
+    try {
+      return await api.put(`/businesses/users/${userId}/reset-password`, { newPassword });
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      return { success: false, error: 'Failed to reset password' };
     }
   },
 };
