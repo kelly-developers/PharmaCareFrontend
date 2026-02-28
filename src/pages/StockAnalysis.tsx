@@ -82,7 +82,7 @@ export default function StockAnalysis() {
 
   useEffect(() => { fetchAnalysis(); }, [months]);
 
-  const formatCurrency = (val: number) => `TZS ${val.toLocaleString()}`;
+  const formatCurrency = (val: number) => `KSh ${val.toLocaleString()}`;
 
   const getStockBadge = (advice: string) => {
     if (advice.startsWith('OUT OF STOCK')) return <Badge variant="destructive">Out of Stock</Badge>;
