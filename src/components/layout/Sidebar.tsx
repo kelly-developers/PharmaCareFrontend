@@ -33,6 +33,7 @@ import {
   Shield,
   Activity,
   Minus,
+  TrendingUp,
 } from 'lucide-react';
 
 interface NavItem {
@@ -79,6 +80,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/internal-use', icon: Minus, label: 'Internal Use' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
+    { to: '/stock-analysis', icon: TrendingUp, label: 'Stock Analysis' },
     ...(isPharmacy ? [
       { to: '/family-planning', icon: Activity, label: 'Family Planning' },
     ] : []),
@@ -102,6 +104,7 @@ const getNavItems = (businessType: BusinessType, isSuperAdmin: boolean) => {
     { to: '/cashier-tracking', icon: Receipt, label: 'Cashier Tracking' },
     { to: '/expenses', icon: Wallet, label: 'Expenses' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
+    { to: '/stock-analysis', icon: TrendingUp, label: 'Stock Analysis' },
     ...(isPharmacy ? [
       { to: '/family-planning', icon: Activity, label: 'Family Planning' },
     ] : []),

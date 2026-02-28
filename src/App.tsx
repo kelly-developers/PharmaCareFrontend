@@ -40,6 +40,7 @@ import BusinessManagement from "./pages/BusinessManagement";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import FamilyPlanning from "./pages/FamilyPlanning";
 import InternalUse from "./pages/InternalUse";
+import StockAnalysis from "./pages/StockAnalysis";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -146,6 +147,7 @@ function AppRoutes() {
       
       {/* Reports */}
       <Route path="/reports" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Reports /></ProtectedRoute>} />
+      <Route path="/stock-analysis" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><StockAnalysis /></ProtectedRoute>} />
       
       {/* Employees & Payroll */}
       <Route path="/employees" element={<ProtectedRoute allowedRoles={['admin', 'manager']}><Employees /></ProtectedRoute>} />

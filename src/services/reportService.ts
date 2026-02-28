@@ -285,4 +285,9 @@ export const reportService = {
     const query = queryParams.toString();
     return api.get(`/reports/seller-payments${query ? `?${query}` : ''}`);
   },
+
+  // Stock Analysis
+  async getStockAnalysis(months: number = 1): Promise<ApiResponse<any>> {
+    return api.get(`/reports/stock-analysis?months=${months}`);
+  },
 };
